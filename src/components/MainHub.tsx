@@ -8,7 +8,7 @@ import { ShroomLabModal } from './ShroomLabModal';
 import { ElementType, CraftingJob, ResearchJob } from '../types';
 import { ResearchNodeId } from '../data/techResearch';
 import { sound } from '../services/sound';
-import { Settings, Maximize2, Minimize2, Sparkles, User, Package, BookOpen, Lock, Plus } from 'lucide-react';
+import { Settings, Maximize2, Minimize2, Sparkles, User, Package, BookOpen, Hourglass, Lock, Plus } from 'lucide-react';
 import mainHubBg from '../assets/images/mainhub_bg.png';
 import starterPackImg from '../assets/images/starter_pack.png';
 import hatcheryImg from '../assets/images/hatchery.png';
@@ -107,6 +107,16 @@ export const MainHub: React.FC<Props> = ({
   };
 
   const hasAnyStarmon = unlockedStarmonCount > 0 && activeStarmon && activeStarmon.unlocked;
+  const renderQueueBadge = (occupied: boolean, feature: string) => (
+    <div
+      role="status"
+      aria-label={occupied ? `${feature} queue occupied` : `${feature} has an available queue`}
+      title={occupied ? 'All available queue slots are occupied' : 'At least one queue slot is available'}
+      className={`absolute -bottom-4 -right-4 z-20 flex h-8 w-8 items-center justify-center rounded-full border-2 border-white shadow-lg ${occupied ? 'bg-slate-950/95 text-amber-300' : 'animate-queue-bob bg-rose-600 text-white'}`}
+    >
+      {occupied ? <Hourglass className="h-4 w-4 animate-spin" /> : <span className="text-lg font-black leading-none">!</span>}
+    </div>
+  );
   const squadCP = playerStarmons.reduce(
     (total, mon) => total + (mon.cp || calculateCP(mon.maxHp, mon.baseAtk, mon.def)),
     0
@@ -383,17 +393,18 @@ export const MainHub: React.FC<Props> = ({
                     (e.target as HTMLImageElement).src = HATCHERY_IMAGE;
                   }}
                 />
-                <div className="absolute top-2 right-2 p-1.5 rounded-full bg-amber-500/30 border border-amber-400 text-amber-300 drop-shadow shadow-amber-500/50 animate-pulse">
+                <div className="absolute left-2 top-2 p-1.5 rounded-full bg-amber-500/30 border border-amber-400 text-amber-300 drop-shadow shadow-amber-500/50 animate-pulse">
                   <Lock className="w-3.5 h-3.5 md:w-4 md:h-4 text-amber-300" />
                 </div>
               </div>
 
               {/* Big White Plaque with Golden Border & Bold Black English Text overlapping bottom */}
               <div className="-mt-5 sm:-mt-7 md:-mt-8 lg:-mt-10 relative z-30 pointer-events-none">
-                <div className="bg-white border-2 sm:border-[3px] md:border-4 border-amber-400 rounded-xl sm:rounded-2xl px-3 py-1 sm:px-5 sm:py-1.5 md:px-6 md:py-2 shadow-[0_8px_20px_rgba(0,0,0,0.5),0_0_12px_rgba(251,191,36,0.5)] flex items-center justify-center">
+                <div className="relative bg-white border-2 sm:border-[3px] md:border-4 border-amber-400 rounded-xl sm:rounded-2xl px-3 py-1 sm:px-5 sm:py-1.5 md:px-6 md:py-2 shadow-[0_8px_20px_rgba(0,0,0,0.5),0_0_12px_rgba(251,191,36,0.5)] flex items-center justify-center">
                   <span className="text-[11px] sm:text-xs md:text-sm lg:text-base font-black font-game text-slate-950 uppercase tracking-widest drop-shadow-sm select-none">
                     HATCHERY
                   </span>
+                  {renderQueueBadge(false, 'Hatchery')}
                 </div>
               </div>
             </div>
@@ -498,10 +509,11 @@ export const MainHub: React.FC<Props> = ({
 
               {/* Big White Plaque with Golden Border & Bold Black English Text overlapping bottom */}
               <div className="-mt-5 sm:-mt-6 md:-mt-8 lg:-mt-9 relative z-30 pointer-events-none">
-                <div className="bg-white border-2 sm:border-[3px] md:border-4 border-amber-400 rounded-xl sm:rounded-2xl px-3 py-1 sm:px-5 sm:py-1.5 md:px-6 md:py-2 shadow-[0_8px_20px_rgba(0,0,0,0.5),0_0_12px_rgba(251,191,36,0.5)] flex items-center justify-center">
+                <div className="relative bg-white border-2 sm:border-[3px] md:border-4 border-amber-400 rounded-xl sm:rounded-2xl px-3 py-1 sm:px-5 sm:py-1.5 md:px-6 md:py-2 shadow-[0_8px_20px_rgba(0,0,0,0.5),0_0_12px_rgba(251,191,36,0.5)] flex items-center justify-center">
                   <span className="text-[11px] sm:text-xs md:text-sm lg:text-base font-black font-game text-slate-950 uppercase tracking-widest drop-shadow-sm select-none">
                     SHROOMLAB
                   </span>
+                  {renderQueueBadge((player.researchJobs || []).some(job => job.slot === 0), 'ShroomLab')}
                 </div>
               </div>
             </div>
@@ -528,10 +540,11 @@ export const MainHub: React.FC<Props> = ({
 
               {/* Big White Plaque with Golden Border & Bold Black English Text overlapping bottom */}
               <div className="-mt-5 sm:-mt-6 md:-mt-8 lg:-mt-9 relative z-30 pointer-events-none">
-                <div className="bg-white border-2 sm:border-[3px] md:border-4 border-amber-400 rounded-xl sm:rounded-2xl px-3 py-1 sm:px-5 sm:py-1.5 md:px-6 md:py-2 shadow-[0_8px_20px_rgba(0,0,0,0.5),0_0_12px_rgba(251,191,36,0.5)] flex items-center justify-center">
+                <div className="relative bg-white border-2 sm:border-[3px] md:border-4 border-amber-400 rounded-xl sm:rounded-2xl px-3 py-1 sm:px-5 sm:py-1.5 md:px-6 md:py-2 shadow-[0_8px_20px_rgba(0,0,0,0.5),0_0_12px_rgba(251,191,36,0.5)] flex items-center justify-center">
                   <span className="text-[11px] sm:text-xs md:text-sm lg:text-base font-black font-game text-slate-950 uppercase tracking-widest drop-shadow-sm select-none">
                     BLACKSMITH
                   </span>
+                  {renderQueueBadge((player.craftingJobs || []).some(job => job.slot === 0), 'Blacksmith')}
                 </div>
               </div>
             </div>
