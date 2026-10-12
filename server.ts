@@ -1,0 +1,3491 @@
+import express from 'express';
+import http from 'http';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import { WebSocketServer, WebSocket } from 'ws';
+import { GoogleGenAI } from '@google/genai';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const app = express();
+const server = http.createServer(app);
+const PORT = 3000;
+
+app.use(express.json());
+
+// Enable CORS for all origins and headers (needed for cross-origin preview / dev URLs)
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
+// Persistent PvP Rooms store file
+const ROOMS_STORE_FILE = path.resolve(__dirname, 'pvp_rooms_store.json');
+// Persistent User Accounts store file
+const ACCOUNTS_STORE_FILE = path.resolve(__dirname, 'server_accounts_store.json');
+
+export interface ServerUserAccount {
+  username: string;
+  pin?: string;
+  googleId?: string;
+  email?: string;
+  createdAt: string;
+  lastPlayedAt: string;
+  player: any;
+  starmons: any[];
+  quests?: any[];
+}
+
+function getInitialAccounts(): Record<string, ServerUserAccount> {
+  const now = new Date().toISOString();
+  return {
+    'google_wingsofdeath1126': {
+      username: 'wingsofdeath1126',
+      googleId: 'google_wingsofdeath1126',
+      email: 'wingsofdeath1126@gmail.com',
+      createdAt: now,
+      lastPlayedAt: now,
+      player: {
+        name: 'wingsofdeath1126',
+        username: 'wingsofdeath1126',
+        googleId: 'google_wingsofdeath1126',
+        googleEmail: 'wingsofdeath1126@gmail.com',
+        level: 5,
+        exp: 240,
+        nextExp: 500,
+        gold: 1500,
+        gems: 80,
+        starterPacksCount: 2,
+        isNewPlayer: false,
+        hasClaimedBeginnerPack: true,
+        hasCompletedOnboardingTutorial: true,
+        activeCompanionId: 'pyrokit',
+        battleParty: ['pyrokit', 'coralus'],
+        mailUnreadCount: 1,
+        soundEnabled: true,
+        musicEnabled: true,
+        showSpeakingHints: false,
+        quizQuestionMode: 'speaking_only',
+        graphicsQuality: 'High',
+      },
+      starmons: [
+        {
+          id: 'pyrokit',
+          name: 'Pyrokit',
+          title: 'Mystic Nine-Tails Fox',
+          element: 'Fire',
+          role: 'Spell Caster',
+          level: 5,
+          cards: 12,
+          baseAtk: 100,
+          maxHp: 480,
+          currentHp: 480,
+          def: 44,
+          currentMana: 20,
+          maxMana: 200,
+          avatarSeed: 'pyrokit',
+          unlocked: true,
+        },
+        {
+          id: 'coralus',
+          name: 'Coralus',
+          title: 'Azure Crab Guardian',
+          element: 'Water',
+          role: 'Guardian',
+          level: 4,
+          cards: 8,
+          baseAtk: 82,
+          maxHp: 595,
+          currentHp: 595,
+          def: 60,
+          currentMana: 20,
+          maxMana: 200,
+          avatarSeed: 'coralus',
+          unlocked: true,
+        },
+      ],
+      quests: [],
+    },
+    'google_acc_a': {
+      username: 'Tài khoản Google A',
+      googleId: 'google_acc_A',
+      email: 'userA@gmail.com',
+      createdAt: now,
+      lastPlayedAt: now,
+      player: {
+        name: 'Tài khoản Google A',
+        username: 'Tài khoản Google A',
+        googleId: 'google_acc_A',
+        googleEmail: 'userA@gmail.com',
+        level: 4,
+        exp: 150,
+        nextExp: 400,
+        gold: 900,
+        gems: 40,
+        starterPacksCount: 2,
+        isNewPlayer: false,
+        hasClaimedBeginnerPack: true,
+        hasCompletedOnboardingTutorial: true,
+        activeCompanionId: 'ignisaur',
+        battleParty: ['ignisaur', 'zapwing'],
+        mailUnreadCount: 0,
+        soundEnabled: true,
+        musicEnabled: true,
+        showSpeakingHints: false,
+        quizQuestionMode: 'speaking_only',
+        graphicsQuality: 'High',
+      },
+      starmons: [
+        {
+          id: 'ignisaur',
+          name: 'Ignisaur',
+          title: 'Volcanic Reptile',
+          element: 'Fire',
+          role: 'Berserker',
+          level: 4,
+          cards: 10,
+          baseAtk: 92,
+          maxHp: 550,
+          currentHp: 550,
+          def: 48,
+          currentMana: 20,
+          maxMana: 200,
+          avatarSeed: 'ignisaur',
+          unlocked: true,
+        },
+        {
+          id: 'zapwing',
+          name: 'Zapwing',
+          title: 'Thunder Falcon',
+          element: 'Thunder',
+          role: 'Striker',
+          level: 3,
+          cards: 6,
+          baseAtk: 88,
+          maxHp: 430,
+          currentHp: 430,
+          def: 38,
+          currentMana: 20,
+          maxMana: 200,
+          avatarSeed: 'zapwing',
+          unlocked: true,
+        },
+      ],
+      quests: [],
+    },
+    'google_acc_b': {
+      username: 'Tài khoản Google B',
+      googleId: 'google_acc_B',
+      email: 'userB@gmail.com',
+      createdAt: now,
+      lastPlayedAt: now,
+      player: {
+        name: 'Tài khoản Google B',
+        username: 'Tài khoản Google B',
+        googleId: 'google_acc_B',
+        googleEmail: 'userB@gmail.com',
+        level: 4,
+        exp: 180,
+        nextExp: 400,
+        gold: 1100,
+        gems: 50,
+        starterPacksCount: 2,
+        isNewPlayer: false,
+        hasClaimedBeginnerPack: true,
+        hasCompletedOnboardingTutorial: true,
+        activeCompanionId: 'tidecrush',
+        battleParty: ['tidecrush', 'frostmoth'],
+        mailUnreadCount: 0,
+        soundEnabled: true,
+        musicEnabled: true,
+        showSpeakingHints: false,
+        quizQuestionMode: 'speaking_only',
+        graphicsQuality: 'High',
+      },
+      starmons: [
+        {
+          id: 'tidecrush',
+          name: 'Tidecrush',
+          title: 'Abyssal Behemoth',
+          element: 'Water',
+          role: 'Juggernaut',
+          level: 4,
+          cards: 10,
+          baseAtk: 85,
+          maxHp: 640,
+          currentHp: 640,
+          def: 62,
+          currentMana: 20,
+          maxMana: 200,
+          avatarSeed: 'tidecrush',
+          unlocked: true,
+        },
+        {
+          id: 'frostmoth',
+          name: 'Frostmoth',
+          title: 'Glacial Spirit',
+          element: 'Ice',
+          role: 'Controller',
+          level: 3,
+          cards: 6,
+          baseAtk: 80,
+          maxHp: 450,
+          currentHp: 450,
+          def: 42,
+          currentMana: 20,
+          maxMana: 200,
+          avatarSeed: 'frostmoth',
+          unlocked: true,
+        },
+      ],
+      quests: [],
+    },
+  };
+}
+
+export function getUniqueAccountsList(accounts: Record<string, ServerUserAccount>): ServerUserAccount[] {
+  const seen = new Set<string>();
+  const list: ServerUserAccount[] = [];
+  for (const acc of Object.values(accounts)) {
+    if (!acc) continue;
+    const key = (acc.googleId || acc.email || acc.username || '').toLowerCase();
+    if (key && !seen.has(key)) {
+      seen.add(key);
+      list.push(acc);
+    }
+  }
+  return list;
+}
+
+function loadAccounts(): Record<string, ServerUserAccount> {
+  try {
+    if (fs.existsSync(ACCOUNTS_STORE_FILE)) {
+      const content = fs.readFileSync(ACCOUNTS_STORE_FILE, 'utf-8');
+      const parsed = JSON.parse(content);
+      if (typeof parsed === 'object' && parsed !== null && Object.keys(parsed).length > 0) {
+        return parsed;
+      }
+    }
+  } catch (err) {
+    console.warn('Error reading server_accounts_store.json:', err);
+  }
+  const initial = getInitialAccounts();
+  saveAccounts(initial);
+  return initial;
+}
+
+function saveAccounts(accounts: Record<string, ServerUserAccount>) {
+  try {
+    fs.writeFileSync(ACCOUNTS_STORE_FILE, JSON.stringify(accounts, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('Error writing server_accounts_store.json:', err);
+  }
+}
+
+let serverAccounts: Record<string, ServerUserAccount> = loadAccounts();
+
+export interface PlayerInRoom {
+  id: string; // Google User ID / Host ID
+  name: string;
+  level: number;
+  isHost: boolean;
+  isReady: boolean;
+  starmons?: Array<{
+    id: string;
+    name: string;
+    element: string;
+    level: number;
+    maxHp: number;
+    baseAtk: number;
+    def: number;
+    avatarSeed: string;
+    skill1?: any;
+    skill2?: any;
+    passive?: any;
+  }>;
+}
+
+export interface PvpRoom {
+  room_code: string; // 6-digit or custom alphanumeric code
+  code: string; // alias for backwards compatibility
+  host_id: string; // Google User ID / Host Creator ID
+  hostName: string; // alias for backwards compatibility
+  hostLevel: number;
+  guestName?: string;
+  guestLevel?: number;
+  arena: string;
+  status: 'WAITING' | 'IN_GAME' | 'FINISHED';
+  players: PlayerInRoom[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+const DEFAULT_INITIAL_ROOMS: PvpRoom[] = [];
+
+export function normalizeRoomCode(code: string): string {
+  return (code || '').toString().trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function loadRooms(): PvpRoom[] {
+  try {
+    if (fs.existsSync(ROOMS_STORE_FILE)) {
+      const content = fs.readFileSync(ROOMS_STORE_FILE, 'utf-8');
+      const parsed = JSON.parse(content);
+      if (Array.isArray(parsed)) {
+        return parsed.map((r: any) => ({
+          ...r,
+          room_code: r.room_code || r.code || '100000',
+          code: r.code || r.room_code || '100000',
+          host_id: r.host_id || 'host_default',
+          status: (r.status === 'in_battle' ? 'IN_GAME' : r.status === 'waiting' ? 'WAITING' : r.status) || 'WAITING',
+          players: Array.isArray(r.players) && r.players.length > 0 ? r.players : [
+            {
+              id: r.host_id || 'host_default',
+              name: r.hostName || 'Player',
+              level: r.hostLevel || 1,
+              isHost: true,
+              isReady: true,
+              starmons: [],
+            }
+          ],
+        }));
+      }
+    }
+  } catch (err) {
+    console.warn('Error reading pvp_rooms_store.json:', err);
+  }
+  return [];
+}
+
+function saveRooms(rooms: PvpRoom[]) {
+  try {
+    fs.writeFileSync(ROOMS_STORE_FILE, JSON.stringify(rooms, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('Error writing pvp_rooms_store.json:', err);
+  }
+}
+
+let activeRooms: PvpRoom[] = loadRooms();
+
+// Map of normalized room code to connected WebSocket clients
+const roomClients = new Map<string, Set<WebSocket>>();
+
+// Setup WebSocket Server
+const wss = new WebSocketServer({ server });
+
+function broadcastToRoom(roomCode: string, payload: any, senderWs?: WebSocket) {
+  const normCode = normalizeRoomCode(roomCode);
+  const clients = roomClients.get(normCode);
+  if (!clients) return;
+  const message = JSON.stringify(payload);
+  for (const client of clients) {
+    if (client.readyState === WebSocket.OPEN && client !== senderWs) {
+      client.send(message);
+    }
+  }
+}
+
+function broadcastRoomList() {
+  const waitingRooms = activeRooms.filter(r => r.status === 'WAITING');
+  const message = JSON.stringify({ type: 'ROOMS_UPDATED', rooms: waitingRooms });
+  for (const client of wss.clients) {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(message);
+    }
+  }
+}
+
+function broadcastAccounts() {
+  const uniqueList = getUniqueAccountsList(serverAccounts);
+  const message = JSON.stringify({ type: 'ACCOUNTS_UPDATED', accounts: uniqueList });
+  for (const client of wss.clients) {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(message);
+    }
+  }
+}
+
+interface StarmonCombatant {
+  index: number;
+  ownerSlot: 1 | 2;
+  id: string;
+  name: string;
+  element: string;
+  level: number;
+  maxHp: number;
+  hp: number;
+  currentHp: number;
+  alive: boolean;
+  unlocked: boolean;
+  baseAtk: number;
+  def: number;
+  mana: number;
+  currentMana: number;
+  avatarSeed?: string;
+  skill1?: any;
+  skill2?: any;
+}
+
+interface PlayerSlotState {
+  id: string;
+  name: string;
+  slot: 1 | 2; // 1 = Player 1 (Host / TRÁI), 2 = Player 2 (Guest / PHẢI)
+  starmons: StarmonCombatant[];
+  results: (boolean | null)[];
+  hasSubmittedAnswer: boolean;
+  answeredCount: number;
+  socket?: WebSocket | null;
+}
+
+interface PvpMatchState {
+  roomCode: string;
+  turn: number; // 1, 2, 3... n
+  roundNumber: number; // alias of turn for compatibility
+  phase: string; // "1.1", "1.2", "1.3", "2.1", "2.2", "2.3"...
+  subPhase: 1 | 2 | 3; // 1 = Answer, 2 = P1 Attack, 3 = P2 Attack
+  step: number; // 1, 2, 3 (Step 1 = Starmon 1, Step 2 = Starmon 2, Step 3 = Starmon 3)
+  attackerSlot: 1 | 2 | null;
+  targetSlot: 1 | 2 | null;
+  players: {
+    1: PlayerSlotState;
+    2: PlayerSlotState;
+  };
+  player1: PlayerSlotState; // alias of players[1]
+  player2: PlayerSlotState; // alias of players[2]
+  attackQueue: number[]; // legacy compatibility
+  phaseStartedAt: number;
+  phaseEndsAt: number;
+  phaseTimerHandle?: NodeJS.Timeout | null;
+  timerHandle?: NodeJS.Timeout | null;
+  stepTimerHandle?: NodeJS.Timeout | null;
+  stepStartTime?: number;
+  seed: number;
+  boardVersion: number;
+  board?: { element: string }[][];
+  sharedBoard?: {
+    seed: number;
+    grid: { element: string }[][];
+    starmons: {
+      1: StarmonCombatant[];
+      2: StarmonCombatant[];
+    };
+    version: number;
+  };
+}
+
+const SERVER_BOARD_ELEMENTS = ['Fire', 'Water', 'Electric', 'Wind', 'Earth', 'Metal'];
+
+function generateRandomSeed(): number {
+  return Math.floor(Math.random() * 1000000000) + 1;
+}
+
+function computeSeedFromRoomCode(code: string): number {
+  let hash = 12345;
+  const clean = (code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  for (let i = 0; i < clean.length; i++) {
+    hash = (hash * 31 + clean.charCodeAt(i)) % 900000;
+  }
+  return hash + 100000;
+}
+
+function generateBoardFromSeed(seed: number): { element: string }[][] {
+  let current = seed;
+  const nextRand = () => {
+    current = (current * 9301 + 49297) % 233280;
+    return current / 233280;
+  };
+
+  const grid: { element: string }[][] = [];
+  for (let r = 0; r < 8; r++) {
+    grid[r] = [];
+    for (let c = 0; c < 8; c++) {
+      let available = [...SERVER_BOARD_ELEMENTS];
+      if (c >= 2 && grid[r][c - 1]?.element === grid[r][c - 2]?.element) {
+        available = available.filter(e => e !== grid[r][c - 1]?.element);
+      }
+      if (r >= 2 && grid[r - 1]?.[c]?.element === grid[r - 2]?.[c]?.element) {
+        available = available.filter(e => e !== grid[r - 1]?.[c]?.element);
+      }
+      const elem = available[Math.floor(nextRand() * available.length)];
+      grid[r][c] = { element: elem };
+    }
+  }
+  return grid;
+}
+
+function generateServerBoard(): { element: string }[][] {
+  return generateBoardFromSeed(generateRandomSeed());
+}
+
+function initializeSharedBoard(state: PvpMatchState, seed: number) {
+  const grid = generateBoardFromSeed(seed);
+  state.seed = seed;
+  state.board = grid;
+  state.boardVersion = 1;
+  state.sharedBoard = {
+    seed,
+    grid,
+    starmons: {
+      1: state.players[1].starmons,
+      2: state.players[2].starmons,
+    },
+    version: 1,
+  };
+}
+
+function serializeBoard(state: PvpMatchState) {
+  if (!state.board || !Array.isArray(state.board) || state.board.length !== 8) {
+    state.board = generateBoardFromSeed(state.seed || computeSeedFromRoomCode(state.roomCode));
+  }
+  return {
+    seed: state.seed,
+    grid: state.board,
+    starmons: {
+      1: state.players[1].starmons.map(s => ({ ...s })),
+      2: state.players[2].starmons.map(s => ({ ...s })),
+    },
+    version: state.boardVersion || 1,
+  };
+}
+
+function serializeMatchState(state: PvpMatchState | null | undefined): any {
+  if (!state) return null;
+  const p1 = state.players[1];
+  const p2 = state.players[2];
+  return {
+    roomCode: state.roomCode,
+    turn: state.turn,
+    roundNumber: state.roundNumber,
+    phase: state.phase,
+    subPhase: state.subPhase,
+    step: state.step,
+    attackerSlot: state.attackerSlot,
+    targetSlot: state.targetSlot,
+    players: {
+      1: {
+        id: p1?.id || 'player1',
+        name: p1?.name || 'Player 1',
+        slot: p1?.slot || 1,
+        starmons: p1?.starmons ? p1.starmons.map(s => ({ ...s })) : [],
+        results: p1?.results ? [...p1.results] : [null, null, null],
+        hasSubmittedAnswer: Boolean(p1?.hasSubmittedAnswer),
+        answeredCount: p1?.answeredCount || 0,
+      },
+      2: {
+        id: p2?.id || 'player2',
+        name: p2?.name || 'Player 2',
+        slot: p2?.slot || 2,
+        starmons: p2?.starmons ? p2.starmons.map(s => ({ ...s })) : [],
+        results: p2?.results ? [...p2.results] : [null, null, null],
+        hasSubmittedAnswer: Boolean(p2?.hasSubmittedAnswer),
+        answeredCount: p2?.answeredCount || 0,
+      },
+    },
+    player1: {
+      id: p1?.id || 'player1',
+      name: p1?.name || 'Player 1',
+      slot: p1?.slot || 1,
+      starmons: p1?.starmons ? p1.starmons.map(s => ({ ...s })) : [],
+      results: p1?.results ? [...p1.results] : [null, null, null],
+      hasSubmittedAnswer: Boolean(p1?.hasSubmittedAnswer),
+      answeredCount: p1?.answeredCount || 0,
+    },
+    player2: {
+      id: p2?.id || 'player2',
+      name: p2?.name || 'Player 2',
+      slot: p2?.slot || 2,
+      starmons: p2?.starmons ? p2.starmons.map(s => ({ ...s })) : [],
+      results: p2?.results ? [...p2.results] : [null, null, null],
+      hasSubmittedAnswer: Boolean(p2?.hasSubmittedAnswer),
+      answeredCount: p2?.answeredCount || 0,
+    },
+    seed: state.seed,
+    boardVersion: state.boardVersion,
+    board: state.board,
+    sharedBoard: state.sharedBoard ? {
+      seed: state.sharedBoard.seed,
+      grid: state.sharedBoard.grid,
+      starmons: {
+        1: state.sharedBoard.starmons[1] ? state.sharedBoard.starmons[1].map(s => ({ ...s })) : [],
+        2: state.sharedBoard.starmons[2] ? state.sharedBoard.starmons[2].map(s => ({ ...s })) : [],
+      },
+      version: state.sharedBoard.version,
+    } : undefined,
+  };
+}
+
+function mutateBoard(
+  state: PvpMatchState,
+  roomCode: string,
+  mutationFn: () => void,
+  broadcastPayload: any = null
+) {
+  mutationFn();
+  state.boardVersion = (state.boardVersion || 1) + 1;
+  if (state.sharedBoard) {
+    state.sharedBoard.grid = state.board || state.sharedBoard.grid;
+    state.sharedBoard.starmons = {
+      1: state.players[1].starmons,
+      2: state.players[2].starmons,
+    };
+    state.sharedBoard.version = state.boardVersion;
+  }
+
+  const snapshot = serializeBoard(state);
+  const patch = broadcastPayload ?? {
+    grid: state.board,
+    starmons: snapshot.starmons,
+  };
+
+  broadcastToRoom(roomCode, {
+    type: 'board_update',
+    version: state.boardVersion,
+    boardVersion: state.boardVersion,
+    patch,
+    boardSnapshot: snapshot,
+    board: state.board,
+    p1_hp: state.players[1].starmons.map(s => s.hp),
+    p2_hp: state.players[2].starmons.map(s => s.hp),
+    p1_mana: state.players[1].starmons.map(s => s.mana),
+    p2_mana: state.players[2].starmons.map(s => s.mana),
+  });
+}
+
+const activeMatchStates = new Map<string, PvpMatchState>();
+
+function aliveStarmonIndices(player: PlayerSlotState): number[] {
+  return player.starmons
+    .filter(s => s.alive && s.hp > 0)
+    .map(s => s.index);
+}
+
+function createDefaultStarmonsForSlot(slot: 1 | 2, inputStarmons?: any[]): StarmonCombatant[] {
+  const defaultSeeds = ['voltlynx', 'ignisaur', 'aquanymph'];
+  const defaultNames = ['Voltlynx', 'Ignisaur', 'Aquanymph'];
+  const defaultElements = ['Electric', 'Fire', 'Water'];
+
+  const sourceList = Array.isArray(inputStarmons) && inputStarmons.length > 0
+    ? inputStarmons.slice(0, 3)
+    : [0, 1, 2].map(i => ({
+        id: defaultSeeds[i],
+        name: defaultNames[i],
+        element: defaultElements[i],
+        level: 1,
+        maxHp: 450,
+        baseAtk: 45,
+        def: 20,
+        avatarSeed: defaultSeeds[i],
+      }));
+
+  return sourceList.map((input, idx) => {
+    const maxHp = input?.maxHp || 450;
+    const hp = input?.currentHp ?? input?.hp ?? maxHp;
+    return {
+      index: idx,
+      ownerSlot: slot,
+      id: input?.id || defaultSeeds[idx] || `starmon_${slot}_${idx}`,
+      name: input?.name || defaultNames[idx] || `Starmon ${idx + 1}`,
+      element: input?.element || defaultElements[idx] || 'Fire',
+      level: input?.level || 1,
+      maxHp,
+      hp,
+      currentHp: hp,
+      alive: hp > 0,
+      unlocked: true,
+      baseAtk: input?.baseAtk || 45,
+      def: input?.def || 20,
+      mana: typeof input?.currentMana === 'number' ? input.currentMana : (slot === 1 ? 0 : 20),
+      currentMana: typeof input?.currentMana === 'number' ? input.currentMana : (slot === 1 ? 0 : 20),
+      avatarSeed: input?.avatarSeed || input?.id || defaultSeeds[idx],
+      skill1: input?.skill1 || {
+        id: 'skill1',
+        name: 'Strike',
+        manaCost: 20,
+        damageMultiplier: 1.5,
+        targetType: 'single',
+      },
+      skill2: input?.skill2 || {
+        id: 'skill2',
+        name: 'Ultimate Burst',
+        manaCost: 50,
+        damageMultiplier: 2.1,
+        targetType: 'aoe',
+      },
+    };
+  });
+}
+
+// Công thức xác định Attacker / Target theo Phase (n.2 hoặc n.3)
+export function getAttackerAndTargetByPhase(phaseString: string): {
+  turn: number;
+  subPhase: number;
+  attackerSlot: 1 | 2 | null;
+  targetSlot: 1 | 2 | null;
+} {
+  const parts = (phaseString || '1.1').split('.');
+  const turn = parseInt(parts[0], 10) || 1;
+  const subPhase = parseInt(parts[1], 10) || 1;
+  if (subPhase === 2 || subPhase === 3) {
+    const attackerSlot = (subPhase - 1) as 1 | 2; // n.2 -> 1, n.3 -> 2
+    const targetSlot = (3 - attackerSlot) as 1 | 2; // 1 <-> 2
+    return { turn, subPhase, attackerSlot, targetSlot };
+  }
+  return { turn, subPhase, attackerSlot: null, targetSlot: null };
+}
+
+function initializeMatchForRoom(room: PvpRoom): PvpMatchState {
+  const code = normalizeRoomCode(room.room_code || room.code);
+  const p1 = room.players.find(p => p.isHost) || room.players[0];
+  const p2 = room.players.find(p => !p.isHost) || room.players[1];
+  const seed = computeSeedFromRoomCode(code);
+  const board = generateBoardFromSeed(seed);
+
+  const player1State: PlayerSlotState = {
+    id: p1?.id || room.host_id || 'host_player',
+    name: p1?.name || room.hostName || 'Player 1',
+    slot: 1,
+    starmons: createDefaultStarmonsForSlot(1, p1?.starmons),
+    results: [null, null, null],
+    hasSubmittedAnswer: false,
+    answeredCount: 0,
+  };
+
+  const player2State: PlayerSlotState = {
+    id: p2?.id || 'guest_player',
+    name: p2?.name || room.guestName || 'Player 2',
+    slot: 2,
+    starmons: createDefaultStarmonsForSlot(2, p2?.starmons),
+    results: [null, null, null],
+    hasSubmittedAnswer: false,
+    answeredCount: 0,
+  };
+
+  const state: PvpMatchState = {
+    roomCode: code,
+    turn: 1,
+    roundNumber: 1,
+    phase: '1.1',
+    subPhase: 1,
+    step: 1,
+    attackerSlot: null,
+    targetSlot: null,
+    players: {
+      1: player1State,
+      2: player2State,
+    },
+    player1: player1State,
+    player2: player2State,
+    attackQueue: [],
+    phaseStartedAt: Date.now(),
+    phaseEndsAt: Date.now() + 120000,
+    phaseTimerHandle: null,
+    seed,
+    boardVersion: 1,
+    board,
+  };
+
+  initializeSharedBoard(state, seed);
+  activeMatchStates.set(code, state);
+  return state;
+}
+
+// =========================================================
+// 1. BẢNG THỜI GIAN CỐ ĐỊNH & SERVER ĐỒNG HỒ TUYỆT ĐỐI
+// Phase 1 (Answer)   : ĐÚNG 120s — dù cả 2 xong sớm vẫn phải chờ
+// Phase 2 (P1 attack): ĐÚNG 30s  — dù cả 3 starmon xong sớm vẫn phải chờ
+// Phase 3 (P2 attack): ĐÚNG 30s  — dù cả 3 starmon xong sớm vẫn phải chờ
+// Tổng 1 turn: ĐÚNG 180s.
+// Quy tắc duy nhất: Phase CHỈ kết thúc khi serverNow() >= phaseEndsAt. Không có ngoại lệ.
+// =========================================================
+const PHASE_DURATION: Record<1 | 2 | 3, number> = {
+  1: 120_000, // 120s cho Phase 1 (Answer)
+  2: 30_000,  // 30s cho Phase 2 (P1 attack)
+  3: 30_000,  // 30s cho Phase 3 (P2 attack)
+};
+
+function schedulePhaseEnd(state: PvpMatchState, roomCode: string) {
+  if (state.phaseTimerHandle) {
+    clearTimeout(state.phaseTimerHandle);
+    state.phaseTimerHandle = null;
+  }
+  const delay = Math.max(0, state.phaseEndsAt - Date.now());
+  if (delay <= 0) {
+    handlePhaseEnd(state, roomCode);
+    return;
+  }
+  state.phaseTimerHandle = setTimeout(() => {
+    handlePhaseEnd(state, roomCode);
+  }, delay);
+}
+
+function handlePhaseEnd(state: PvpMatchState, roomCode: string) {
+  if (state.phaseTimerHandle) {
+    clearTimeout(state.phaseTimerHandle);
+    state.phaseTimerHandle = null;
+  }
+  if (state.stepTimerHandle) {
+    clearTimeout(state.stepTimerHandle);
+    state.stepTimerHandle = null;
+  }
+
+  // Phase 1 kết thúc -> Đánh dấu sai cho các câu chưa trả lời
+  if (state.subPhase === 1) {
+    for (const slot of [1, 2] as const) {
+      const p = state.players[slot];
+      p.starmons.forEach((s, idx) => {
+        if (p.results[idx] == null) {
+          p.results[idx] = false;
+          s.unlocked = false;
+        }
+      });
+      p.hasSubmittedAnswer = true;
+    }
+  }
+
+  // Broadcast phase_ended cho CẢ 2
+  broadcastToRoom(roomCode, {
+    type: 'phase_ended',
+    phase: state.phase,
+    turn: state.turn,
+    subPhase: state.subPhase,
+    phaseEndsAt: state.phaseEndsAt,
+    serverTime: Date.now(),
+  });
+
+  if (state.subPhase === 1) {
+    startPhase(state, roomCode, 2);
+  } else if (state.subPhase === 2) {
+    startPhase(state, roomCode, 3);
+  } else if (state.subPhase === 3) {
+    checkWinAndContinue(state, roomCode);
+  }
+}
+
+function startTurn(state: PvpMatchState, roomCode: string, n: number) {
+  state.turn = n;
+  state.roundNumber = n;
+  state.attackQueue = [];
+  startPhase(state, roomCode, 1);
+}
+
+function startPhase(state: PvpMatchState, roomCode: string, subPhase: 1 | 2 | 3) {
+  if (state.phaseTimerHandle) {
+    clearTimeout(state.phaseTimerHandle);
+    state.phaseTimerHandle = null;
+  }
+  if (state.stepTimerHandle) {
+    clearTimeout(state.stepTimerHandle);
+    state.stepTimerHandle = null;
+  }
+
+  state.subPhase = subPhase;
+  state.phase = `${state.turn}.${subPhase}`;
+  const now = Date.now();
+  state.phaseStartedAt = now;
+  state.phaseEndsAt = now + PHASE_DURATION[subPhase];
+
+  if (subPhase === 1) {
+    state.step = 1;
+    state.attackerSlot = null;
+    state.targetSlot = null;
+    state.attackQueue = [];
+
+    // Reset trạng thái câu trả lời đầu turn
+    for (const slot of [1, 2] as const) {
+      const p = state.players[slot];
+      p.results = p.starmons.map(() => null);
+      p.hasSubmittedAnswer = false;
+      p.answeredCount = 0;
+      p.starmons.forEach(s => {
+        s.unlocked = false;
+      });
+    }
+  } else {
+    // subPhase 2 hoặc 3
+    state.attackerSlot = (subPhase - 1) as 1 | 2; // 2 -> 1, 3 -> 2
+    state.targetSlot = (3 - state.attackerSlot) as 1 | 2;
+    state.step = 1;
+  }
+
+  // Hẹn giờ kết thúc phase — CHỈ 1 timer duy nhất
+  schedulePhaseEnd(state, roomCode);
+
+  const snapshot = serializeBoard(state);
+  const p1Alive = aliveStarmonIndices(state.players[1]);
+  const p2Alive = aliveStarmonIndices(state.players[2]);
+
+  // Broadcast mốc thời gian cho CẢ 2 — cùng 1 payload
+  const startPayload = {
+    type: 'phase_start',
+    phase: state.phase,
+    turn: state.turn,
+    round_number: state.turn,
+    roundNumber: state.turn,
+    subPhase: state.subPhase,
+    attackerSlot: state.attackerSlot,
+    targetSlot: state.targetSlot,
+    phaseStartedAt: state.phaseStartedAt,
+    phaseEndsAt: state.phaseEndsAt, // Mốc tuyệt đối
+    serverTime: now, // để client tính clockOffset
+    time_limit: Math.ceil(PHASE_DURATION[subPhase] / 1000),
+    boardSnapshot: snapshot,
+    grid: state.board,
+    board: state.board,
+    boardVersion: state.boardVersion,
+    version: state.boardVersion,
+    seed: state.seed,
+    p1_hp: state.players[1].starmons.map(s => s.hp),
+    p2_hp: state.players[2].starmons.map(s => s.hp),
+    p1_mana: state.players[1].starmons.map(s => s.mana),
+    p2_mana: state.players[2].starmons.map(s => s.mana),
+  };
+
+  broadcastToRoom(roomCode, startPayload);
+  broadcastToRoom(roomCode, { ...startPayload, type: 'phase_changed' });
+
+  if (subPhase === 1) {
+    broadcastToRoom(roomCode, {
+      ...startPayload,
+      type: 'PVP_PHASE_START_ANSWER',
+      p1_alive_count: p1Alive.length,
+      p1_alive_indices: p1Alive,
+      p2_alive_count: p2Alive.length,
+      p2_alive_indices: p2Alive,
+      start_time: now,
+    });
+  } else {
+    runStep(state, roomCode);
+  }
+}
+
+// Đồng bộ trạng thái Phase hiện tại cho 1 socket cụ thể mà không làm gián đoạn client kia
+function sendCurrentCombatPhaseToSocket(state: PvpMatchState, ws: WebSocket, mySlot?: 1 | 2) {
+  if (ws.readyState !== WebSocket.OPEN) return;
+  const attackerSlot: 1 | 2 = state.attackerSlot || ((state.subPhase - 1) as 1 | 2);
+  const targetSlot: 1 | 2 = state.targetSlot || ((3 - attackerSlot) as 1 | 2);
+  const starmonIndex = Math.max(0, Math.min(2, (state.step || 1) - 1));
+  const attacker = state.players[attackerSlot];
+  const starmon = attacker?.starmons[starmonIndex];
+  const snapshot = serializeBoard(state);
+  const now = Date.now();
+  const remainingSec = Math.max(1, Math.ceil((state.phaseEndsAt - now) / 1000));
+
+  try {
+    ws.send(JSON.stringify({
+      type: 'phase_start',
+      phase: state.phase,
+      turn: state.turn,
+      subPhase: state.subPhase,
+      attackerSlot,
+      targetSlot,
+      phaseStartedAt: state.phaseStartedAt,
+      phaseEndsAt: state.phaseEndsAt,
+      serverTime: now,
+      time_limit: remainingSec,
+      board: state.board,
+      boardSnapshot: snapshot,
+      boardVersion: state.boardVersion,
+      version: state.boardVersion,
+      p1_hp: state.players[1].starmons.map(s => s.hp),
+      p2_hp: state.players[2].starmons.map(s => s.hp),
+      p1_mana: state.players[1].starmons.map(s => s.mana),
+      p2_mana: state.players[2].starmons.map(s => s.mana),
+    }));
+
+    if (state.subPhase >= 2) {
+      ws.send(JSON.stringify({
+        type: 'step_started',
+        phase: state.phase,
+        turn: state.turn,
+        subPhase: state.subPhase,
+        step: state.step,
+        attackerSlot,
+        targetSlot,
+        starmonIndex,
+        starmon_name: starmon?.name,
+        actor_name: attacker?.name,
+        phaseEndsAt: state.phaseEndsAt,
+        serverTime: now,
+        time_limit: remainingSec,
+        boardVersion: state.boardVersion,
+        version: state.boardVersion,
+        boardSnapshot: snapshot,
+        board: state.board,
+        p1_hp: state.players[1].starmons.map(s => s.hp),
+        p2_hp: state.players[2].starmons.map(s => s.hp),
+        p1_mana: state.players[1].starmons.map(s => s.mana),
+        p2_mana: state.players[2].starmons.map(s => s.mana),
+      }));
+
+      if (
+        starmon &&
+        starmon.alive &&
+        starmon.hp > 0 &&
+        attacker.results[starmonIndex] === true &&
+        (!mySlot || mySlot === attackerSlot)
+      ) {
+        ws.send(JSON.stringify({
+          type: 'your_starmon_turn',
+          phase: state.phase,
+          turn: state.turn,
+          subPhase: state.subPhase,
+          step: state.step,
+          attackerSlot,
+          targetSlot,
+          starmonIndex,
+          starmon_name: starmon.name,
+          actor_name: attacker.name,
+          validTargetIndices: aliveStarmonIndices(state.players[targetSlot]),
+          options: ['physical_attack', 'use_ability'],
+          phaseEndsAt: state.phaseEndsAt,
+          serverTime: now,
+          time_limit: remainingSec,
+          board: state.board,
+          boardSnapshot: snapshot,
+          boardVersion: state.boardVersion,
+          version: state.boardVersion,
+          p1_hp: state.players[1].starmons.map(s => s.hp),
+          p2_hp: state.players[2].starmons.map(s => s.hp),
+          p1_mana: state.players[1].starmons.map(s => s.mana),
+          p2_mana: state.players[2].starmons.map(s => s.mana),
+        }));
+      }
+    }
+  } catch {}
+}
+
+// Nhận kết quả trả lời câu hỏi ở Phase n.1
+function onAnswerSubmit(
+  state: PvpMatchState,
+  roomCode: string,
+  slot: 1 | 2,
+  results: boolean[],
+  isTimeout: boolean = false,
+  ws?: WebSocket
+) {
+  if (state.subPhase !== 1) {
+    if (ws) {
+      sendCurrentCombatPhaseToSocket(state, ws, slot);
+    }
+    return;
+  }
+
+  // Reject nếu phase đã kết thúc
+  if (Date.now() >= state.phaseEndsAt) {
+    return;
+  }
+
+  const P = state.players[slot];
+  if (!P) return;
+
+  // Những câu chưa trả lời (undefined / false) sẽ bị tính là 0 điểm (unlocked = false)
+  P.starmons.forEach((s, idx) => {
+    if (s.alive && s.hp > 0) {
+      const unlocked = Array.isArray(results) && results[idx] !== undefined
+        ? Boolean(results[idx])
+        : Boolean(P.results[idx]);
+      P.results[idx] = unlocked;
+      s.unlocked = unlocked;
+    } else {
+      P.results[idx] = false;
+      s.unlocked = false;
+    }
+  });
+
+  P.hasSubmittedAnswer = true;
+  P.answeredCount = aliveStarmonIndices(P).length;
+
+  broadcastToRoom(roomCode, {
+    type: 'PVP_ANSWER_SUBMITTED',
+    phase: state.phase,
+    turn: state.turn,
+    slot,
+    player_id: P.id,
+    answered_count: P.answeredCount,
+    results: P.results,
+    phaseEndsAt: state.phaseEndsAt,
+  });
+
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({
+      type: 'answer_all_done',
+      phase: state.phase,
+      phaseEndsAt: state.phaseEndsAt,
+      serverTime: Date.now(),
+      message: 'Bạn đã trả lời xong. Đang chờ hết thời gian Phase 1...',
+    }));
+  }
+
+  // QUY TẮC DUY NHẤT: KHÔNG chuyển phase dù cả 2 đã nộp xong!
+  // Cả 2 người chơi VẪN PHẢI CHỜ đúng 120s đến khi state.phaseEndsAt kết thúc qua handlePhaseEnd().
+}
+
+// =========================================================
+// 3. XỬ LÝ TỪNG STEP TRONG PHASE n.2 VÀ PHASE n.3
+// Step không có timer riêng — chỉ dựa vào phase timer (30s)
+// =========================================================
+function countAlive(starmons: StarmonCombatant[]): number {
+  return starmons.filter(s => s && s.alive && s.hp > 0).length;
+}
+
+function runStep(state: PvpMatchState, roomCode: string) {
+  if (state.stepTimerHandle) {
+    clearTimeout(state.stepTimerHandle);
+    state.stepTimerHandle = null;
+  }
+
+  // Nếu phase 30s đã kết thúc, nhường quyền cho handlePhaseEnd
+  if (Date.now() >= state.phaseEndsAt) {
+    return;
+  }
+
+  const attackerSlot: 1 | 2 = state.attackerSlot || ((state.subPhase - 1) as 1 | 2);
+  const targetSlot: 1 | 2 = state.targetSlot || ((3 - attackerSlot) as 1 | 2);
+  state.attackerSlot = attackerSlot;
+  state.targetSlot = targetSlot;
+
+  const starmonIndex = state.step - 1; // 0, 1, 2
+  const attacker = state.players[attackerSlot];
+  const starmon = attacker?.starmons[starmonIndex];
+  const snapshot = serializeBoard(state);
+
+  // Case A: Starmon chết -> skip, sang step kế
+  if (starmon == null || !starmon.alive || starmon.hp <= 0) {
+    broadcastToRoom(roomCode, {
+      type: 'step_skipped',
+      phase: state.phase,
+      attackerSlot: state.attackerSlot,
+      starmonIndex: starmonIndex,
+      starmon_name: starmon?.name || `Starmon #${starmonIndex + 1}`,
+      reason: 'dead',
+      phaseEndsAt: state.phaseEndsAt,
+    });
+    state.step++;
+    if (state.step > 3) {
+      broadcastToRoom(roomCode, {
+        type: 'all_starmons_done',
+        phase: state.phase,
+        subPhase: state.subPhase,
+        phaseEndsAt: state.phaseEndsAt,
+        serverTime: Date.now(),
+      });
+      return; // Vẫn chờ phase timer 30s!
+    }
+    return runStep(state, roomCode);
+  }
+
+  // Case B: Trả lời sai -> mất lượt, sang step kế
+  if (attacker.results[starmonIndex] !== true) {
+    broadcastToRoom(roomCode, {
+      type: 'step_skipped',
+      phase: state.phase,
+      attackerSlot: state.attackerSlot,
+      starmonIndex: starmonIndex,
+      starmon_name: starmon.name,
+      reason: 'wrong_answer',
+      phaseEndsAt: state.phaseEndsAt,
+    });
+    broadcastToRoom(roomCode, {
+      type: 'starmon_lost_turn',
+      phase: state.phase,
+      attackerSlot: state.attackerSlot,
+      starmonIndex: starmonIndex,
+      starmon_name: starmon.name,
+      reason: 'wrong_answer',
+    });
+    state.step++;
+    if (state.step > 3) {
+      broadcastToRoom(roomCode, {
+        type: 'all_starmons_done',
+        phase: state.phase,
+        subPhase: state.subPhase,
+        phaseEndsAt: state.phaseEndsAt,
+        serverTime: Date.now(),
+      });
+      return; // Vẫn chờ phase timer 30s!
+    }
+    state.stepTimerHandle = setTimeout(() => {
+      runStep(state, roomCode);
+    }, 700);
+    return;
+  }
+
+  // Case C: Được tấn công
+  const remainingSec = Math.max(1, Math.ceil((state.phaseEndsAt - Date.now()) / 1000));
+
+  broadcastToRoom(roomCode, {
+    type: 'step_started',
+    phase: state.phase,
+    turn: state.turn,
+    round_number: state.turn,
+    roundNumber: state.turn,
+    subPhase: state.subPhase,
+    step: state.step,
+    attackerSlot: state.attackerSlot,
+    targetSlot: state.targetSlot,
+    starmonIndex: starmonIndex,
+    starmon_name: starmon?.name,
+    actor_name: attacker?.name,
+    boardVersion: state.boardVersion,
+    version: state.boardVersion,
+    boardSnapshot: snapshot,
+    grid: state.board,
+    board: state.board,
+    p1_hp: state.players[1].starmons.map(s => s.hp),
+    p2_hp: state.players[2].starmons.map(s => s.hp),
+    p1_mana: state.players[1].starmons.map(s => s.mana),
+    p2_mana: state.players[2].starmons.map(s => s.mana),
+    phaseEndsAt: state.phaseEndsAt,
+    serverTime: Date.now(),
+    time_limit: remainingSec,
+  });
+
+  const validTargetIndices = aliveStarmonIndices(state.players[targetSlot]);
+  const turnData = {
+    type: 'your_starmon_turn',
+    phase: state.phase,
+    turn: state.turn,
+    subPhase: state.subPhase,
+    step: state.step,
+    attackerSlot: state.attackerSlot,
+    targetSlot: state.targetSlot,
+    starmonIndex: starmonIndex,
+    starmon_name: starmon.name,
+    actor_name: attacker.name,
+    validTargetIndices: validTargetIndices,
+    options: ['physical_attack', 'use_ability'],
+    phaseEndsAt: state.phaseEndsAt,
+    serverTime: Date.now(),
+    time_limit: remainingSec,
+    board: state.board,
+    grid: state.board,
+    boardSnapshot: snapshot,
+    boardVersion: state.boardVersion,
+    version: state.boardVersion,
+    p1_hp: state.players[1].starmons.map(s => s.hp),
+    p2_hp: state.players[2].starmons.map(s => s.hp),
+    p1_mana: state.players[1].starmons.map(s => s.mana),
+    p2_mana: state.players[2].starmons.map(s => s.mana),
+  };
+
+  if (attacker.socket && attacker.socket.readyState === WebSocket.OPEN) {
+    try {
+      attacker.socket.send(JSON.stringify(turnData));
+    } catch {
+      broadcastToRoom(roomCode, turnData);
+    }
+  } else {
+    broadcastToRoom(roomCode, turnData);
+  }
+}
+
+function endStep(state: PvpMatchState, roomCode: string, _skipped: boolean = false) {
+  if (state.stepTimerHandle) {
+    clearTimeout(state.stepTimerHandle);
+    state.stepTimerHandle = null;
+  }
+
+  state.step += 1;
+  if (state.step > 3) {
+    // Hết 3 step nhưng VẪN CHỜ đến hết phase timer (30s)
+    broadcastToRoom(roomCode, {
+      type: 'all_starmons_done',
+      phase: state.phase,
+      subPhase: state.subPhase,
+      phaseEndsAt: state.phaseEndsAt,
+      serverTime: Date.now(),
+    });
+    return;
+  }
+
+  runStep(state, roomCode);
+}
+
+function onStepTimeout(state: PvpMatchState, roomCode: string) {
+  if (state.stepTimerHandle) {
+    clearTimeout(state.stepTimerHandle);
+    state.stepTimerHandle = null;
+  }
+  const attackerSlot = state.attackerSlot || ((state.subPhase - 1) as 1 | 2);
+  const starmonIndex = Math.max(0, Math.min(2, (state.step || 1) - 1));
+  const attacker = state.players[attackerSlot];
+  const starmon = attacker?.starmons[starmonIndex];
+
+  broadcastToRoom(roomCode, {
+    type: 'starmon_lost_turn',
+    phase: state.phase,
+    attackerSlot,
+    starmonIndex,
+    starmon_name: starmon?.name,
+    reason: 'timeout',
+  });
+
+  endStep(state, roomCode, true);
+}
+
+// =========================================================
+// 4. XỬ LÝ HÀNH ĐỘNG CỦA ATTACKER (onStarmonAction)
+// =========================================================
+function getAbility(
+  starmon: StarmonCombatant,
+  abilityId: any,
+  payload?: any
+): { id: string; name: string; cost: number; damageMultiplier: number; targetType?: string } | null {
+  const s1 = starmon.skill1;
+  const s2 = starmon.skill2;
+
+  if (
+    abilityId === 1 ||
+    abilityId === '1' ||
+    abilityId === 'skill1' ||
+    payload?.abilityNum === 1 ||
+    (s1 && (abilityId === s1.id || abilityId === s1.name))
+  ) {
+    return {
+      id: s1?.id || 'skill1',
+      name: s1?.name || payload?.skillName || 'Skill 1',
+      cost: typeof s1?.manaCost === 'number' ? s1.manaCost : (typeof payload?.manaCost === 'number' ? payload.manaCost : 20),
+      damageMultiplier: typeof s1?.damageMultiplier === 'number' ? s1.damageMultiplier : 1.5,
+      targetType: s1?.targetType || (payload?.isAoE ? 'aoe' : 'single'),
+    };
+  }
+
+  if (
+    abilityId === 2 ||
+    abilityId === '2' ||
+    abilityId === 'skill2' ||
+    payload?.abilityNum === 2 ||
+    (s2 && (abilityId === s2.id || abilityId === s2.name))
+  ) {
+    return {
+      id: s2?.id || 'skill2',
+      name: s2?.name || payload?.skillName || 'Skill 2',
+      cost: typeof s2?.manaCost === 'number' ? s2.manaCost : (typeof payload?.manaCost === 'number' ? payload.manaCost : 50),
+      damageMultiplier: typeof s2?.damageMultiplier === 'number' ? s2.damageMultiplier : 2.0,
+      targetType: s2?.targetType || (payload?.isAoE ? 'aoe' : 'single'),
+    };
+  }
+
+  if (abilityId || payload?.skillName) {
+    return {
+      id: String(abilityId || payload?.skillName),
+      name: String(payload?.skillName || abilityId),
+      cost: typeof payload?.manaCost === 'number' ? payload.manaCost : 20,
+      damageMultiplier: 1.5,
+      targetType: payload?.isAoE ? 'aoe' : 'single',
+    };
+  }
+
+  return null;
+}
+
+function calcPhysicalDamage(
+  starmon: StarmonCombatant,
+  targetStarmon: StarmonCombatant,
+  orbSwitches?: any[],
+  payload?: any
+): number {
+  if (payload && typeof payload.damage === 'number' && payload.damage >= 0) {
+    return payload.damage;
+  }
+  const matchCount = Array.isArray(orbSwitches) && orbSwitches.length >= 3
+    ? orbSwitches.length
+    : (payload?.matchCount || 3);
+  const mult = matchCount === 3 ? 1.0 : matchCount === 4 ? 1.25 : 1.5;
+  const baseAtk = starmon.baseAtk || 45;
+  const def = targetStarmon?.def || 20;
+  return Math.max(15, Math.floor(baseAtk * mult * 1.5 - def * 0.4));
+}
+
+function calcAbilityDamage(
+  starmon: StarmonCombatant,
+  ability: { id: string; name: string; cost: number; damageMultiplier: number; targetType?: string },
+  _targetStarmonIndex?: number,
+  payload?: any
+): number {
+  if (payload && typeof payload.damage === 'number' && payload.damage >= 0) {
+    return payload.damage;
+  }
+  const baseAtk = starmon.baseAtk || 45;
+  return Math.max(0, Math.round(baseAtk * (ability.damageMultiplier || 1.5)));
+}
+
+function onStarmonAction(
+  state: PvpMatchState,
+  roomCode: string,
+  playerSlot: 1 | 2,
+  data: { starmonIndex: number; actionType: string; payload: any },
+  ws?: WebSocket
+) {
+  const reject = (reason: string) => {
+    try {
+      ws?.send(JSON.stringify({ type: 'PVP_ACTION_REJECTED', reason }));
+    } catch {}
+  };
+
+  if (state.subPhase !== 2 && state.subPhase !== 3) {
+    return reject('không phải phase tấn công');
+  }
+
+  const attackerSlot: 1 | 2 = state.attackerSlot || ((state.subPhase - 1) as 1 | 2);
+  const targetSlot: 1 | 2 = state.targetSlot || ((3 - attackerSlot) as 1 | 2);
+  state.attackerSlot = attackerSlot;
+  state.targetSlot = targetSlot;
+
+  const { starmonIndex, actionType, payload = {} } = data;
+
+  // ---- Validate ----
+  if (playerSlot !== state.attackerSlot) {
+    return reject('không phải lượt của bạn');
+  }
+
+  if (starmonIndex !== state.step - 1) {
+    return reject('không phải starmon đang đến lượt');
+  }
+
+  const attacker = state.players[state.attackerSlot];
+  const starmon = attacker?.starmons[starmonIndex];
+
+  if (starmon == null || !starmon.alive || starmon.hp <= 0) {
+    return reject('starmon không hợp lệ');
+  }
+
+  if (attacker.results[starmonIndex] !== true) {
+    return reject('starmon không được phép tấn công');
+  }
+
+  const target = state.players[state.targetSlot];
+  const aliveTargets = aliveStarmonIndices(target);
+  let targetIdx = typeof payload.targetStarmonIndex === 'number'
+    ? payload.targetStarmonIndex
+    : (aliveTargets[0] ?? 0);
+
+  let damage = 0;
+
+  // ---- Xử lý theo loại hành động ----
+  if (actionType === 'physical_attack') {
+    if (!aliveTargets.includes(targetIdx)) {
+      return reject('target không hợp lệ');
+    }
+    damage = calcPhysicalDamage(starmon, target.starmons[targetIdx], payload.orbSwitches, payload);
+  } else if (actionType === 'use_ability') {
+    const ability = getAbility(starmon, payload.abilityId, payload);
+    if (ability == null) {
+      return reject('ability không tồn tại');
+    }
+    const currentMana = starmon.mana ?? starmon.currentMana ?? 0;
+    if (currentMana < ability.cost && starmon.id !== 'tidecrush') {
+      return reject('không đủ mana');
+    }
+    if (!aliveTargets.includes(targetIdx) && aliveTargets.length > 0) {
+      targetIdx = aliveTargets[0];
+    }
+    payload.targetStarmonIndex = targetIdx;
+    damage = calcAbilityDamage(starmon, ability, targetIdx, payload);
+  } else {
+    return reject('action không hợp lệ');
+  }
+
+  const targetStarmon = target.starmons[targetIdx];
+
+  // ---- Mutate shared board & starmon state (Single Source of Truth) & Broadcast board_update to BOTH clients ----
+  mutateBoard(
+    state,
+    roomCode,
+    () => {
+      if (actionType === 'physical_attack') {
+        const matchCount = payload.matchCount || (Array.isArray(payload.orbSwitches) && payload.orbSwitches.length >= 3 ? payload.orbSwitches.length : 3);
+        const manaGain = matchCount * 5;
+        starmon.mana = Math.min(200, (starmon.mana ?? starmon.currentMana ?? 0) + manaGain);
+        starmon.currentMana = starmon.mana;
+
+        if (payload.newBoard && Array.isArray(payload.newBoard) && payload.newBoard.length === 8) {
+          state.board = payload.newBoard;
+        }
+      } else if (actionType === 'use_ability') {
+        const ability = getAbility(starmon, payload.abilityId, payload)!;
+        const currentMana = starmon.mana ?? starmon.currentMana ?? 0;
+        starmon.mana = starmon.id === 'tidecrush' && (ability.id === 'skill2' || payload.abilityNum === 2)
+          ? 0
+          : Math.max(0, currentMana - ability.cost);
+        starmon.currentMana = starmon.mana;
+      }
+
+      if (actionType === 'use_ability' && payload.isAoE) {
+        target.starmons.forEach(ts => {
+          if (ts != null && ts.alive) {
+            ts.hp -= damage;
+            if (ts.hp <= 0) {
+              ts.hp = 0;
+              ts.alive = false;
+            }
+            ts.currentHp = ts.hp;
+          }
+        });
+      } else if (targetStarmon != null && targetStarmon.alive) {
+        targetStarmon.hp -= damage;
+        if (targetStarmon.hp <= 0) {
+          targetStarmon.hp = 0;
+          targetStarmon.alive = false;
+        }
+        targetStarmon.currentHp = targetStarmon.hp;
+      }
+    },
+    {
+      grid: state.board,
+      orbSwitches: payload.orbSwitches || [],
+      attackerSlot: state.attackerSlot,
+      targetSlot: state.targetSlot,
+      starmonIndex,
+      targetStarmonIndex: targetIdx,
+      damage,
+      targetHpAfter: targetStarmon ? targetStarmon.hp : 0,
+      attackerManaAfter: starmon.mana,
+    }
+  );
+
+  if (state.stepTimerHandle) {
+    clearTimeout(state.stepTimerHandle);
+    state.stepTimerHandle = null;
+  }
+
+  const snapshot = serializeBoard(state);
+
+  // ---- Broadcast starmon_action_resolved cho CẢ 2 client ----
+  broadcastToRoom(roomCode, {
+    type: 'starmon_action_resolved',
+    phase: state.phase,
+    turn: state.turn,
+    subPhase: state.subPhase,
+    attackerSlot: state.attackerSlot,
+    targetSlot: state.targetSlot,
+    starmonIndex: starmonIndex,
+    actionType: actionType,
+    payload: {
+      ...payload,
+      targetStarmonIndex: targetIdx,
+    },
+    damage: damage,
+    targetHpAfter: targetStarmon ? targetStarmon.hp : 0,
+    attackerManaAfter: starmon.mana,
+    board: state.board,
+    boardSnapshot: snapshot,
+    boardVersion: state.boardVersion,
+    version: state.boardVersion,
+    p1_hp: state.players[1].starmons.map(s => s.hp),
+    p2_hp: state.players[2].starmons.map(s => s.hp),
+    p1_mana: state.players[1].starmons.map(s => s.mana),
+    p2_mana: state.players[2].starmons.map(s => s.mana),
+  });
+
+  // ---- Check win ngay ----
+  if (countAlive(state.players[state.targetSlot].starmons) === 0) {
+    endGame(state, roomCode, 'winner', state.attackerSlot);
+    return;
+  }
+
+  // ---- Kết thúc lượt starmon -> sang step kế sau 700ms để 2 người chơi thấy rõ hiệu ứng đòn đánh trên board ----
+  state.stepTimerHandle = setTimeout(() => {
+    endStep(state, roomCode);
+  }, 700);
+}
+
+function endGame(state: PvpMatchState, roomCode: string, result: 'draw' | 'winner', winnerSlot?: 1 | 2) {
+  if (state.timerHandle) {
+    clearTimeout(state.timerHandle);
+    state.timerHandle = null;
+  }
+  if (state.phaseTimerHandle) {
+    clearTimeout(state.phaseTimerHandle);
+    state.phaseTimerHandle = null;
+  }
+  if (state.stepTimerHandle) {
+    clearTimeout(state.stepTimerHandle);
+    state.stepTimerHandle = null;
+  }
+
+  if (result === 'draw' || !winnerSlot) {
+    broadcastToRoom(roomCode, {
+      type: 'PVP_MATCH_FINISHED',
+      winner: 'draw',
+      result: 'draw',
+    });
+    broadcastToRoom(roomCode, {
+      type: 'game_over',
+      winner: 'draw',
+    });
+    return;
+  }
+
+  const winnerPlayer = state.players[winnerSlot];
+  broadcastToRoom(roomCode, {
+    type: 'PVP_MATCH_FINISHED',
+    result: 'winner',
+    winner: winnerSlot === 1 ? 'player1_win' : 'player2_win',
+    winner_slot: winnerSlot,
+    winnerSlot: winnerSlot,
+    winner_id: winnerPlayer.id,
+    winner_name: winnerPlayer.name,
+  });
+  broadcastToRoom(roomCode, {
+    type: 'game_over',
+    winner: winnerPlayer.id,
+    winnerSlot: winnerSlot,
+  });
+}
+
+// Kiểm tra thắng thua cuối turn (sau khi kết thúc Phase n.3)
+function checkWinAndContinue(state: PvpMatchState, roomCode: string) {
+  const p1Alive = state.players[1].starmons.some(s => s.alive && s.hp > 0);
+  const p2Alive = state.players[2].starmons.some(s => s.alive && s.hp > 0);
+
+  if (!p1Alive && !p2Alive) {
+    endGame(state, roomCode, 'draw');
+  } else if (!p2Alive) {
+    endGame(state, roomCode, 'winner', 1);
+  } else if (!p1Alive) {
+    endGame(state, roomCode, 'winner', 2);
+  } else {
+    setTimeout(() => {
+      startTurn(state, roomCode, state.turn + 1); // -> Sang turn tiếp theo: (n+1).1
+    }, 1000);
+  }
+}
+
+wss.on('connection', (ws) => {
+  let currentRoomCode: string | null = null;
+
+  // Immediately send latest active accounts to newly connected client
+  try {
+    serverAccounts = loadAccounts();
+    ws.send(JSON.stringify({ type: 'ACCOUNTS_UPDATED', accounts: getUniqueAccountsList(serverAccounts) }));
+  } catch {}
+
+  ws.on('message', (data) => {
+    try {
+      const msg = JSON.parse(data.toString());
+
+      switch (msg.type) {
+        case 'GET_ACCOUNTS': {
+          serverAccounts = loadAccounts();
+          ws.send(JSON.stringify({ type: 'ACCOUNTS_UPDATED', accounts: getUniqueAccountsList(serverAccounts) }));
+          break;
+        }
+
+        case 'JOIN_LOBBY': {
+          activeRooms = loadRooms();
+          const waitingRooms = activeRooms.filter(r => r.status === 'WAITING');
+          ws.send(JSON.stringify({ type: 'ROOMS_UPDATED', rooms: waitingRooms }));
+          break;
+        }
+
+        case 'JOIN_ROOM': {
+          const rawCode = msg.room_code || msg.code || '';
+          const targetCode = normalizeRoomCode(rawCode);
+          activeRooms = loadRooms();
+          const room = activeRooms.find(r => normalizeRoomCode(r.room_code || r.code) === targetCode);
+          if (room) {
+            if (currentRoomCode && currentRoomCode !== targetCode && roomClients.has(currentRoomCode)) {
+              roomClients.get(currentRoomCode)!.delete(ws);
+            }
+            currentRoomCode = targetCode;
+            if (!roomClients.has(targetCode)) {
+              roomClients.set(targetCode, new Set());
+            }
+            roomClients.get(targetCode)!.add(ws);
+
+            const uId = msg.user_id;
+            if (uId && uId === room.host_id) {
+              ws.send(JSON.stringify({ type: 'slot_assigned', slot: 1 }));
+            } else if (uId) {
+              const existingIdx = room.players.findIndex(p => p.id === uId);
+              if (existingIdx === -1 && room.players.length === 1) {
+                room.players.push({
+                  id: uId,
+                  name: msg.user_name || 'Player 2',
+                  level: msg.user_level || 1,
+                  isHost: false,
+                  isReady: true,
+                  starmons: Array.isArray(msg.starmons) && msg.starmons.length > 0 ? msg.starmons : [],
+                });
+                room.guestName = msg.user_name || 'Player 2';
+              }
+              ws.send(JSON.stringify({ type: 'slot_assigned', slot: 2 }));
+            }
+
+            // CRITICAL: When both players are present, immediately start the match and advance to Phase 1.1 if not already started!
+            if (room.players.length >= 2) {
+              const isNewMatch = !activeMatchStates.has(targetCode);
+              room.status = 'IN_GAME';
+              room.updatedAt = Date.now();
+              saveRooms(activeRooms);
+              const match = activeMatchStates.get(targetCode) || initializeMatchForRoom(room);
+              broadcastToRoom(targetCode, { type: 'ROOM_STATE_UPDATED', room });
+              const startPayload = {
+                type: 'match_start',
+                seed: match.seed,
+                boardSnapshot: serializeBoard(match),
+                board: match.board,
+                boardVersion: match.boardVersion,
+                version: match.boardVersion,
+                player1Id: room.players[0]?.id || match.players[1].id,
+                player2Id: room.players[1]?.id || match.players[2].id,
+                room,
+                matchState: serializeMatchState(match),
+              };
+              if (isNewMatch) {
+                broadcastToRoom(targetCode, startPayload);
+                broadcastToRoom(targetCode, { ...startPayload, type: 'MATCH_STARTED' });
+                broadcastRoomList();
+                setTimeout(() => {
+                  startTurn(match, targetCode, 1);
+                }, 600);
+              }
+              ws.send(JSON.stringify(startPayload));
+              ws.send(JSON.stringify({ ...startPayload, type: 'MATCH_STARTED' }));
+            } else {
+              // Send full room state
+              ws.send(JSON.stringify({ type: 'ROOM_STATE_UPDATED', room }));
+            }
+          } else {
+            ws.send(JSON.stringify({ type: 'ERROR', message: `Phòng ${rawCode} không tồn tại hoặc đã đóng.` }));
+          }
+          break;
+        }
+
+        case 'START_MATCH': {
+          const rawCode = msg.room_code || msg.code || '';
+          const targetCode = normalizeRoomCode(rawCode);
+          activeRooms = loadRooms();
+          const room = activeRooms.find(r => normalizeRoomCode(r.room_code || r.code) === targetCode);
+          if (room && room.players.length >= 2) {
+            room.status = 'IN_GAME';
+            room.updatedAt = Date.now();
+            saveRooms(activeRooms);
+            const match = initializeMatchForRoom(room);
+            const startPayload = {
+              type: 'match_start',
+              seed: match.seed,
+              boardSnapshot: serializeBoard(match),
+              board: match.board,
+              boardVersion: match.boardVersion,
+              version: match.boardVersion,
+              player1Id: room.players[0]?.id || match.players[1].id,
+              player2Id: room.players[1]?.id || match.players[2].id,
+              room,
+              matchState: serializeMatchState(match),
+            };
+            broadcastToRoom(targetCode, startPayload);
+            broadcastToRoom(targetCode, { ...startPayload, type: 'MATCH_STARTED' });
+            broadcastRoomList();
+            setTimeout(() => {
+              startTurn(match, targetCode, 1);
+            }, 1000);
+          }
+          break;
+        }
+
+        case 'LEAVE_ROOM': {
+          const rawCode = msg.room_code || msg.code || '';
+          const targetCode = normalizeRoomCode(rawCode);
+          const uid = msg.user_id;
+          activeRooms = loadRooms();
+          const room = activeRooms.find(r => normalizeRoomCode(r.room_code || r.code) === targetCode);
+          if (room) {
+            if (uid && uid === room.host_id) {
+              room.status = 'FINISHED';
+              activeRooms = activeRooms.filter(r => normalizeRoomCode(r.room_code || r.code) !== targetCode);
+              saveRooms(activeRooms);
+              broadcastToRoom(targetCode, { type: 'ROOM_CLOSED', room_code: targetCode });
+            } else {
+              room.players = room.players.filter(p => p.id !== uid);
+              room.guestName = undefined;
+              room.status = 'WAITING';
+              room.updatedAt = Date.now();
+              saveRooms(activeRooms);
+              broadcastToRoom(targetCode, { type: 'ROOM_STATE_UPDATED', room });
+            }
+            broadcastRoomList();
+          }
+          break;
+        }
+
+        case 'PVP_JOIN_BATTLE': {
+          const rawCode = msg.room_code || '';
+          const targetCode = normalizeRoomCode(rawCode);
+          if (targetCode) {
+            if (currentRoomCode && currentRoomCode !== targetCode && roomClients.has(currentRoomCode)) {
+              roomClients.get(currentRoomCode)!.delete(ws);
+            }
+            currentRoomCode = targetCode;
+            if (!roomClients.has(targetCode)) {
+              roomClients.set(targetCode, new Set());
+            }
+            roomClients.get(targetCode)!.add(ws);
+
+            let match = activeMatchStates.get(targetCode);
+            if (!match) {
+              activeRooms = loadRooms();
+              const room = activeRooms.find(r => normalizeRoomCode(r.room_code || r.code) === targetCode);
+              if (room) {
+                match = initializeMatchForRoom(room);
+              } else {
+                const seed = computeSeedFromRoomCode(targetCode);
+                const p1State: PlayerSlotState = {
+                  id: msg.player_id || 'host_player',
+                  name: msg.player_name || 'Player 1',
+                  slot: 1,
+                  starmons: createDefaultStarmonsForSlot(1),
+                  results: [null, null, null],
+                  hasSubmittedAnswer: false,
+                  answeredCount: 0,
+                };
+                const p2State: PlayerSlotState = {
+                  id: 'guest_player',
+                  name: 'Player 2',
+                  slot: 2,
+                  starmons: createDefaultStarmonsForSlot(2),
+                  results: [null, null, null],
+                  hasSubmittedAnswer: false,
+                  answeredCount: 0,
+                };
+                const now = Date.now();
+                match = {
+                  roomCode: targetCode,
+                  turn: 1,
+                  roundNumber: 1,
+                  phase: '1.1',
+                  subPhase: 1,
+                  step: 1,
+                  attackerSlot: null,
+                  targetSlot: null,
+                  players: { 1: p1State, 2: p2State },
+                  player1: p1State,
+                  player2: p2State,
+                  attackQueue: [],
+                  phaseStartedAt: now,
+                  phaseEndsAt: now + PHASE_DURATION[1],
+                  phaseTimerHandle: null,
+                  seed,
+                  boardVersion: 1,
+                  board: generateBoardFromSeed(seed),
+                };
+                initializeSharedBoard(match, seed);
+                activeMatchStates.set(targetCode, match);
+                schedulePhaseEnd(match, targetCode);
+              }
+            }
+
+            if (match) {
+              const pId = msg.player_id || 'player';
+              const pName = msg.player_name || (msg.is_host ? 'Host' : 'Guest');
+
+              const isSlot1Connected = Boolean(
+                match.players[1].socket &&
+                match.players[1].socket.readyState === WebSocket.OPEN &&
+                match.players[1].socket !== ws
+              );
+              const isSlot2Connected = Boolean(
+                match.players[2].socket &&
+                match.players[2].socket.readyState === WebSocket.OPEN &&
+                match.players[2].socket !== ws
+              );
+
+              const requestedSlot = (msg.slot === 2 || msg.slot === '2') ? 2 : ((msg.slot === 1 || msg.slot === '1') ? 1 : null);
+              const isHostFlag = msg.is_host === true || msg.isHost === true;
+              const isGuestFlag = msg.is_host === false || msg.isHost === false;
+
+              let slot: 1 | 2;
+              if (requestedSlot === 2 || isGuestFlag) {
+                slot = 2;
+              } else if (requestedSlot === 1 || isHostFlag) {
+                // If slot 1 is requested but already occupied by an active socket, route to slot 2
+                if (isSlot1Connected && !isSlot2Connected) {
+                  slot = 2;
+                } else {
+                  slot = 1;
+                }
+              } else if (isSlot1Connected && !isSlot2Connected) {
+                slot = 2;
+              } else if (isSlot2Connected && !isSlot1Connected) {
+                slot = 1;
+              } else {
+                slot = (match.players[1].id === pId && !isSlot1Connected) ? 1 : 2;
+              }
+
+              // Disambiguate user IDs if testing 2 tabs on the same machine/localStorage
+              if (slot === 2) {
+                const uniqueP2Id = (pId === match.players[1].id || match.players[2].id === 'guest_player')
+                  ? (pId === match.players[1].id ? `${pId}_tab2` : pId)
+                  : pId;
+                match.players[2].id = uniqueP2Id;
+                match.players[2].name = pId === match.players[1].id ? `${pName} (2)` : pName;
+              } else if (slot === 1) {
+                match.players[1].id = pId;
+                match.players[1].name = pName;
+              }
+              match.players[slot].socket = ws;
+              if (Array.isArray(msg.starmons) && msg.starmons.length > 0 && match.turn === 1 && match.subPhase === 1 && !match.players[slot].hasSubmittedAnswer) {
+                match.players[slot].starmons = createDefaultStarmonsForSlot(slot, msg.starmons);
+                match.players[slot].starmons.forEach((s, idx) => {
+                  s.unlocked = Boolean(match!.players[slot].results[idx]);
+                });
+              }
+
+              if (match.subPhase === 1 && !match.phaseTimerHandle) {
+                schedulePhaseEnd(match, targetCode);
+              }
+
+              const snapshot = serializeBoard(match);
+
+              ws.send(JSON.stringify({
+                type: 'slot_assigned',
+                slot,
+              }));
+
+              ws.send(JSON.stringify({
+                type: 'match_start',
+                seed: match.seed,
+                boardSnapshot: snapshot,
+                board: match.board,
+                boardVersion: match.boardVersion,
+                version: match.boardVersion,
+                player1Id: match.players[1].id,
+                player2Id: match.players[2].id,
+                matchState: serializeMatchState(match),
+              }));
+
+              const { attackerSlot, targetSlot } = getAttackerAndTargetByPhase(match.phase);
+
+              ws.send(JSON.stringify({
+                type: 'PVP_MATCH_STATE_SYNC',
+                slot,
+                phase: match.phase,
+                turn: match.turn,
+                subPhase: match.subPhase,
+                attackerSlot,
+                targetSlot,
+                round_number: match.turn,
+                state: serializeMatchState(match),
+                matchState: serializeMatchState(match),
+                board: match.board,
+                boardSnapshot: snapshot,
+                boardVersion: match.boardVersion,
+                version: match.boardVersion,
+                seed: match.seed,
+                p1_mana: 0,
+                p2_mana: 20,
+              }));
+
+              if (match.subPhase === 1) {
+                const p1Alive = aliveStarmonIndices(match.players[1]);
+                const p2Alive = aliveStarmonIndices(match.players[2]);
+                const elapsedSec = (match as any).phaseStartTime
+                  ? Math.floor((Date.now() - (match as any).phaseStartTime) / 1000)
+                  : 0;
+                const remainingSec = Math.max(1, 120 - elapsedSec);
+                ws.send(JSON.stringify({
+                  type: 'phase_changed',
+                  phase: match.phase,
+                  turn: match.turn,
+                  round_number: match.turn,
+                  subPhase: 1,
+                  attackerSlot: null,
+                  targetSlot: null,
+                  attackQueue: [],
+                  time_limit: remainingSec,
+                  p1_alive_count: p1Alive.length,
+                  p1_alive_indices: p1Alive,
+                  p2_alive_count: p2Alive.length,
+                  p2_alive_indices: p2Alive,
+                  board: match.board,
+                  boardSnapshot: snapshot,
+                  boardVersion: match.boardVersion,
+                  version: match.boardVersion,
+                }));
+              } else if ((match.subPhase === 2 || match.subPhase === 3) && attackerSlot !== null) {
+                sendCurrentCombatPhaseToSocket(match, ws, slot);
+              }
+            }
+          }
+          break;
+        }
+
+        case 'PVP_ANSWER_PROGRESS': {
+          const targetCode = normalizeRoomCode(msg.room_code || currentRoomCode || '');
+          const match = activeMatchStates.get(targetCode);
+          if (!match || !targetCode || match.subPhase !== 1) break;
+
+          const rawSlot = msg.slot ?? msg.actor_slot;
+          const slot: 1 | 2 = (rawSlot === 2 || rawSlot === '2')
+            ? 2
+            : (rawSlot === 1 || rawSlot === '1' || rawSlot === 0 ? 1 : (match.players[1].id === msg.player_id ? 1 : 2));
+          const P = match.players[slot];
+          if (P && Array.isArray(msg.results)) {
+            msg.results.forEach((val: any, idx: number) => {
+              if (val !== undefined && P.starmons[idx]) {
+                const isOk = Boolean(val) && P.starmons[idx].alive && P.starmons[idx].hp > 0;
+                P.results[idx] = isOk;
+                P.starmons[idx].unlocked = isOk;
+              }
+            });
+          }
+          break;
+        }
+
+        case 'PVP_PHASE1_SYNC_BOTH':
+        case 'PVP_PHASE1_TIMEOUT': {
+          const targetCode = normalizeRoomCode(msg.room_code || currentRoomCode || '');
+          if (!targetCode) break;
+          if (!roomClients.has(targetCode)) {
+            roomClients.set(targetCode, new Set());
+          }
+          roomClients.get(targetCode)!.add(ws);
+
+          let match = activeMatchStates.get(targetCode);
+          if (!match) {
+            activeRooms = loadRooms();
+            const room = activeRooms.find(r => normalizeRoomCode(r.room_code || r.code) === targetCode);
+            if (room) {
+              match = initializeMatchForRoom(room);
+            }
+          }
+          if (!match) break;
+
+          const rawSlot = msg.slot ?? msg.actor_slot;
+          const slot: 1 | 2 = (rawSlot === 2 || rawSlot === '2') ? 2 : 1;
+          match.players[slot].socket = ws;
+
+          // If Firestore speakingSubmissions were forwarded, populate any missing results before starting Phase 2
+          if (Array.isArray(msg.slot1_results)) {
+            match.players[1].starmons.forEach((s, idx) => {
+              const ok = Boolean(msg.slot1_results[idx]) && s.alive && s.hp > 0;
+              match!.players[1].results[idx] = ok;
+              s.unlocked = ok;
+            });
+            match.players[1].hasSubmittedAnswer = true;
+          }
+          if (Array.isArray(msg.slot2_results)) {
+            match.players[2].starmons.forEach((s, idx) => {
+              const ok = Boolean(msg.slot2_results[idx]) && s.alive && s.hp > 0;
+              match!.players[2].results[idx] = ok;
+              s.unlocked = ok;
+            });
+            match.players[2].hasSubmittedAnswer = true;
+          }
+          if (Array.isArray(msg.results)) {
+            match.players[slot].starmons.forEach((s, idx) => {
+              const ok = Boolean(msg.results[idx]) && s.alive && s.hp > 0;
+              match!.players[slot].results[idx] = ok;
+              s.unlocked = ok;
+            });
+            match.players[slot].hasSubmittedAnswer = true;
+          }
+
+          if (match.subPhase === 1) {
+            match.players[slot].hasSubmittedAnswer = true;
+            match.players[slot].starmons.forEach((s, idx) => {
+              if (match!.players[slot].results[idx] == null) {
+                match!.players[slot].results[idx] = false;
+                s.unlocked = false;
+              }
+            });
+            // QUY TẮC DUY NHẤT: Phase chỉ kết thúc khi server timer state.phaseEndsAt kết thúc qua handlePhaseEnd().
+            // Dù cả 2 đã nộp bài sớm hoặc timeout, VẪN CHỜ đúng 120s!
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({
+                type: 'answer_all_done',
+                phase: match.phase,
+                phaseEndsAt: match.phaseEndsAt,
+                serverTime: Date.now(),
+                message: 'Bạn đã nộp bài. Đang chờ hết thời gian Phase 1 (120s)...',
+              }));
+            }
+          } else {
+            // Đã ở Phase n.2 hoặc n.3 -> chỉ đồng bộ lại cho chính client này
+            sendCurrentCombatPhaseToSocket(match, ws, slot);
+          }
+          break;
+        }
+
+        case 'PVP_ANSWER_SUBMIT':
+        case 'PVP_SPEAKING_FINISH': {
+          const targetCode = normalizeRoomCode(msg.room_code || currentRoomCode || '');
+          if (!targetCode) break;
+          currentRoomCode = targetCode;
+          if (!roomClients.has(targetCode)) {
+            roomClients.set(targetCode, new Set());
+          }
+          roomClients.get(targetCode)!.add(ws);
+
+          let match = activeMatchStates.get(targetCode);
+          if (!match) {
+            activeRooms = loadRooms();
+            const room = activeRooms.find(r => normalizeRoomCode(r.room_code || r.code) === targetCode);
+            if (room) {
+              match = initializeMatchForRoom(room);
+            }
+          }
+          if (!match) break;
+
+          const rawSlot = msg.slot ?? msg.actor_slot;
+          const slot: 1 | 2 = (rawSlot === 2 || rawSlot === '2')
+            ? 2
+            : (rawSlot === 1 || rawSlot === '1' || rawSlot === 0 ? 1 : (match.players[1].id === msg.player_id ? 1 : 2));
+          match.players[slot].socket = ws;
+
+          const results: boolean[] = Array.isArray(msg.results)
+            ? msg.results
+            : Array.isArray(msg.unlocked_positions)
+            ? msg.unlocked_positions
+            : [false, false, false];
+
+          onAnswerSubmit(match, targetCode, slot, results, Boolean(msg.is_timeout), ws);
+          break;
+        }
+
+        case 'resync':
+        case 'request_resync':
+        case 'board_sync':
+        case 'request_board_sync': {
+          const targetCode = normalizeRoomCode(msg.room_code || currentRoomCode || '');
+          const match = activeMatchStates.get(targetCode);
+          if (match && ws.readyState === WebSocket.OPEN) {
+            const rawSlot = msg.slot ?? msg.actor_slot;
+            const playerSlot: 1 | 2 = (rawSlot === 2 || rawSlot === '2') ? 2 : 1;
+            const snapshot = serializeBoard(match);
+            ws.send(JSON.stringify({
+              type: 'resync',
+              phase: match.phase,
+              subPhase: match.subPhase,
+              step: match.step,
+              attackerSlot: match.attackerSlot,
+              targetSlot: match.targetSlot,
+              boardSnapshot: snapshot,
+              grid: match.board,
+              board: match.board,
+              boardVersion: match.boardVersion,
+              version: match.boardVersion,
+              myResults: match.players[playerSlot]?.results || [false, false, false],
+              p1_hp: match.players[1].starmons.map(s => s.hp),
+              p2_hp: match.players[2].starmons.map(s => s.hp),
+              p1_mana: match.players[1].starmons.map(s => s.mana),
+              p2_mana: match.players[2].starmons.map(s => s.mana),
+            }));
+            ws.send(JSON.stringify({
+              type: 'board_full_sync',
+              version: match.boardVersion,
+              boardVersion: match.boardVersion,
+              boardSnapshot: snapshot,
+              grid: match.board,
+              board: match.board,
+              p1_hp: match.players[1].starmons.map(s => s.hp),
+              p2_hp: match.players[2].starmons.map(s => s.hp),
+              p1_mana: match.players[1].starmons.map(s => s.mana),
+              p2_mana: match.players[2].starmons.map(s => s.mana),
+            }));
+            if (match.subPhase === 2 || match.subPhase === 3) {
+              sendCurrentCombatPhaseToSocket(match, ws, playerSlot);
+            }
+          }
+          break;
+        }
+
+        case 'board_tile_hover':
+        case 'PVP_TILE_HOVER':
+        case 'board_tile_select':
+        case 'PVP_TILE_SELECT': {
+          const targetCode = normalizeRoomCode(msg.room_code || currentRoomCode || '');
+          if (targetCode) {
+            broadcastToRoom(targetCode, {
+              type: 'board_tile_selected',
+              slot: msg.slot ?? msg.actor_slot,
+              tile: msg.tile || null,
+              hover: Boolean(msg.hover),
+            }, ws);
+          }
+          break;
+        }
+
+        case 'PVP_PING': {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'PVP_PONG', ts: Date.now() }));
+          }
+          break;
+        }
+
+        case 'starmon_action':
+        case 'onStarmonAction':
+        case 'attack_submit':
+        case 'onAttackSubmit':
+        case 'PVP_BATTLE_ACTION': {
+          const targetCode = normalizeRoomCode(msg.room_code || currentRoomCode || '');
+          const match = activeMatchStates.get(targetCode);
+          if (!match || !targetCode) break;
+
+          const rawSlot = msg.playerSlot ?? msg.attackerSlot ?? msg.actor_slot ?? msg.slot;
+          let playerSlot: 1 | 2;
+          if (rawSlot === 2 || rawSlot === '2') {
+            playerSlot = 2;
+          } else if (rawSlot === 1 || rawSlot === '1' || rawSlot === 0) {
+            playerSlot = 1;
+          } else {
+            playerSlot = match.players[1].id === msg.player_id ? 1 : 2;
+          }
+          match.players[playerSlot].socket = ws;
+
+          const starmonIdx = typeof msg.starmonIndex === 'number'
+            ? msg.starmonIndex
+            : (typeof msg.starmon_index === 'number'
+              ? msg.starmon_index
+              : (typeof msg.action?.attackerIndex === 'number' ? msg.action.attackerIndex : (match.step || 1) - 1));
+
+          const actionType = msg.actionType || (msg.action?.actionType === 'SKILL' ? 'use_ability' : 'physical_attack');
+          const actionPayload = msg.payload || {
+            targetStarmonIndex: typeof msg.targetStarmonIndex === 'number'
+              ? msg.targetStarmonIndex
+              : (typeof msg.action?.targetIdx === 'number' ? msg.action.targetIdx : 0),
+            orbSwitches: msg.action?.orbSwitches || [],
+            abilityId: msg.action?.abilityId || msg.action?.skillName,
+            abilityNum: msg.action?.abilityNum,
+            skillName: msg.action?.skillName,
+            manaCost: msg.action?.manaCost,
+            elem: msg.action?.elem,
+            matchCount: msg.action?.matchCount,
+            damage: msg.action?.damage,
+            isCrit: msg.action?.isCrit,
+            isAoE: msg.action?.isAoE,
+            newBoard: msg.action?.newBoard,
+          };
+
+          onStarmonAction(match, targetCode, playerSlot, {
+            starmonIndex: starmonIdx,
+            actionType,
+            payload: actionPayload,
+          }, ws);
+          break;
+        }
+
+        case 'PVP_SYNC_BOARD': {
+          const targetCode = normalizeRoomCode(msg.room_code || currentRoomCode || '');
+          if (targetCode && msg.board) {
+            const match = activeMatchStates.get(targetCode);
+            if (match) {
+              match.board = msg.board;
+              match.boardVersion = (match.boardVersion || 0) + 1;
+              broadcastToRoom(targetCode, {
+                type: 'board_update',
+                board: match.board,
+                boardSnapshot: match.board,
+                boardVersion: match.boardVersion,
+                version: match.boardVersion,
+                sender_id: msg.player_id,
+                p1_hp: match.players[1].starmons.map(s => s.hp),
+                p2_hp: match.players[2].starmons.map(s => s.hp),
+              });
+              broadcastToRoom(targetCode, {
+                type: 'PVP_BOARD_UPDATED',
+                board: match.board,
+                boardSnapshot: match.board,
+                boardVersion: match.boardVersion,
+                version: match.boardVersion,
+                sender_id: msg.player_id,
+              }, ws);
+            }
+          }
+          break;
+        }
+
+        case 'PVP_TURN_END':
+        case 'step_timeout': {
+          const targetCode = normalizeRoomCode(msg.room_code || currentRoomCode || '');
+          const match = activeMatchStates.get(targetCode);
+          if (!match) break;
+
+          const rawSlot = msg.actor_slot ?? msg.slot ?? msg.attackerSlot;
+          const playerSlot: 1 | 2 = (rawSlot === 2 || rawSlot === '2')
+            ? 2
+            : (rawSlot === 1 || rawSlot === '1' || rawSlot === 0 ? 1 : (match.players[1].id === msg.player_id ? 1 : 2));
+
+          const { attackerSlot } = getAttackerAndTargetByPhase(match.phase);
+          if (attackerSlot === playerSlot && (match.subPhase === 2 || match.subPhase === 3)) {
+            onStepTimeout(match, targetCode);
+          }
+          break;
+        }
+
+        case 'PVP_MATCH_END': {
+          const targetCode = normalizeRoomCode(msg.room_code || currentRoomCode || '');
+          if (targetCode) {
+            const match = activeMatchStates.get(targetCode);
+            if (match?.timerHandle) {
+              clearTimeout(match.timerHandle);
+            }
+            activeMatchStates.delete(targetCode);
+            broadcastToRoom(targetCode, {
+              type: 'PVP_MATCH_FINISHED',
+              winner_id: msg.winner_id,
+              winner_name: msg.winner_name,
+            });
+            broadcastToRoom(targetCode, {
+              type: 'game_over',
+              winner: msg.winner_id,
+            });
+          }
+          break;
+        }
+
+        case 'PVP_ACTION': {
+          const targetCode = normalizeRoomCode(msg.room_code || currentRoomCode || '');
+          if (targetCode) {
+            broadcastToRoom(targetCode, { type: 'OPPONENT_ACTION', action: msg.action }, ws);
+          }
+          break;
+        }
+
+        default:
+          break;
+      }
+    } catch (e) {
+      console.warn('WS Message Error:', e);
+    }
+  });
+
+  ws.on('close', () => {
+    if (currentRoomCode && roomClients.has(currentRoomCode)) {
+      const clients = roomClients.get(currentRoomCode)!;
+      clients.delete(ws);
+      if (clients.size === 0) {
+        roomClients.delete(currentRoomCode);
+      }
+    }
+  });
+});
+
+// API: Get active PvP Rooms
+app.get('/api/rooms', (_req, res) => {
+  activeRooms = loadRooms();
+  // Filter out any abandoned rooms older than 24 hours
+  const now = Date.now();
+  activeRooms = activeRooms.filter(r => (now - (r.createdAt || now)) < 86400000 && r.status === 'WAITING');
+  res.json(activeRooms);
+});
+
+// API: Get specific PvP Room by code
+app.get('/api/rooms/:code', (req, res) => {
+  const targetCode = normalizeRoomCode(req.params.code || '');
+  activeRooms = loadRooms();
+  const room = activeRooms.find(r => normalizeRoomCode(r.room_code || r.code) === targetCode);
+
+  if (room) {
+    res.json(room);
+  } else {
+    res.status(404).json({ error: 'Room not found' });
+  }
+});
+
+// API: Create new PvP Room (generates 6-digit code or supports custom code)
+app.post('/api/rooms/create', (req, res) => {
+  const {
+    host_id,
+    host_name,
+    hostName,
+    host_level,
+    hostLevel,
+    arena = 'Celestial Sanctuary',
+    custom_code,
+    customCode,
+    starmons = [],
+    players = [],
+  } = req.body;
+
+  let code = '';
+  const rawCustom = custom_code || customCode || req.body.room_code || req.body.code;
+  if (rawCustom && typeof rawCustom === 'string' && rawCustom.trim()) {
+    code = rawCustom.trim().toUpperCase().replace(/[^A-Z0-9-]/g, '');
+  }
+  if (!code) {
+    // Generate clean 6-digit room code as requested
+    code = Math.floor(100000 + Math.random() * 900000).toString();
+  }
+
+  activeRooms = loadRooms();
+  // Remove any stale room with the identical normalized code
+  const normNewCode = normalizeRoomCode(code);
+  activeRooms = activeRooms.filter(r => normalizeRoomCode(r.room_code || r.code) !== normNewCode);
+  // Clear any existing match state for this room code
+  activeMatchStates.delete(normNewCode);
+
+  const finalHostId = host_id || req.body.host_id || `host_${Date.now()}`;
+  const finalHostName = host_name || hostName || req.body.hostName || 'Player';
+  const finalHostLevel = host_level || hostLevel || req.body.hostLevel || 1;
+
+  const partyStarmons = Array.isArray(starmons) && starmons.length > 0
+    ? starmons
+    : (Array.isArray(players) && players[0]?.starmons && players[0].starmons.length > 0 ? players[0].starmons : []);
+
+  const hostPlayer: PlayerInRoom = {
+    id: finalHostId,
+    name: finalHostName,
+    level: finalHostLevel,
+    isHost: true,
+    isReady: true,
+    starmons: partyStarmons,
+  };
+
+  const newRoom: PvpRoom = {
+    room_code: code,
+    code,
+    host_id: finalHostId,
+    hostName: finalHostName,
+    hostLevel: finalHostLevel,
+    arena: arena || req.body.arena || 'Celestial Sanctuary',
+    status: 'WAITING',
+    players: [hostPlayer],
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+
+  activeRooms.unshift(newRoom);
+  saveRooms(activeRooms);
+  broadcastRoomList();
+  res.json(newRoom);
+});
+
+// API: Join PvP Room by code (strict check: exists, WAITING status, not full)
+app.post('/api/rooms/join', (req, res) => {
+  const {
+    room_code,
+    code,
+    user_id,
+    user_name,
+    guestName,
+    user_level,
+    guestLevel,
+    starmons = [],
+  } = req.body;
+
+  const rawInput = (room_code || code || '').toString().trim();
+  const normalizedInput = normalizeRoomCode(rawInput);
+
+  if (!normalizedInput) {
+    return res.status(400).json({ error: 'Vui lòng nhập mã phòng.' });
+  }
+
+  // Always load latest rooms from disk
+  activeRooms = loadRooms();
+  let room = activeRooms.find(r => normalizeRoomCode(r.room_code || r.code) === normalizedInput);
+
+  if (!room) {
+    // If joining the preset room STARMON-CC9C2 and it hasn't been created yet, auto-provision it as WAITING
+    if (normalizedInput === 'STARMONCC9C2') {
+      const presetHost: PlayerInRoom = {
+        id: 'host_starmon_cc9c2',
+        name: 'Chủ phòng CC9C2',
+        level: 1,
+        isHost: true,
+        isReady: true,
+        starmons: [],
+      };
+      room = {
+        room_code: 'STARMON-CC9C2',
+        code: 'STARMON-CC9C2',
+        host_id: 'host_starmon_cc9c2',
+        hostName: 'Chủ phòng CC9C2',
+        hostLevel: 1,
+        arena: 'Celestial Sanctuary',
+        status: 'WAITING',
+        players: [presetHost],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      activeRooms.unshift(room);
+      saveRooms(activeRooms);
+    } else {
+      return res.status(404).json({ error: `Phòng "${rawInput}" không tồn tại hoặc đã bị hủy. Vui lòng kiểm tra lại!` });
+    }
+  }
+
+  let finalUserId = user_id || `guest_${Date.now()}`;
+  let finalUserName = user_name || guestName || 'Tài khoản Google B';
+  const finalUserLevel = user_level || guestLevel || 1;
+
+  // CRITICAL FIX: If joining user has identical ID to host (e.g. 2 tabs in same browser or default ID),
+  // assign distinct guest ID and guest name so they don't collide and can battle!
+  if (finalUserId === room.host_id) {
+    finalUserId = `${finalUserId}_guest_${Date.now().toString().slice(-4)}`;
+    if (finalUserName === room.hostName) {
+      finalUserName = 'Tài khoản Google B';
+    }
+  }
+
+  // Check if challenger is reconnecting (never match or overwrite the host slot)
+  const existingPlayerIndex = room.players.findIndex(p => !p.isHost && (p.id === finalUserId || (user_id !== room.host_id && p.id === user_id)));
+  const isAlreadyInRoom = existingPlayerIndex !== -1;
+
+  if (isAlreadyInRoom) {
+    // Player is reconnecting/refreshing in this room
+    room.players[existingPlayerIndex] = {
+      ...room.players[existingPlayerIndex],
+      id: finalUserId,
+      name: finalUserName,
+      level: finalUserLevel,
+      isHost: room.players[existingPlayerIndex].isHost || false,
+      isReady: true,
+      starmons: Array.isArray(starmons) && starmons.length > 0 ? starmons : room.players[existingPlayerIndex].starmons,
+    };
+  } else {
+    if (room.status !== 'WAITING') {
+      return res.status(400).json({ error: `Phòng "${rawInput}" đã bắt đầu trận đấu hoặc đã kết thúc!` });
+    }
+    if (room.players.length >= 2) {
+      return res.status(400).json({ error: `Phòng "${rawInput}" đã đầy (tối đa 2 người chơi)!` });
+    }
+    const challengerPlayer: PlayerInRoom = {
+      id: finalUserId,
+      name: finalUserName,
+      level: finalUserLevel,
+      isHost: false,
+      isReady: true,
+      starmons: Array.isArray(starmons) && starmons.length > 0 ? starmons : [],
+    };
+    room.players.push(challengerPlayer);
+  }
+
+  room.guestName = finalUserName;
+  room.guestLevel = finalUserLevel;
+  room.status = 'IN_GAME';
+  room.updatedAt = Date.now();
+
+  saveRooms(activeRooms);
+  const normCode = normalizeRoomCode(room.room_code || room.code);
+  const isNewMatch = !activeMatchStates.has(normCode);
+  const match = isNewMatch ? initializeMatchForRoom(room) : activeMatchStates.get(normCode)!;
+  if (!isNewMatch) {
+    match.players[2].id = finalUserId;
+    match.players[2].name = finalUserName;
+    if (Array.isArray(starmons) && starmons.length > 0 && match.turn === 1 && match.subPhase === 1) {
+      match.players[2].starmons = createDefaultStarmonsForSlot(2, starmons);
+      if (match.sharedBoard) {
+        match.sharedBoard.starmons[2] = match.players[2].starmons;
+      }
+    }
+  }
+  broadcastRoomList();
+  broadcastToRoom(normCode, { type: 'ROOM_STATE_UPDATED', room });
+  broadcastToRoom(normCode, { type: 'MATCH_STARTED', room, matchState: serializeMatchState(match), boardSnapshot: serializeBoard(match), board: match.board });
+  broadcastToRoom(normCode, { type: 'match_start', room, matchState: serializeMatchState(match), boardSnapshot: serializeBoard(match), board: match.board });
+
+  if (isNewMatch) {
+    startTurn(match, normCode, 1);
+  }
+
+  res.json({
+    success: true,
+    room,
+    matchState: serializeMatchState(match),
+    joinedAsId: finalUserId,
+    joinedAsName: finalUserName,
+  });
+});
+
+// API: Start Match (called by Host when challenger is in room)
+app.post('/api/rooms/start', (req, res) => {
+  const { room_code, code, user_id } = req.body;
+  const rawInput = (room_code || code || '').toString().trim();
+  const normalizedInput = normalizeRoomCode(rawInput);
+
+  activeRooms = loadRooms();
+  const room = activeRooms.find(r => normalizeRoomCode(r.room_code || r.code) === normalizedInput);
+
+  if (!room) {
+    return res.status(404).json({ error: 'Không tìm thấy phòng!' });
+  }
+
+  if (room.players.length < 2) {
+    return res.status(400).json({ error: 'Cần ít nhất 2 người chơi trong phòng để bắt đầu trận đấu!' });
+  }
+
+  room.status = 'IN_GAME';
+  room.updatedAt = Date.now();
+
+  saveRooms(activeRooms);
+  const isNewMatch = !activeMatchStates.has(normalizedInput);
+  const match = isNewMatch ? initializeMatchForRoom(room) : activeMatchStates.get(normalizedInput)!;
+  broadcastRoomList();
+  broadcastToRoom(normalizedInput, { type: 'MATCH_STARTED', room, matchState: serializeMatchState(match), boardSnapshot: serializeBoard(match), board: match.board });
+  broadcastToRoom(normalizedInput, { type: 'match_start', room, matchState: serializeMatchState(match), boardSnapshot: serializeBoard(match), board: match.board });
+  if (isNewMatch) {
+    startTurn(match, normalizedInput, 1);
+  }
+
+  res.json({ success: true, room, matchState: serializeMatchState(match) });
+});
+
+// API: Leave / Close Room
+app.post('/api/rooms/leave', (req, res) => {
+  const { room_code, code, user_id } = req.body;
+  const rawInput = (room_code || code || '').toString().trim();
+  const normalizedInput = normalizeRoomCode(rawInput);
+
+  activeRooms = loadRooms();
+  const room = activeRooms.find(r => normalizeRoomCode(r.room_code || r.code) === normalizedInput);
+
+  if (room) {
+    if (user_id && user_id === room.host_id) {
+      // Host leaves: close room
+      room.status = 'FINISHED';
+      activeRooms = activeRooms.filter(r => normalizeRoomCode(r.room_code || r.code) !== normalizedInput);
+      activeMatchStates.delete(normalizedInput);
+      saveRooms(activeRooms);
+      broadcastToRoom(room.room_code, { type: 'ROOM_CLOSED', room_code: room.room_code });
+    } else {
+      // Guest leaves
+      room.players = room.players.filter(p => p.id !== user_id);
+      room.guestName = undefined;
+      room.status = 'WAITING';
+      room.updatedAt = Date.now();
+      saveRooms(activeRooms);
+      broadcastToRoom(room.room_code, { type: 'ROOM_STATE_UPDATED', room });
+    }
+    broadcastRoomList();
+  }
+
+  res.json({ success: true });
+});
+
+// ==========================================
+// CENTRALIZED ACCOUNTS SYNCHRONIZATION APIS
+// ==========================================
+
+// API: Get all accounts synchronized centrally
+app.get('/api/accounts', (_req, res) => {
+  serverAccounts = loadAccounts();
+  const accountsList = getUniqueAccountsList(serverAccounts);
+  // Return indexed map with all lookup keys, as well as accounts array
+  const responseObj: any = {};
+  for (const acc of accountsList) {
+    const key = (acc.googleId || acc.email || acc.username || '').toLowerCase();
+    if (key) responseObj[key] = acc;
+    if (acc.username) responseObj[acc.username.toLowerCase()] = acc;
+    if (acc.email) responseObj[acc.email.toLowerCase()] = acc;
+    if (acc.googleId) responseObj[acc.googleId.toLowerCase()] = acc;
+  }
+  // Also expose accounts array
+  responseObj.accounts = accountsList;
+  res.json(responseObj);
+});
+
+// API: Get specific account by username, Google ID, or email
+app.get('/api/accounts/:id', (req, res) => {
+  const targetId = (req.params.id || '').trim().toLowerCase();
+  serverAccounts = loadAccounts();
+  const account = serverAccounts[targetId] ||
+    Object.values(serverAccounts).find(a =>
+      (a.googleId && a.googleId.toLowerCase() === targetId) ||
+      (a.email && a.email.toLowerCase() === targetId) ||
+      (a.username && a.username.toLowerCase() === targetId)
+    );
+
+  if (account) {
+    res.json(account);
+  } else {
+    res.status(404).json({ error: 'Account not found' });
+  }
+});
+
+// API: Save / Sync account centrally
+app.post('/api/accounts/sync', (req, res) => {
+  const accountData: ServerUserAccount = req.body;
+  if (!accountData || (!accountData.username && !accountData.googleId && !accountData.email)) {
+    return res.status(400).json({ error: 'Username, Google ID, or Email is required to sync account' });
+  }
+
+  const rawKey = (accountData.googleId || accountData.email || accountData.username || 'user').trim().toLowerCase();
+  serverAccounts = loadAccounts();
+
+  const existing = serverAccounts[rawKey] || Object.values(serverAccounts).find(a =>
+    Boolean(
+      (accountData.googleId && a.googleId && a.googleId.toLowerCase() === accountData.googleId.toLowerCase()) ||
+      (accountData.email && a.email && a.email.toLowerCase() === accountData.email.toLowerCase()) ||
+      (accountData.username && accountData.username.toLowerCase() !== 'player' && a.username && a.username.toLowerCase() === accountData.username.toLowerCase())
+    )
+  );
+
+  const updatedAccount: ServerUserAccount = {
+    ...(existing || {}),
+    ...accountData,
+    username: accountData.username || existing?.username || rawKey,
+    googleId: accountData.googleId || existing?.googleId,
+    email: accountData.email || existing?.email,
+    lastPlayedAt: new Date().toISOString(),
+    createdAt: existing?.createdAt || accountData.createdAt || new Date().toISOString(),
+  };
+
+  serverAccounts[rawKey] = updatedAccount;
+  if (accountData.googleId) {
+    serverAccounts[accountData.googleId.toLowerCase()] = updatedAccount;
+  }
+  if (accountData.email) {
+    serverAccounts[accountData.email.toLowerCase()] = updatedAccount;
+  }
+  if (accountData.username && accountData.username.toLowerCase() !== 'player') {
+    serverAccounts[accountData.username.toLowerCase()] = updatedAccount;
+  }
+
+  saveAccounts(serverAccounts);
+  broadcastAccounts();
+
+  res.json({ success: true, account: updatedAccount });
+});
+
+// API: Reset account progress to starting point (Level 1, 0 gold, 2 starter packs, 0 starmons)
+app.post('/api/accounts/reset', (req, res) => {
+  const { username, googleId } = req.body || {};
+  serverAccounts = loadAccounts();
+  const searchKey = (googleId || username || '').trim().toLowerCase();
+  const uname = username || 'Player';
+  const cleanAccount: ServerUserAccount = {
+    username: uname,
+    googleId: googleId || '',
+    email: '',
+    createdAt: new Date().toISOString(),
+    lastPlayedAt: new Date().toISOString(),
+    player: {
+      name: uname,
+      username: uname,
+      googleId: googleId || '',
+      level: 1,
+      exp: 0,
+      nextExp: 100,
+      gold: 0,
+      gems: 0,
+      starterPacksCount: 2,
+      isNewPlayer: true,
+      hasClaimedBeginnerPack: false,
+      hasCompletedOnboardingTutorial: false,
+      hasClaimedTutorial1Reward: false,
+      completedTutorialStages: [],
+      activeCompanionId: '',
+      battleParty: [],
+      mailUnreadCount: 0,
+      soundEnabled: true,
+      musicEnabled: true,
+      showSpeakingHints: false,
+      quizQuestionMode: 'speaking_only',
+      graphicsQuality: 'High',
+    },
+    starmons: [],
+    quests: [],
+  };
+
+  if (searchKey) {
+    for (const [k, acc] of Object.entries(serverAccounts)) {
+      if (
+        k === searchKey ||
+        (googleId && acc.googleId && acc.googleId.toLowerCase() === googleId.toLowerCase()) ||
+        (username && acc.username && acc.username.toLowerCase() === username.toLowerCase())
+      ) {
+        serverAccounts[k] = cleanAccount;
+      }
+    }
+    serverAccounts[searchKey] = cleanAccount;
+  }
+  saveAccounts(serverAccounts);
+  broadcastAccounts();
+  res.json({ success: true, account: cleanAccount });
+});
+
+// API: Google Sign-in / Direct Google Account Provisioning
+app.post('/api/accounts/google-auth', (req, res) => {
+  const { googleId, email, name, player, starmons, quests } = req.body;
+  if (!googleId && !email) {
+    return res.status(400).json({ error: 'Google ID or Email is required' });
+  }
+
+  serverAccounts = loadAccounts();
+  const searchKey = (googleId || email || '').trim().toLowerCase();
+  const existing = serverAccounts[searchKey] || Object.values(serverAccounts).find(a =>
+    Boolean(
+      (googleId && a.googleId && a.googleId.toLowerCase() === googleId.toLowerCase()) ||
+      (email && a.email && a.email.toLowerCase() === email.toLowerCase())
+    )
+  );
+
+  if (existing) {
+    existing.lastPlayedAt = new Date().toISOString();
+    if (player) existing.player = { ...existing.player, ...player };
+    if (starmons && starmons.length > 0) existing.starmons = starmons;
+    if (quests && quests.length > 0) existing.quests = quests;
+    saveAccounts(serverAccounts);
+    broadcastAccounts();
+    return res.json({ success: true, account: existing, isNew: false });
+  }
+
+  // Create fresh Google account centrally
+  const displayName = name || (email ? email.split('@')[0] : 'Google Trainer');
+  const cleanKey = searchKey;
+
+  const newAccount: ServerUserAccount = {
+    username: displayName,
+    googleId: googleId || searchKey,
+    email: email || undefined,
+    createdAt: new Date().toISOString(),
+    lastPlayedAt: new Date().toISOString(),
+    player: player || {
+      name: displayName,
+      username: displayName,
+      googleId: googleId || searchKey,
+      googleEmail: email,
+      level: 1,
+      exp: 0,
+      nextExp: 100,
+      gold: 0,
+      gems: 0,
+      starterPacksCount: 2,
+      isNewPlayer: true,
+      hasClaimedBeginnerPack: false,
+      hasCompletedOnboardingTutorial: false,
+      activeCompanionId: '',
+      battleParty: [],
+      mailUnreadCount: 1,
+      soundEnabled: true,
+      musicEnabled: true,
+      showSpeakingHints: false,
+      quizQuestionMode: 'speaking_only',
+      graphicsQuality: 'High',
+    },
+    starmons: starmons || [],
+    quests: quests || [],
+  };
+
+  serverAccounts[cleanKey] = newAccount;
+  if (email && email.toLowerCase() !== cleanKey) {
+    serverAccounts[email.toLowerCase()] = newAccount;
+  }
+  if (googleId && googleId.toLowerCase() !== cleanKey) {
+    serverAccounts[googleId.toLowerCase()] = newAccount;
+  }
+
+  saveAccounts(serverAccounts);
+  broadcastAccounts();
+  res.json({ success: true, account: newAccount, isNew: true });
+});
+
+// API: Evaluate IELTS Speaking with Gemini API
+app.post('/api/evaluate-speaking', async (req, res) => {
+  try {
+    const {
+      question,
+      transcript,
+      targetBand = 5.5,
+      pauses = [],
+      hesitations = [],
+      stutters = [],
+      durationSeconds = 0,
+    } = req.body;
+
+    if (!transcript || typeof transcript !== 'string' || transcript.trim().length === 0) {
+      return res.status(400).json({ error: 'Transcript is required' });
+    }
+
+    const trimmedTranscript = transcript.trim();
+    const words = trimmedTranscript.split(/\s+/);
+    const wordCount = words.length;
+
+    // Helper: Round DOWN strictly to the nearest 0.5 step (e.g. 7.7 -> 7.5, 7.4 -> 7.0)
+    const floorToHalf = (num: number): number => Math.floor(num * 2) / 2;
+
+    // Detect natural speech fluency metrics from transcript and telemetry
+    const detectedStutters: string[] = [];
+    const lowerText = trimmedTranscript.toLowerCase();
+    // Detect immediate duplicated words (e.g. "I I", "the the", "because because", "it it's")
+    const repeatRegex = /\b([a-zA-Z]{1,12})\s+\1\b/gi;
+    let match: RegExpExecArray | null;
+    while ((match = repeatRegex.exec(trimmedTranscript)) !== null) {
+      detectedStutters.push(`Lặp từ "${match[0]}"`);
+    }
+    // Also include any telemetry passed from client speech recognition
+    if (Array.isArray(stutters)) {
+      stutters.forEach((s: any) => {
+        if (typeof s === 'string' && !detectedStutters.includes(s)) detectedStutters.push(s);
+      });
+    }
+
+    const detectedHesitations: string[] = [];
+    const hesitationTokens = ['um', 'uh', 'er', 'ah', 'umm', 'uhh'];
+    words.forEach(w => {
+      const cleanW = w.toLowerCase().replace(/[^a-z]/g, '');
+      if (hesitationTokens.includes(cleanW)) {
+        detectedHesitations.push(`Từ đệm ngập ngừng "${w}"`);
+      }
+    });
+    if (Array.isArray(hesitations)) {
+      hesitations.forEach((h: any) => {
+        if (typeof h === 'string' && !detectedHesitations.includes(h)) detectedHesitations.push(h);
+      });
+    }
+
+    const pauseCount = typeof pauses === 'number' ? pauses : Array.isArray(pauses) ? pauses.length : 0;
+    const stutterCount = detectedStutters.length;
+    const hesitationCount = detectedHesitations.length;
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      // Precise Fallback Evaluation following the user's specific rules:
+      // 1. Grammar: Default 6.5 to 7.5 if fairly natural and accurate.
+      // Only penalize below 6.5 if severe errors (word form errors > 2 or missing subject/predicate).
+      let baseGRA = 7.0;
+      let severeGrammarErrorsCount = 0;
+
+      const grammarErrors: Array<{
+        sentence: string;
+        error: string;
+        correction: string;
+        practice_structure: string;
+        explanation: string;
+      }> = [];
+
+      // Check for sentence fragment / missing predicate or subject
+      const sentences = trimmedTranscript.split(/[.?!]+/).map(s => s.trim()).filter(s => s.length > 0);
+      sentences.forEach(s => {
+        const sWords = s.split(/\s+/);
+        if (sWords.length < 3 && sWords.length > 0 && !['yes', 'no', 'sure', 'of course'].includes(s.toLowerCase())) {
+          severeGrammarErrorsCount++;
+          grammarErrors.push({
+            sentence: s,
+            error: 'Câu cụt thiếu thành phần chủ ngữ hoặc vị ngữ hoàn chỉnh.',
+            correction: `I think that ${s.toLowerCase()} is essential for my daily life.`,
+            practice_structure: 'Cấu trúc câu hoàn chỉnh (Subject + Verb + Object/Complement)',
+            explanation: 'Mỗi câu trong IELTS Speaking cần có ít nhất một chủ ngữ và một động từ vị ngữ để tạo thành mệnh đề độc lập có nghĩa.'
+          });
+        }
+      });
+
+      // Check word form error pattern (e.g. "I am very interest in", "he speaks very quick")
+      if (lowerText.includes('very interest in') || lowerText.includes('more better') || lowerText.includes('is depend on')) {
+        severeGrammarErrorsCount++;
+        grammarErrors.push({
+          sentence: lowerText.includes('very interest in') ? 'very interest in' : lowerText.includes('more better') ? 'more better' : 'is depend on',
+          error: 'Sai dạng từ hoặc cấu trúc so sánh/tính từ.',
+          correction: lowerText.includes('very interest in') ? 'very interested in' : lowerText.includes('more better') ? 'much better' : 'depends on',
+          practice_structure: 'Dạng phân từ làm tính từ (-ed vs -ing) & Động từ chỉ trạng thái',
+          explanation: 'Dùng tính từ đuôi -ed khi miêu tả cảm xúc con người ("interested in") và không dùng "more" đi kèm tính từ ngắn đã thêm "-er".'
+        });
+      }
+
+      if (severeGrammarErrorsCount > 1) {
+        baseGRA = 5.5; // Severe penalty as requested
+      } else if (severeGrammarErrorsCount === 1) {
+        baseGRA = 6.0;
+      } else {
+        // Natural speech: 6.5 to 7.5 depending on minor issues
+        baseGRA = wordCount >= 25 ? 7.5 : wordCount >= 15 ? 7.0 : 6.5;
+        if (grammarErrors.length === 0 && !lowerText.includes('because') && !lowerText.includes('which') && !lowerText.includes('although')) {
+          grammarErrors.push({
+            sentence: trimmedTranscript.slice(0, 65) + '...',
+            error: 'Câu trả lời chủ yếu là câu đơn, nên bổ sung liên từ phụ thuộc để đạt band cao hơn.',
+            correction: `${trimmedTranscript.slice(0, 45)}... because it provides me with numerous benefits.`,
+            practice_structure: 'Mệnh đề phụ thuộc chỉ nguyên nhân & nhượng bộ (because, although, whereas)',
+            explanation: 'Sử dụng liên từ phụ thuộc giúp câu nói tự nhiên, kết nối ý mạch lạc và thể hiện sự đa dạng cấu trúc ngữ pháp.'
+          });
+        }
+      }
+
+      // 2. Fluency: based on real stutters, pauses, hesitations
+      let baseFC = 7.5;
+      if (stutterCount >= 2 || pauseCount >= 3) {
+        baseFC = 6.0;
+      } else if (stutterCount === 1 || pauseCount >= 1 || hesitationCount >= 2) {
+        baseFC = 6.5;
+      } else if (wordCount < 12) {
+        baseFC = 6.0;
+      } else {
+        baseFC = 7.5;
+      }
+
+      // 3. Pronunciation: identify REAL phonetic points, NOT generic ending sounds
+      let basePR = 7.0;
+      const pronunciationErrors: Array<{
+        word: string;
+        sound: string;
+        phonetic: string;
+        issue: string;
+        guide: string;
+      }> = [];
+
+      // Phonetically challenging words commonly found in IELTS
+      const phoneticLibrary: Record<string, { sound: string; phonetic: string; issue: string; guide: string }> = {
+        comfortable: {
+          sound: 'Nuốt âm tiết giữa và trọng âm rơi vào âm tiết đầu /ˈkʌmftəbl/',
+          phonetic: '/ˈkʌmftəbl/',
+          issue: 'Người học thường phát âm tách thành 4 âm "com-for-ta-ble" thay vì 3 âm chuẩn.',
+          guide: 'Lướt nhanh âm "fort" thành /ft/ và rơi trọng âm mạnh vào âm đầu "COM".'
+        },
+        specifically: {
+          sound: 'Trọng âm âm tiết 2 và cụm phụ âm đầu /spəˈsɪf.ɪ.kli/',
+          phonetic: '/spəˈsɪf.ɪ.kli/',
+          issue: 'Dễ nuốt âm /s/ đầu hoặc phát âm sai trọng âm sang âm tiết 1.',
+          guide: 'Bật nhẹ âm /s/ trước khi sang /pə/, nhấn mạnh vào "SIF".'
+        },
+        opportunity: {
+          sound: 'Trọng âm chính rơi vào âm tiết thứ 3 /ˌɒp.əˈtjuː.nə.ti/',
+          phonetic: '/ˌɒp.əˈtjuː.nə.ti/',
+          issue: 'Nhấn sai trọng âm hoặc phát âm nguyên âm /uː/ thành /u/ ngắn.',
+          guide: 'Nhấn mạnh nhất vào âm "TU" (/tjuː/), giữ nguyên âm đôi chuẩn xác.'
+        },
+        environment: {
+          sound: 'Trọng âm âm tiết 2 và âm /n/ câm trước /m/ /ɪnˈvaɪ.rən.mənt/',
+          phonetic: '/ɪnˈvaɪ.rən.mənt/',
+          issue: 'Dễ đọc rõ chữ "ron" thành "ron-mừn" thay vì âm schwa /rən/.',
+          guide: 'Nhấn mạnh vào "VI" (/vaɪ/), âm tiết tiếp theo phát âm lướt nhẹ thành /rən.mənt/.'
+        },
+        technology: {
+          sound: 'Âm /k/ ở chữ "ch" và trọng âm âm tiết 2 /tekˈnɒl.ə.dʒi/',
+          phonetic: '/tekˈnɒl.ə.dʒi/',
+          issue: 'Nhầm âm "ch" thành âm /tʃ/ thay vì âm bật hơi /k/.',
+          guide: 'Bật dứt khoát âm /k/ như "tek-NOL-uh-jee".'
+        },
+        especially: {
+          sound: 'Trọng âm âm tiết 2 /ɪˈspeʃ.əl.i/',
+          phonetic: '/ɪˈspeʃ.əl.i/',
+          issue: 'Thường thêm âm "e" đằng trước thành "e-specially" thay vì bắt đầu bằng /ɪs/.',
+          guide: 'Bắt đầu trực tiếp bằng âm gió /sp/, nhấn trọng âm mạnh vào "SPE".'
+        }
+      };
+
+      // Search if candidate transcript contains any of these or general phonetic candidates
+      for (const [kw, pData] of Object.entries(phoneticLibrary)) {
+        if (lowerText.includes(kw)) {
+          pronunciationErrors.push({
+            word: kw,
+            ...pData
+          });
+          if (pronunciationErrors.length >= 3) break;
+        }
+      }
+
+      if (pronunciationErrors.length === 0) {
+        // Pick words with diphthongs or consonant clusters
+        const candidateWords = words.map(w => w.replace(/[^a-zA-Z]/g, '')).filter(w => w.length >= 5);
+        const picked = candidateWords[0] || 'activity';
+        pronunciationErrors.push({
+          word: picked,
+          sound: 'Trọng âm và nguyên âm chuẩn xác',
+          phonetic: `/${picked.toLowerCase()}/`,
+          issue: `Cần chú ý nhấn đúng trọng âm của từ "${picked}" và không làm biến dạng nguyên âm chính.`,
+          guide: 'Phát âm chậm rãi, xác định âm tiết được nhấn và phát âm rõ nguyên âm mang trọng âm.'
+        });
+      }
+
+      const baseLR = wordCount > 25 ? 7.0 : wordCount > 15 ? 6.5 : 5.5;
+      const rawAvg = (baseFC + baseLR + baseGRA + basePR) / 4;
+      const roundedScore = floorToHalf(rawAvg);
+      const canAttack = roundedScore >= 5.5;
+
+      const dynamicWeaknesses: string[] = [];
+      if (detectedStutters.length > 0) {
+        dynamicWeaknesses.push(`Độ trôi chảy (Fluency): Phát hiện ${detectedStutters.length} vị trí lặp từ (${detectedStutters.join(', ')}).`);
+      }
+      if (detectedHesitations.length > 0) {
+        dynamicWeaknesses.push(`Độ trôi chảy (Fluency): Sử dụng từ đệm ngập ngừng (${detectedHesitations.join(', ')}).`);
+      }
+      if (severeGrammarErrorsCount > 0) {
+        dynamicWeaknesses.push('Ngữ pháp (Grammar): Cần tránh các lỗi câu cụt hoặc dùng sai dạng từ để không bị trừ điểm.');
+      } else {
+        dynamicWeaknesses.push('Ngữ pháp (Grammar): Câu nói tự nhiên, nên mở rộng thêm các cấu trúc đảo ngữ hoặc mệnh đề quan hệ để nâng band lên 7.5+.');
+      }
+
+      return res.json({
+        overall_score: roundedScore,
+        can_attack: canAttack,
+        overallBand: roundedScore,
+        passed: canAttack,
+        grammar_errors: grammarErrors,
+        pronunciation_errors: pronunciationErrors,
+        fluency_detail: {
+          stutterCount,
+          hesitationCount,
+          pauseCount,
+          stumbles: [...detectedStutters, ...detectedHesitations],
+          feedback: stutterCount === 0 && hesitationCount === 0
+            ? 'Tốc độ nói đều đặn, không có biểu hiện ngập ngừng hay nói lắp.'
+            : `Ghi nhận ${stutterCount} lần lặp từ và ${hesitationCount} từ đệm ngập ngừng trong bài nói.`
+        },
+        feedback_vi: {
+          summary: `Thí sinh phản xạ tự nhiên câu hỏi. Ghi nhận ${wordCount} từ với ngữ pháp đạt khoảng ${baseGRA.toFixed(1)}. Điểm tổng kết: Band ${roundedScore}.`,
+          weaknesses: dynamicWeaknesses,
+          grammar_summary: severeGrammarErrorsCount > 0
+            ? `Phát hiện ${severeGrammarErrorsCount} lỗi ngữ pháp cơ bản cần khắc phục.`
+            : 'Ngữ pháp tự nhiên và chính xác, duy trì tốt phong thái giao tiếp.',
+          pronunciation_summary: 'Phát âm rõ ràng, đã chỉ ra các âm cụ thể cần lưu ý theo IPA.',
+          suggestion: 'Tiếp tục luyện tập nói theo luồng ý liên tục, hạn chế lặp từ và mở rộng câu với mệnh đề phức.',
+        },
+        criteria: {
+          fluencyCoherence: {
+            band: floorToHalf(baseFC),
+            feedback: stutterCount > 0 ? `Good conversational flow with ${stutterCount} minor repetitions.` : 'Smooth conversational pace with consistent ideas.',
+          },
+          lexicalResource: {
+            band: floorToHalf(baseLR),
+            feedback: 'Natural, effective vocabulary suited for IELTS Speaking topics.',
+          },
+          grammaticalRange: {
+            band: floorToHalf(baseGRA),
+            feedback: severeGrammarErrorsCount > 0 ? 'Contains basic structural errors that need attention.' : 'Accurate and natural grammatical structures.',
+          },
+          pronunciation: {
+            band: floorToHalf(basePR),
+            feedback: 'Intelligible pronunciation with appropriate phonetic clarity.',
+          },
+        },
+        summary: `Demonstrates solid spoken communication addressing "${question}".`,
+        strengths: ['Natural expression', 'Communicative clarity'],
+        improvements: ['Refine specific phonemes and maintain continuous flow'],
+        transcript: trimmedTranscript,
+      });
+    }
+
+    const ai = new GoogleGenAI({ apiKey });
+    const systemPrompt = `You are a certified IELTS Speaking Senior Examiner and Referee.
+Analyze the candidate's spoken transcript accurately based on official IELTS Speaking criteria, with fairness and realistic expectations for spoken English.
+
+QUESTION: "${question}"
+CANDIDATE SPOKEN TRANSCRIPT: "${trimmedTranscript}"
+WORD COUNT: ${wordCount}
+RECORDING TELEMETRY:
+- Detected stutters / word repetitions: ${JSON.stringify(detectedStutters)}
+- Detected hesitation fillers: ${JSON.stringify(detectedHesitations)}
+- Recorded pause count: ${pauseCount}
+- Speech duration (seconds): ${durationSeconds}
+
+CRITICAL SCORING & BAND EVALUATION GUIDELINES (PLEASE READ VERY CAREFULLY):
+1. GRAMMATICAL RANGE & ACCURACY (GRA):
+   - DO NOT excessively penalize spoken English! Spoken language is naturally more colloquial and communicative.
+   - If the candidate speaks fairly naturally and grammatically accurately with only minor slips, award a band of 6.5 to 7.5 (depending on how natural and varied the structures are).
+   - ONLY heavily deduct below 6.5 (e.g. 5.0 - 5.5) IF the candidate commits BASIC & SEVERE errors:
+     (a) Wrong word form (sai dạng từ, e.g. using adjective instead of adverb/verb) more than 2 times; OR
+     (b) Incomplete sentences lacking essential subject or predicate (câu thiếu thành phần chủ ngữ hoặc vị ngữ); OR
+     (c) Breakdown of basic clause coherence preventing communication.
+   - For every grammar error identified, you MUST specify:
+     * sentence: original sentence
+     * error: exactly where and what the grammar error is ("sai ở đâu")
+     * correction: how to fix it ("sửa thế nào")
+     * practice_structure: specific grammar structure to practice ("luyện tập cấu trúc gì", e.g. "Mệnh đề quan hệ xác định", "Câu điều kiện loại 2", "Dạng V-ing sau giới từ")
+     * explanation: detailed explanation in Vietnamese.
+
+2. PRONUNCIATION (PR):
+   - DO NOT merely pick random words and lazily complain about "cần luyện phát âm âm đuôi (ending sounds)"!
+   - ACCURATELY identify real pronunciation / phonetic challenges from words spoken in the transcript:
+     * Specify the exact word and the specific sound/phoneme mispronounced ("phát âm sai ở từ nào, âm gì"):
+       e.g. vowel confusion (/iː/ vs /ɪ/, /æ/ vs /e/), consonant sounds (/θ/, /ð/, /ʃ/, /tʃ/, /dʒ/, /v/, /z/), consonant clusters (/str-/, /-sks/), silent letters, or incorrect word stress (nhấn sai trọng âm).
+     * word: the exact word from transcript
+     * sound: the specific sound/phoneme ("âm gì", e.g. "Nguyên âm ngắn /ɪ/", "Phụ âm vô thanh /θ/", "Trọng âm rơi vào âm tiết thứ 2")
+     * phonetic: standard IPA transcription
+     * issue: clear description of the phonetic mistake in Vietnamese
+     * guide: actionable phonetic guide on how to pronounce correctly in Vietnamese.
+
+3. FLUENCY & COHERENCE (FC):
+   - Accurately assess fluency based on candidate's real speaking performance:
+     * Check for stuttering (nói lắp / repetitions like "I... I think", "the the")
+     * Check for stumbles, hesitation fillers ("uh", "um", "er") and prolonged unnatural pauses
+     * Provide a dedicated "fluency_detail" object listing stutterCount, hesitationCount, pauseCount, stumble phrases, and Vietnamese feedback on speech flow.
+
+4. OVERALL SCORE & STRICT ROUNDING DOWN RULE:
+   - Provide band scores (1.0 to 9.0 in 0.5 steps) for FC, LR, GRA, PR.
+   - Calculate raw average: raw_avg = (FC + LR + GRA + PR) / 4.
+   - STRICT ROUNDING DOWN RULE: ALWAYS round down to the nearest 0.5 step! Formula: Math.floor(raw_avg * 2) / 2.
+     Examples: 7.7 -> 7.5, 7.4 -> 7.0, 6.8 -> 6.5.
+   - overall_score MUST EQUAL Math.floor(raw_avg * 2) / 2.
+   - can_attack is true if overall_score >= 5.5, false otherwise.
+
+Output STRICTLY a valid JSON object without markdown fences, conforming to this JSON format:
+{
+  "overall_score": 7.5,
+  "can_attack": true,
+  "grammar_errors": [
+    {
+      "sentence": "Candidate sentence",
+      "error": "Mô tả lỗi sai cụ thể ở đâu",
+      "correction": "Cách sửa câu chuẩn",
+      "practice_structure": "Tên cấu trúc ngữ pháp cần luyện tập",
+      "explanation": "Giải thích chi tiết bằng tiếng Việt"
+    }
+  ],
+  "pronunciation_errors": [
+    {
+      "word": "opportunity",
+      "sound": "Trọng âm chính rơi vào âm tiết thứ 3 /ˌɒp.əˈtjuː.nə.ti/",
+      "phonetic": "/ˌɒp.əˈtjuː.nə.ti/",
+      "issue": "Nhấn sai trọng âm vào âm tiết đầu hoặc nuốt nguyên âm /uː/",
+      "guide": "Nhấn mạnh nhất vào âm 'tu' (/tjuː/) và phát âm rõ các âm tiết"
+    }
+  ],
+  "fluency_detail": {
+    "stutterCount": 0,
+    "hesitationCount": 1,
+    "pauseCount": 0,
+    "stumbles": ["I... I think"],
+    "feedback": "Nhận xét chi tiết về nhịp điệu và độ trôi chảy"
+  },
+  "feedback_vi": {
+    "summary": "Nhận xét tổng quan bằng tiếng Việt",
+    "weaknesses": [
+      "Điểm yếu cụ thể từ bài nói"
+    ],
+    "grammar_summary": "Tóm tắt đánh giá ngữ pháp",
+    "pronunciation_summary": "Tóm tắt đánh giá phát âm",
+    "suggestion": "Gợi ý cải thiện thiết thực"
+  },
+  "criteria": {
+    "fluencyCoherence": { "band": 7.5, "feedback": "Evaluation text in English" },
+    "lexicalResource": { "band": 7.5, "feedback": "Evaluation text in English" },
+    "grammaticalRange": { "band": 7.5, "feedback": "Evaluation text in English" },
+    "pronunciation": { "band": 7.5, "feedback": "Evaluation text in English" }
+  },
+  "summary": "Overall examiner assessment in English"
+}`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: systemPrompt,
+    });
+
+    const text = response.text || '';
+    const cleanJson = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+    const result = JSON.parse(cleanJson);
+
+    // Compute criteria bands and enforce strict floor-to-half rounding
+    const fc = Number(result.criteria?.fluencyCoherence?.band) || 6.5;
+    const lr = Number(result.criteria?.lexicalResource?.band) || 6.5;
+    const gr = Number(result.criteria?.grammaticalRange?.band) || 7.0;
+    const pr = Number(result.criteria?.pronunciation?.band) || 6.5;
+
+    const rawAvg = (fc + lr + gr + pr) / 4;
+    // Strict rounding down rule as requested: e.g. 7.7 -> 7.5
+    const overallScore = floorToHalf(rawAvg);
+
+    result.overall_score = overallScore;
+    result.overallBand = overallScore;
+    result.can_attack = overallScore >= 5.5;
+    result.passed = result.can_attack;
+    result.transcript = trimmedTranscript;
+
+    if (!Array.isArray(result.grammar_errors)) {
+      result.grammar_errors = [];
+    }
+    if (!Array.isArray(result.pronunciation_errors)) {
+      result.pronunciation_errors = [];
+    }
+
+    if (!result.fluency_detail) {
+      result.fluency_detail = {
+        stutterCount,
+        hesitationCount,
+        pauseCount,
+        stumbles: [...detectedStutters, ...detectedHesitations],
+        feedback: stutterCount === 0 && hesitationCount === 0
+          ? 'Nói trôi chảy, không có đoạn bị vấp hay ngập ngừng rõ rệt.'
+          : `Ghi nhận ${stutterCount} lần lặp từ và ${hesitationCount} lần ngập ngừng.`
+      };
+    }
+
+    if (!result.feedback_vi) {
+      result.feedback_vi = {
+        summary: `Bài nói giải quyết câu hỏi "${question}".`,
+        weaknesses: ['Cần phát triển câu dài hơn và sử dụng từ nối đa dạng.'],
+        suggestion: 'Mở rộng câu trả lời với lý do và ví dụ thực tế.',
+      };
+    }
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error('Error analyzing speaking with Gemini:', err);
+    return res.status(500).json({ error: err.message || 'Analysis failed' });
+  }
+});
+
+// API: Generate AI Background Music Composition with Gemini
+app.post('/api/generate-bgm', async (req, res) => {
+  try {
+    const { prompt = 'Epic Fantasy Match-3 Battle with Orchestral Brass and Driving Pulse', mood = 'heroic' } = req.body;
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      // High-quality fallback procedural loop if API key not available
+      return res.json({
+        title: 'Celestial Symphony (Synthesized)',
+        tempo: 124,
+        key: 'D Minor',
+        mood: mood || 'Heroic Fantasy',
+        totalBeats: 16,
+        notes: [
+          // Bassline (sawtooth/triangle)
+          { note: 'D2', time: 0, duration: 1.8, track: 'bass', type: 'triangle' },
+          { note: 'D2', time: 2, duration: 1.8, track: 'bass', type: 'triangle' },
+          { note: 'Bb1', time: 4, duration: 1.8, track: 'bass', type: 'triangle' },
+          { note: 'Bb1', time: 6, duration: 1.8, track: 'bass', type: 'triangle' },
+          { note: 'C2', time: 8, duration: 1.8, track: 'bass', type: 'triangle' },
+          { note: 'C2', time: 10, duration: 1.8, track: 'bass', type: 'triangle' },
+          { note: 'A1', time: 12, duration: 1.8, track: 'bass', type: 'triangle' },
+          { note: 'A1', time: 14, duration: 1.8, track: 'bass', type: 'triangle' },
+          // Lead melody (sine/square)
+          { note: 'D4', time: 0, duration: 0.8, track: 'melody', type: 'sine' },
+          { note: 'F4', time: 1, duration: 0.8, track: 'melody', type: 'sine' },
+          { note: 'A4', time: 2, duration: 1.2, track: 'melody', type: 'sine' },
+          { note: 'G4', time: 3.5, duration: 0.4, track: 'melody', type: 'sine' },
+          { note: 'F4', time: 4, duration: 0.8, track: 'melody', type: 'sine' },
+          { note: 'D4', time: 5, duration: 0.8, track: 'melody', type: 'sine' },
+          { note: 'E4', time: 6, duration: 1.6, track: 'melody', type: 'sine' },
+          { note: 'F4', time: 8, duration: 0.8, track: 'melody', type: 'sine' },
+          { note: 'G4', time: 9, duration: 0.8, track: 'melody', type: 'sine' },
+          { note: 'A4', time: 10, duration: 1.2, track: 'melody', type: 'sine' },
+          { note: 'C5', time: 11.5, duration: 0.4, track: 'melody', type: 'sine' },
+          { note: 'D5', time: 12, duration: 1.5, track: 'melody', type: 'sine' },
+          { note: 'A4', time: 14, duration: 1.5, track: 'melody', type: 'sine' },
+          // Arpeggio chords
+          { note: 'D3', time: 0, duration: 0.4, track: 'arp', type: 'triangle' },
+          { note: 'A3', time: 0.5, duration: 0.4, track: 'arp', type: 'triangle' },
+          { note: 'D4', time: 1, duration: 0.4, track: 'arp', type: 'triangle' },
+          { note: 'F4', time: 1.5, duration: 0.4, track: 'arp', type: 'triangle' },
+          { note: 'Bb3', time: 4, duration: 0.4, track: 'arp', type: 'triangle' },
+          { note: 'D4', time: 4.5, duration: 0.4, track: 'arp', type: 'triangle' },
+          { note: 'F4', time: 5, duration: 0.4, track: 'arp', type: 'triangle' },
+          { note: 'Bb4', time: 5.5, duration: 0.4, track: 'arp', type: 'triangle' },
+          { note: 'C3', time: 8, duration: 0.4, track: 'arp', type: 'triangle' },
+          { note: 'E3', time: 8.5, duration: 0.4, track: 'arp', type: 'triangle' },
+          { note: 'G3', time: 9, duration: 0.4, track: 'arp', type: 'triangle' },
+          { note: 'C4', time: 9.5, duration: 0.4, track: 'arp', type: 'triangle' },
+          { note: 'A3', time: 12, duration: 0.4, track: 'arp', type: 'triangle' },
+          { note: 'C#4', time: 12.5, duration: 0.4, track: 'arp', type: 'triangle' },
+          { note: 'E4', time: 13, duration: 0.4, track: 'arp', type: 'triangle' },
+          { note: 'A4', time: 13.5, duration: 0.4, track: 'arp', type: 'triangle' },
+        ],
+        drumPattern: [
+          { type: 'kick', time: 0 },
+          { type: 'hihat', time: 0.5 },
+          { type: 'snare', time: 1 },
+          { type: 'hihat', time: 1.5 },
+          { type: 'kick', time: 2 },
+          { type: 'hihat', time: 2.5 },
+          { type: 'snare', time: 3 },
+          { type: 'hihat', time: 3.5 },
+          { type: 'kick', time: 4 },
+          { type: 'hihat', time: 4.5 },
+          { type: 'snare', time: 5 },
+          { type: 'hihat', time: 5.5 },
+          { type: 'kick', time: 6 },
+          { type: 'kick', time: 6.5 },
+          { type: 'snare', time: 7 },
+          { type: 'hihat', time: 7.5 },
+          { type: 'kick', time: 8 },
+          { type: 'hihat', time: 8.5 },
+          { type: 'snare', time: 9 },
+          { type: 'hihat', time: 9.5 },
+          { type: 'kick', time: 10 },
+          { type: 'hihat', time: 10.5 },
+          { type: 'snare', time: 11 },
+          { type: 'hihat', time: 11.5 },
+          { type: 'kick', time: 12 },
+          { type: 'hihat', time: 12.5 },
+          { type: 'snare', time: 13 },
+          { type: 'hihat', time: 13.5 },
+          { type: 'kick', time: 14 },
+          { type: 'kick', time: 14.5 },
+          { type: 'snare', time: 15 },
+          { type: 'hihat', time: 15.5 },
+        ],
+      });
+    }
+
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
+
+    const musicPrompt = `You are an expert video game composer and audio programmer.
+Create a seamlessly looping 16-beat electronic/fantasy chiptune RPG game soundtrack score based on the user's prompt:
+Prompt: "${prompt}"
+Mood: "${mood}"
+
+Provide a structured 16-beat composition JSON that can be played with Web Audio API.
+Rules:
+1. Notes must use scientific pitch notation: e.g., 'C2', 'G2', 'A2', 'D3', 'F3', 'A3', 'C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4', 'C5', 'D5', 'E5', 'F#4', 'Bb3', etc.
+2. time is in beats from 0 to 15.5 (resolution down to 0.5 or 0.25 beats).
+3. totalBeats is 16.
+4. tempo between 108 and 140 BPM.
+5. track must be 'melody' (lead voice), 'bass' (low rhythm), or 'arp' (arpeggiated backing chords).
+6. type must be 'sine', 'triangle', 'sawtooth', or 'square'.
+7. drumPattern can have 'kick', 'snare', 'hihat', 'perc' on beat times between 0 and 15.5.
+8. Output STRICTLY a JSON object without markdown or code fences:
+{
+  "title": "Creative Track Title",
+  "tempo": 124,
+  "key": "D Minor",
+  "mood": "${mood}",
+  "totalBeats": 16,
+  "notes": [
+    {"note": "D4", "time": 0, "duration": 0.8, "track": "melody", "type": "sine"},
+    {"note": "D2", "time": 0, "duration": 1.8, "track": "bass", "type": "triangle"}
+  ],
+  "drumPattern": [
+    {"type": "kick", "time": 0},
+    {"type": "snare", "time": 1},
+    {"type": "hihat", "time": 0.5}
+  ]
+}`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: musicPrompt,
+    });
+
+    const text = response.text || '';
+    const cleanJson = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+    const result = JSON.parse(cleanJson);
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error('Error generating AI BGM with Gemini:', err);
+    return res.status(500).json({ error: err.message || 'Music generation failed' });
+  }
+});
+
+// Setup Vite middleware in dev or static files in production
+async function startServer() {
+  const isProd = process.env.NODE_ENV === 'production';
+
+  if (isProd) {
+    app.use(express.static(path.resolve(__dirname, 'dist')));
+    app.get('*', (_req, res) => {
+      res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
+    });
+  } else {
+    const { createServer: createViteServer } = await import('vite');
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  }
+
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server with WebSockets running on http://0.0.0.0:${PORT}`);
+  });
+}
+
+startServer();

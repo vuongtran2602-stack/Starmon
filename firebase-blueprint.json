@@ -1,0 +1,149 @@
+{
+  "entities": {
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "User game account containing player profile, roster of Starmons, and quest progress",
+      "type": "object",
+      "properties": {
+        "username": {
+          "type": "string",
+          "description": "Unique player username",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "pin": {
+          "type": "string",
+          "description": "Optional security PIN code",
+          "maxLength": 32
+        },
+        "googleId": {
+          "type": "string",
+          "description": "Optional Google ID for cross-device authentication",
+          "maxLength": 128
+        },
+        "email": {
+          "type": "string",
+          "description": "Player email address",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of account creation"
+        },
+        "lastPlayedAt": {
+          "type": "string",
+          "description": "ISO timestamp of last activity"
+        },
+        "player": {
+          "type": "object",
+          "description": "Player profile statistics, levels, gold, gems, and settings"
+        },
+        "starmons": {
+          "type": "array",
+          "description": "List of player owned and unlocked Starmons"
+        },
+        "quests": {
+          "type": "array",
+          "description": "List of active quest progression items"
+        }
+      },
+      "required": ["username", "createdAt", "lastPlayedAt", "player", "starmons"]
+    },
+    "PvpRoom": {
+      "title": "PvpRoom",
+      "description": "Real-time PvP multiplayer match lobby",
+      "type": "object",
+      "properties": {
+        "room_code": {
+          "type": "string",
+          "description": "Unique 6-character room code",
+          "minLength": 4,
+          "maxLength": 16
+        },
+        "host_id": {
+          "type": "string",
+          "description": "Host player identifier",
+          "maxLength": 128
+        },
+        "hostName": {
+          "type": "string",
+          "description": "Display name of room host",
+          "maxLength": 64
+        },
+        "hostLevel": {
+          "type": "number",
+          "description": "Host player level"
+        },
+        "arena": {
+          "type": "string",
+          "description": "Battle arena background theme",
+          "maxLength": 64
+        },
+        "status": {
+          "type": "string",
+          "description": "Lobby status",
+          "enum": ["WAITING", "IN_GAME", "FINISHED"]
+        },
+        "players": {
+          "type": "array",
+          "description": "List of players currently in room"
+        },
+        "matchState": {
+          "type": "object",
+          "description": "Real-time combat match state, speaking submissions, board and turns"
+        },
+        "createdAt": {
+          "type": "number",
+          "description": "Timestamp in milliseconds"
+        },
+        "updatedAt": {
+          "type": "number",
+          "description": "Timestamp in milliseconds"
+        }
+      },
+      "required": ["room_code", "host_id", "hostName", "arena", "status", "players", "createdAt"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "In-game multiplayer chat message",
+      "type": "object",
+      "properties": {
+        "channel": {
+          "type": "string",
+          "description": "Chat channel",
+          "enum": ["world", "clan", "private"]
+        },
+        "senderName": {
+          "type": "string",
+          "description": "Sender display name",
+          "maxLength": 64
+        },
+        "message": {
+          "type": "string",
+          "description": "Chat message content",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "timestamp": {
+          "type": "string",
+          "description": "Timestamp or formatted string"
+        }
+      },
+      "required": ["channel", "senderName", "message", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/accounts/{accountId}": {
+      "schema": "UserAccount",
+      "description": "Player game account documents indexed by account key / username / Google ID"
+    },
+    "/pvp_rooms/{roomCode}": {
+      "schema": "PvpRoom",
+      "description": "PvP multiplayer battle lobby rooms"
+    },
+    "/chat_messages/{messageId}": {
+      "schema": "ChatMessage",
+      "description": "Global multiplayer chat message history"
+    }
+  }
+}

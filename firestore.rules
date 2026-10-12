@@ -1,0 +1,74 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Connectivity verification path
+    match /test/{docId} {
+      allow read, write: if true;
+    }
+
+    // Helper for PvP room access by authenticated user, roomCode, or player ID
+    function canAccessPvpRoom(roomCode) {
+      return isValidId(roomCode) && (
+        request.auth != null ||
+        resource == null ||
+        existing().room_code == roomCode ||
+        existing().code == roomCode ||
+        existing().host_id is string
+      );
+    }
+
+    function canWritePvpRoom(roomCode) {
+      return isValidId(roomCode) && (
+        request.auth != null ||
+        incoming().room_code == roomCode ||
+        incoming().code == roomCode ||
+        incoming().host_id is string ||
+        incoming().status is string ||
+        incoming().matchState is map ||
+        incoming().updatedAt is number ||
+        (resource != null && (existing().room_code == roomCode || existing().code == roomCode || existing().host_id is string))
+      );
+    }
+
+    // User accounts collection
+    match /accounts/{accountId} {
+      allow get, list: if true;
+      allow create, update, delete: if true;
+
+      match /{allSubcollections=**} {
+        allow read, write: if true;
+      }
+    }
+
+    // PvP rooms collection
+    match /pvp_rooms/{roomCode} {
+      allow get, list: if true;
+      allow create, update: if canWritePvpRoom(roomCode);
+      allow delete: if canAccessPvpRoom(roomCode);
+
+      match /{allSubcollections=**} {
+        allow read, write: if request.auth != null || isValidId(roomCode);
+      }
+    }
+
+    // Chat messages collection
+    match /chat_messages/{messageId} {
+      allow get, list: if true;
+      allow create, update, delete: if isValidId(messageId);
+    }
+  }
+}

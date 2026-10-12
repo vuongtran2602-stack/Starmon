@@ -1,0 +1,10 @@
+{
+  "name": "Remix Starmon: Tactics \u0026 RPG",
+  "description": "2D Anime Fantasy EdTech RPG with Onboarding Booster Packs, Starmon Level-Up, Educational Quiz Phase, and 8x8 Match-3 Battle with Anti-Cascade mechanics.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
