@@ -2,7 +2,10 @@ import { Starmon, ElementType } from '../types';
 import { getStarmonClass, getStatsForLevel, calculateCP } from './starmonStats';
 
 export function hydrateStarmonWithStats(s: Starmon): Starmon {
-  const sClass = s.starmonClass || getStarmonClass(s.id);
+  const sClass = getStarmonClass(s.id);
+  if (!sClass) {
+    return { ...s, cp: calculateCP(s.maxHp, s.baseAtk, s.def) };
+  }
   const stats = getStatsForLevel(sClass, s.level || 1);
   return {
     ...s,
@@ -11,7 +14,7 @@ export function hydrateStarmonWithStats(s: Starmon): Starmon {
     currentHp: s.currentHp !== undefined ? Math.min(s.currentHp, stats.hp) : stats.hp,
     baseAtk: stats.atk,
     def: stats.def,
-    cp: stats.cp,
+    cp: calculateCP(stats.hp, stats.atk, stats.def),
   };
 }
 

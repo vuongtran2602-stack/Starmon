@@ -15,17 +15,19 @@ export function calculateCP(hp: number, atk: number, def: number): number {
  * 2. BASE STATS LEVEL 1 (From Section 2 of PDF)
  */
 export const CLASS_BASE_STATS_L1: Record<StarmonClass, { hp: number; atk: number; def: number; cp: number }> = {
-  'Tank 1': { hp: 620, atk: 30, def: 42, cp: 1366 },
+  // CP is derived from the PDF formula; listed CP values that conflict with
+  // the listed HP/ATK/DEF are not used as an alternate source of truth.
+  'Tank 1': { hp: 620, atk: 30, def: 42, cp: 1376 },
   'Tank 2': { hp: 550, atk: 30, def: 48, cp: 1384 },
-  'Tank 3': { hp: 590, atk: 42, def: 40, cp: 1366 },
-  'Warrior 1': { hp: 520, atk: 60, def: 28, cp: 1324 },
+  'Tank 3': { hp: 590, atk: 42, def: 40, cp: 1404 },
+  'Warrior 1': { hp: 520, atk: 60, def: 28, cp: 1304 },
   'Warrior 2': { hp: 480, atk: 72, def: 26, cp: 1322 },
   'Warrior 3': { hp: 500, atk: 66, def: 28, cp: 1326 },
-  'Attacker 1': { hp: 370, atk: 80, def: 22, cp: 1276 },
-  'Attacker 2': { hp: 420, atk: 72, def: 24, cp: 1296 },
-  'Attacker 3': { hp: 490, atk: 65, def: 25, cp: 1300 },
-  'Support 1 (Caster Support)': { hp: 490, atk: 42, def: 48, cp: 1378 },
-  'Support 2 (Tank Support)': { hp: 550, atk: 38, def: 45, cp: 1391 },
+  'Attacker 1': { hp: 370, atk: 80, def: 22, cp: 1216 },
+  'Attacker 2': { hp: 420, atk: 72, def: 24, cp: 1236 },
+  'Attacker 3': { hp: 490, atk: 65, def: 25, cp: 1270 },
+  'Support 1 (Caster Support)': { hp: 490, atk: 42, def: 48, cp: 1408 },
+  'Support 2 (Tank Support)': { hp: 550, atk: 38, def: 45, cp: 1401 },
 };
 
 /**
@@ -130,11 +132,10 @@ export const CLASS_GROWTH_TABLE: Record<
  * Exact Starmon -> Class Mapping from PDF & prompt
  */
 export const STARMON_CLASS_MAP: Record<string, StarmonClass> = {
-  // Tank 2: Stone Golem, Moltenback, Mineacle, Mossloth
+  // Tank 2: Stone Golem, Moltenback, Mineacle
   stone_golem: 'Tank 2',
   moltenback: 'Tank 2',
   mineacle: 'Tank 2',
-  mossloth: 'Tank 2',
 
   // Tank 3: Coralus, Cyborgnid
   coralus: 'Tank 3',
@@ -160,18 +161,17 @@ export const STARMON_CLASS_MAP: Record<string, StarmonClass> = {
   trojan_flare: 'Warrior 3',
   zephyrion: 'Warrior 3',
 
-  // Support 1 (Caster Support): Aquanymph, Teslarion, Khepri
+  // Support 1 (Caster Support): Aquanymph, Teslarion
   aquanymph: 'Support 1 (Caster Support)',
   teslarion: 'Support 1 (Caster Support)',
-  khepri: 'Support 1 (Caster Support)',
 };
 
 /**
- * Get the Starmon class by ID or fallback
+ * Get the Starmon class by ID when the PDF or user mapping defines one.
  */
-export function getStarmonClass(id: string): StarmonClass {
+export function getStarmonClass(id: string): StarmonClass | undefined {
   const cleanId = (id || '').toLowerCase().trim();
-  return STARMON_CLASS_MAP[cleanId] || 'Attacker 2';
+  return STARMON_CLASS_MAP[cleanId];
 }
 
 /**
@@ -181,7 +181,7 @@ export function getLevelUpStatGain(
   starmonClass: StarmonClass,
   targetLevel: number
 ): { hp: number; atk: number; def: number; cp: number } {
-  const growth = CLASS_GROWTH_TABLE[starmonClass] || CLASS_GROWTH_TABLE['Attacker 2'];
+  const growth = CLASS_GROWTH_TABLE[starmonClass];
   let g = growth.early;
   if (targetLevel > 75) {
     g = growth.late;
@@ -208,7 +208,7 @@ export function getStatsForLevel(
   starmonClass: StarmonClass,
   level: number
 ): { hp: number; atk: number; def: number; cp: number } {
-  const base = CLASS_BASE_STATS_L1[starmonClass] || CLASS_BASE_STATS_L1['Attacker 2'];
+  const base = CLASS_BASE_STATS_L1[starmonClass];
   let hp = base.hp;
   let atk = base.atk;
   let def = base.def;

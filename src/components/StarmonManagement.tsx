@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
-import { Starmon, ElementType, EquipmentItem } from '../types';
+import { Starmon, ElementType, EquipmentItem, ResearchTechLevels } from '../types';
 import { StarmonAsset } from './StarmonAsset';
 import { getCardsNeededForLevel, getGoldNeededForLevel, ELEMENT_COLORS, getElementDisplayName, STARMON_ROSTER } from '../data/starmons';
 import { getStarmonClass, getLevelUpStatGain, calculateCP } from '../data/starmonStats';
-import { EQUIPMENT_ITEMS_CATALOG, STAR_SHARD_IMAGE, GOLDEN_ANVIL_IMAGE } from '../data/itemsData';
+import { getEquipmentUpgradeCost, getItemLevelStats } from '../data/itemStats';
+import { getUnlockedItemSlots } from '../data/techResearch';
+import { EQUIPMENT_ITEMS_CATALOG } from '../data/itemsData';
 import { sound } from '../services/sound';
 import {
   Shield,
@@ -22,7 +24,8 @@ import {
   X,
   Plus,
   AlertTriangle,
-  Briefcase
+  Briefcase,
+  Info
 } from 'lucide-react';
 
 interface Props {
@@ -31,16 +34,17 @@ interface Props {
   activeCompanionId: string;
   battleParty?: string[];
   unitTestExpiry?: number;
-  equipmentInventory?: { itemId: string; count: number }[];
+  equipmentInventory?: { itemId: string; count: number; level?: number; enhancement?: number }[];
   specialItems?: { starShard: number; goldenAnvil: number };
+  techResearchLevels?: ResearchTechLevels;
   onClose: () => void;
   onLevelUp: (starmonId: string, cardsCost: number, goldCost: number) => void;
   onSetActiveCompanion: (starmonId: string) => void;
   onAwakenStarmon?: (starmonId: string, cardsCost: number) => void;
   onUpdateBattleParty?: (partyIds: string[]) => void;
-  onEquipItem?: (starmonId: string, slotIndex: number, itemId: string) => void;
+  onEquipItem?: (starmonId: string, slotIndex: number, itemId: string, level?: number) => void;
   onUnequipItem?: (starmonId: string, slotIndex: number) => void;
-  onUseSpecialItem?: (type: 'starShard' | 'goldenAnvil', starmonId: string, slotIndex: number) => void;
+  onUpgradeEquippedItem?: (starmonId: string, slotIndex: number, currentLevel: number) => void;
 }
 
 export const StarmonManagement: React.FC<Props> = ({
@@ -51,6 +55,7 @@ export const StarmonManagement: React.FC<Props> = ({
   unitTestExpiry,
   equipmentInventory = [],
   specialItems = { starShard: 0, goldenAnvil: 0 },
+  techResearchLevels,
   onClose,
   onLevelUp,
   onSetActiveCompanion,
@@ -58,7 +63,7 @@ export const StarmonManagement: React.FC<Props> = ({
   onUpdateBattleParty,
   onEquipItem,
   onUnequipItem,
-  onUseSpecialItem,
+  onUpgradeEquippedItem,
 }) => {
   const [selectedId, setSelectedId] = useState<string>(activeCompanionId || starmons[0].id);
   const [elementFilter, setElementFilter] = useState<'All' | ElementType>('All');
@@ -66,6 +71,7 @@ export const StarmonManagement: React.FC<Props> = ({
   const [activeSlotModal, setActiveSlotModal] = useState<number | null>(null);
   const [inspectSlotIndex, setInspectSlotIndex] = useState<number | null>(null);
   const [itemToast, setItemToast] = useState<string | null>(null);
+  const [showEquipLimits, setShowEquipLimits] = useState(false);
 
   // UnitTest 0-cost mode check (valid for 5 days)
   const isUnitTestActive = !!(unitTestExpiry && unitTestExpiry > Date.now());
@@ -76,8 +82,28 @@ export const StarmonManagement: React.FC<Props> = ({
     ? battleParty
     : starmons.filter(s => s.unlocked).map(s => s.id).slice(0, 3);
 
+  const canEquipItemInSlot = (itemId: string, slotIndex: number | null) => {
+    if (slotIndex === null || !getUnlockedItemSlots(techResearchLevels, selectedStarmon.element)[slotIndex]) return false;
+    const candidate = EQUIPMENT_ITEMS_CATALOG[itemId];
+    if (!candidate || (candidate.targetStarmonId && candidate.targetStarmonId !== selectedStarmon.id)) return false;
+    const current = (selectedStarmon.equippedItems || []).filter((id, index) => id && index !== slotIndex)
+      .map(id => EQUIPMENT_ITEMS_CATALOG[id!]).filter(Boolean);
+    if (current.length >= 6) return false;
+    if (candidate.slotType === 'special') return true;
+    const count = (type: string) => current.filter(item => item.slotType === type).length;
+    if (candidate.slotType === 'headwear' || candidate.slotType === 'body_armor' || candidate.slotType === 'boots') return count(candidate.slotType) < 1;
+    if (candidate.slotType === 'relic') return count('relic') < 2;
+    if (candidate.slotType === 'handheld_shield') return count('handheld_shield') < 1 && count('handheld') < 1;
+    if (candidate.slotType === 'handheld') return count('handheld') + count('handheld_shield') < 2;
+    return false;
+  };
+
   const fallbackMon = STARMON_ROSTER[0];
   const selectedStarmon = (starmons && starmons.length > 0 ? (starmons.find(s => s.id === selectedId) || starmons[0]) : null) || fallbackMon;
+  const selectedClass = selectedStarmon.starmonClass || getStarmonClass(selectedStarmon.id);
+  const nextLevelGain = selectedClass && selectedStarmon.level < 100
+    ? getLevelUpStatGain(selectedClass, selectedStarmon.level + 1)
+    : undefined;
   const regularCardsNeeded = getCardsNeededForLevel(selectedStarmon.level);
   const regularGoldNeeded = getGoldNeededForLevel(selectedStarmon.level);
 
@@ -89,7 +115,7 @@ export const StarmonManagement: React.FC<Props> = ({
   const canAwaken = !selectedStarmon.unlocked && (isUnitTestActive || selectedStarmon.cards >= AWAKEN_COST);
 
   // ONLY UNLOCKED STARMONS CAN BE LEVELED UP OR USED AS COMPANION!
-  const canLevelUp = selectedStarmon.unlocked && (isUnitTestActive || (selectedStarmon.cards >= cardsNeeded && playerGold >= goldNeeded));
+  const canLevelUp = selectedStarmon.unlocked && !!selectedClass && selectedStarmon.level < 100 && (isUnitTestActive || (selectedStarmon.cards >= cardsNeeded && playerGold >= goldNeeded));
 
   const handleLevelUpClick = () => {
     if (!canLevelUp) {
@@ -405,13 +431,16 @@ export const StarmonManagement: React.FC<Props> = ({
                       </div>
                       <div className="flex items-center gap-1.5 text-[10px] text-slate-400 flex-wrap">
                         <span className="font-mono font-bold text-amber-300 bg-amber-400/10 px-1 py-0.5 rounded border border-amber-400/30 text-[9px]">
-                          CP {starmon.cp || calculateCP(starmon.maxHp, starmon.baseAtk, starmon.def)}
+                          CP {calculateCP(starmon.maxHp, starmon.baseAtk, starmon.def)}
                         </span>
                         <span className="font-semibold text-slate-300 text-[9px] bg-slate-800 px-1 py-0.5 rounded">
-                          Class: {starmon.starmonClass || getStarmonClass(starmon.id)}
+                          {starmon.starmonClass || getStarmonClass(starmon.id) ? `Class: ${starmon.starmonClass || getStarmonClass(starmon.id)}` : ''}
                         </span>
                         <span>·</span>
                         <span>Lv. {starmon.level}</span>
+                        <span>HP {starmon.maxHp}</span>
+                        <span>ATK {starmon.baseAtk}</span>
+                        <span>DEF {starmon.def}</span>
                         {isInParty && (
                           <span className="text-[9px] text-amber-300 font-bold bg-amber-500/20 px-1 rounded border border-amber-400/40">
                             Party #{partyIndex + 1}
@@ -493,7 +522,7 @@ export const StarmonManagement: React.FC<Props> = ({
                           </span>
                         )}
                         <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-indigo-950/80 border border-indigo-500/50 text-indigo-300 font-mono shadow-sm">
-                          Class: {selectedStarmon.starmonClass || getStarmonClass(selectedStarmon.id)}
+                          {selectedClass ? `Class: ${selectedClass}` : ''}
                         </span>
                       </div>
                     </div>
@@ -551,11 +580,8 @@ export const StarmonManagement: React.FC<Props> = ({
 
                 {/* Base Attributes with Equipment Bonuses & CP */}
                 {(() => {
-                  const pickaxes = (selectedStarmon.equippedItems || []).filter((id: string | null) => id === 'old_pickaxe').length;
-                  const bonusHpPct = pickaxes * 0.01;
-                  const bonusAtkPct = pickaxes * 0.01;
-                  const effectiveHp = Math.round(selectedStarmon.maxHp * (1 + bonusHpPct));
-                  const effectiveAtk = Math.round(selectedStarmon.baseAtk * (1 + bonusAtkPct));
+                  const effectiveHp = selectedStarmon.maxHp;
+                  const effectiveAtk = selectedStarmon.baseAtk;
                   const effectiveCp = calculateCP(effectiveHp, effectiveAtk, selectedStarmon.def);
 
                   return (
@@ -578,11 +604,6 @@ export const StarmonManagement: React.FC<Props> = ({
                           <span className="text-[10px] text-slate-400 font-bold block">HP</span>
                           <div className="flex items-baseline gap-1">
                             <span className="text-sm font-bold text-white font-mono">{effectiveHp}</span>
-                            {pickaxes > 0 && (
-                              <span className="text-[10px] font-bold text-emerald-400 font-mono">
-                                (+{pickaxes}%)
-                              </span>
-                            )}
                           </div>
                         </div>
                       </div>
@@ -594,11 +615,6 @@ export const StarmonManagement: React.FC<Props> = ({
                           <span className="text-[10px] text-slate-400 font-bold block">ATK</span>
                           <div className="flex items-baseline gap-1">
                             <span className="text-sm font-bold text-white font-mono">{effectiveAtk}</span>
-                            {pickaxes > 0 && (
-                              <span className="text-[10px] font-bold text-emerald-400 font-mono">
-                                (+{pickaxes}%)
-                              </span>
-                            )}
                           </div>
                         </div>
                       </div>
@@ -648,11 +664,9 @@ export const StarmonManagement: React.FC<Props> = ({
                     ⚔️
                   </div>
                   <h3 className="text-xs sm:text-sm font-black font-game text-white tracking-wide">
-                    ITEMS (TRANG BỊ)
+                    ITEM <span className="font-mono text-amber-300">({(selectedStarmon.equippedItems || []).filter(Boolean).length}/6)</span>
                   </h3>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-950 text-slate-400 border border-slate-800 font-mono">
-                    6 Ô Trang Bị
-                  </span>
+                  <button onClick={() => setShowEquipLimits(true)} className="rounded-full text-slate-300 hover:text-amber-300" title="Equipment limits"><Info className="w-4 h-4" /></button>
                 </div>
                 <span className="text-[10px] text-slate-400 hidden sm:inline">
                   Chọn ô để trang bị vật phẩm gia tăng chỉ số
@@ -670,11 +684,8 @@ export const StarmonManagement: React.FC<Props> = ({
               {/* 6 Slots Grid */}
               <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 sm:gap-2.5">
                 {[0, 1, 2, 3, 4, 5].map(slotIdx => {
-                  // Determine if slot is unlocked:
-                  // Aquanymph has slot 0 unlocked by default when Da Phuc Uniform is equipped or when unlockedSlots[0] is true
-                  const isSlotUnlocked =
-                    (slotIdx === 0 && (selectedStarmon.id === 'aquanymph' && (selectedStarmon.isDaPhucVersion || selectedStarmon.equippedItems?.includes('da_phuc_uniform')))) ||
-                    !!selectedStarmon.unlockedSlots?.[slotIdx];
+                  const isSlotUnlocked = getUnlockedItemSlots(techResearchLevels, selectedStarmon.element)[slotIdx];
+                  const slotLabel = `Item Slot ${slotIdx + 1}`;
 
                   const equippedItemId = selectedStarmon.equippedItems?.[slotIdx];
                   const equippedItem = equippedItemId ? EQUIPMENT_ITEMS_CATALOG[equippedItemId] : null;
@@ -693,9 +704,7 @@ export const StarmonManagement: React.FC<Props> = ({
                         if (!isSlotUnlocked) {
                           sound.playWrong();
                           setItemToast(
-                            slotIdx === 0
-                              ? '🔒 Ô trang bị 1 đang bị khóa! Dùng mã ẩn OpenItemSlot1 để mở khóa tất cả ô số 1.'
-                              : `🔒 Ô trang bị ${slotIdx + 1} đang bị khóa!`
+                            `🔒 Item Slot ${slotIdx + 1} is locked. Research the matching Element Tech to unlock it.`
                           );
                           setTimeout(() => setItemToast(null), 3500);
                           return;
@@ -734,7 +743,9 @@ export const StarmonManagement: React.FC<Props> = ({
                       {/* Center Content */}
                       {equippedItem ? (
                         <>
-                          <div className="w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center group-hover:scale-105 transition-transform">
+                          <div className="relative w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center group-hover:scale-105 transition-transform">
+                            <span className="absolute -left-2 -top-1 z-10 rounded bg-slate-950 px-1 text-[7px] font-black uppercase text-amber-300">{equippedItem.rarity || 'Common'}</span>
+                            <span className="absolute -right-2 -top-1 z-10 rounded bg-slate-950 px-1 text-[8px] font-mono">Lv.{selectedStarmon.equippedItemLevels?.[slotIdx] || 1}</span>
                             <img
                               src={equippedItem.imageUrl}
                               alt={equippedItem.name}
@@ -742,7 +753,10 @@ export const StarmonManagement: React.FC<Props> = ({
                             />
                           </div>
                           <span className="text-[9px] font-bold text-amber-200 mt-1 max-w-full truncate text-center font-game leading-tight">
-                            {equippedItem.name}
+                            {equippedItem.name} · {equippedItem.slotType?.replace('_', ' ') || 'Item'}
+                          </span>
+                          <span className="text-[8px] tracking-tight">
+                            {Array.from({ length: 5 }, (_, star) => <span key={star} className={(star < (selectedStarmon.equippedItemEnhancements?.[slotIdx] || 0)) ? 'text-amber-300' : 'text-slate-600'}>★</span>)}
                           </span>
                         </>
                       ) : (
@@ -758,7 +772,7 @@ export const StarmonManagement: React.FC<Props> = ({
                             <Plus className="w-4 h-4" />
                           </div>
                           <span className="text-[9px] font-bold text-slate-400 mt-1 font-mono">
-                            Ô {slotIdx + 1}
+                            {slotLabel}
                           </span>
                         </>
                       )}
@@ -790,8 +804,13 @@ export const StarmonManagement: React.FC<Props> = ({
                     />
                   </div>
                   <div className="text-[10px] text-slate-400 mt-1">
-                    Cost: <strong className="text-amber-300">{goldNeeded.toLocaleString()} Gold</strong> · Boost: <strong className="text-emerald-400">+25 HP, +8 ATK, +5 DEF</strong>
+                    Cost: <strong className="text-amber-300">{goldNeeded.toLocaleString()} Gold</strong>
                   </div>
+                  {nextLevelGain && (
+                    <div className="text-[10px] text-emerald-300 mt-1 font-mono">
+                      Next level: +{nextLevelGain.hp} HP, +{nextLevelGain.atk} ATK, +{nextLevelGain.def} DEF, +{nextLevelGain.cp} CP
+                    </div>
+                  )}
                 </div>
 
                 <button
@@ -887,9 +906,9 @@ export const StarmonManagement: React.FC<Props> = ({
 
             {/* List of Available Items in Inventory */}
             <div className="my-4 max-h-72 overflow-y-auto space-y-2.5 pr-1">
-              {equipmentInventory && equipmentInventory.filter(inv => inv.count > 0).length > 0 ? (
+              {equipmentInventory && equipmentInventory.filter(inv => inv.count > 0 && canEquipItemInSlot(inv.itemId, activeSlotModal)).length > 0 ? (
                 equipmentInventory
-                  .filter(inv => inv.count > 0)
+                  .filter(inv => inv.count > 0 && canEquipItemInSlot(inv.itemId, activeSlotModal))
                   .map(invItem => {
                     const catalogItem = EQUIPMENT_ITEMS_CATALOG[invItem.itemId];
                     if (!catalogItem) return null;
@@ -899,7 +918,7 @@ export const StarmonManagement: React.FC<Props> = ({
 
                     return (
                       <div
-                        key={invItem.itemId}
+                        key={`${invItem.itemId}-${invItem.level || 1}`}
                         className="p-3 rounded-2xl bg-slate-950/80 border border-slate-800 hover:border-amber-400/70 transition-all flex items-center justify-between gap-3 shadow-md"
                       >
                         <div className="flex items-center gap-3">
@@ -916,16 +935,15 @@ export const StarmonManagement: React.FC<Props> = ({
                               <h4 className="text-sm font-black font-game text-white">
                                 {catalogItem.name}
                               </h4>
-                              <span className="text-[10px] font-mono px-2 py-0.2 rounded-full bg-slate-800 text-amber-300 border border-slate-700 font-bold">
-                                x{invItem.count}
+                                <span className="text-[10px] font-mono px-2 py-0.2 rounded-full bg-slate-800 text-amber-300 border border-slate-700 font-bold">
+                                Lv. {invItem.level || 1} · x{invItem.count}
                               </span>
                             </div>
 
                             {/* Stat display */}
                             {isPickaxe && (
                               <div className="text-[11px] text-emerald-300 font-mono mt-0.5 space-y-0.5">
-                                <div>- +1% ATK</div>
-                                <div>- +1% max HP</div>
+                                <div>- ATK +{getItemLevelStats(catalogItem.id, invItem.level || 1).atk}</div>
                               </div>
                             )}
 
@@ -947,7 +965,7 @@ export const StarmonManagement: React.FC<Props> = ({
                           onClick={() => {
                             if (activeSlotModal === null) return;
                             sound.playRewardFanfare();
-                            onEquipItem?.(selectedStarmon.id, activeSlotModal, catalogItem.id);
+                            onEquipItem?.(selectedStarmon.id, activeSlotModal, catalogItem.id, invItem.level || 1);
                             setActiveSlotModal(null);
                             setItemToast(`✨ Đã cho ${selectedStarmon.name} cầm ${catalogItem.name}!`);
                             setTimeout(() => setItemToast(null), 3000);
@@ -986,129 +1004,73 @@ export const StarmonManagement: React.FC<Props> = ({
         </div>
       )}
 
+      {showEquipLimits && (
+        <div className="fixed inset-0 z-[60] bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setShowEquipLimits(false)}>
+          <div className="w-full max-w-md rounded-2xl border border-amber-400/60 bg-slate-900 p-5 text-white shadow-2xl" onClick={event => event.stopPropagation()}>
+            <div className="flex items-center justify-between"><h3 className="font-game font-black text-amber-300">Equipment Limits</h3><button onClick={() => setShowEquipLimits(false)} className="rounded-lg p-1.5 bg-slate-800"><X className="h-4 w-4" /></button></div>
+            <p className="mt-1 text-xs text-slate-400">Each Starmon can only be equipped with:</p>
+            <ul className="mt-3 space-y-2 text-sm text-slate-200">
+              <li>• 1 Headwear</li><li>• 1 Body Armor</li><li>• 1 Boots</li><li>• 2 Handhelds</li>
+              <li>• 1 Handheld Shield (equipping one shield leaves room for only 1 other Handheld)</li><li>• 2 Relics</li>
+            </ul>
+            <p className="mt-3 text-xs text-amber-200">Maximum equipped items: 6</p>
+          </div>
+        </div>
+      )}
+
       {/* ======================================================== */}
       {/* MODAL: XEM CHI TIẾT & THÁO TRANG BỊ ĐANG CẦM */}
       {/* ======================================================== */}
       {inspectSlotIndex !== null && (
         <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-3 animate-in fade-in duration-200">
-          <div className="bg-slate-900 border-2 border-amber-400 rounded-3xl max-w-sm w-full p-5 shadow-2xl flex flex-col text-white relative text-center items-center">
+          <div className="bg-slate-900 border-2 border-amber-400 rounded-3xl max-w-3xl w-full p-4 sm:p-5 shadow-2xl flex flex-col text-white relative">
             {(() => {
               const eqId = selectedStarmon.equippedItems?.[inspectSlotIndex];
               const item = eqId ? EQUIPMENT_ITEMS_CATALOG[eqId] : null;
               if (!item) return null;
-
-              const isPickaxe = item.id === 'old_pickaxe';
-              const isDaPhucUniform = item.id === 'da_phuc_uniform';
+              const level = selectedStarmon.equippedItemLevels?.[inspectSlotIndex] || 1;
+              const enhancement = selectedStarmon.equippedItemEnhancements?.[inspectSlotIndex] || 0;
+              const stats = getItemLevelStats(item.id, level);
+              const cost = item.id === 'old_pickaxe' ? getEquipmentUpgradeCost(level + 1) : null;
+              const enhancementStars = Array.from({ length: 5 }, (_, i) => i < enhancement);
 
               return (
                 <>
-                  <div className="w-20 h-20 rounded-2xl bg-slate-950 border-2 border-amber-400/80 p-2 flex items-center justify-center shadow-lg my-1">
-                    <img
-                      src={item.imageUrl}
-                      alt={item.name}
-                      className="max-h-full max-w-full object-contain drop-shadow"
-                    />
+                  <div className="flex items-center justify-between border-b border-slate-700 pb-3">
+                    <h3 className="font-game text-lg font-black text-white">{item.name}</h3>
+                    <button onClick={() => setInspectSlotIndex(null)} className="rounded-lg p-2 bg-slate-800 hover:bg-slate-700"><X className="h-4 w-4" /></button>
                   </div>
-
-                  <h3 className="text-base sm:text-lg font-black font-game text-white mt-2">
-                    {item.name}
-                  </h3>
-                  <span className="text-[10px] text-amber-400 font-mono">
-                    Đang cầm tại Ô số {inspectSlotIndex + 1}
-                  </span>
-
-                  {/* Stats formatted as 2 bullet points for Old Pickaxe */}
-                  {isPickaxe && (
-                    <div className="my-3 p-3 rounded-xl bg-slate-950/90 border border-slate-800 w-full text-left">
-                      <span className="text-[10px] text-slate-400 font-bold uppercase block mb-1">
-                        Chỉ số trang bị:
-                      </span>
-                      <div className="text-xs text-emerald-300 font-mono space-y-1">
-                        <div>- +1% ATK</div>
-                        <div>- +1% max HP</div>
+                  <div className="grid grid-cols-[3fr_7fr] gap-3 sm:gap-5 pt-4">
+                    <div className="min-w-0">
+                      <div className="relative aspect-square rounded-2xl border border-amber-400/50 bg-slate-950 p-3 flex items-center justify-center">
+                        <span className="absolute left-2 top-2 rounded bg-slate-800 px-1.5 py-0.5 text-[9px] font-black uppercase text-amber-300">{item.rarity || 'Common'}</span>
+                        <span className="absolute right-2 top-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-mono font-bold">Lv. {level}</span>
+                        <img src={item.imageUrl} alt={item.name} className="max-h-full max-w-full object-contain drop-shadow" />
+                      </div>
+                      <div className="mt-2 text-center text-sm tracking-wider" aria-label={`Enhancement ${enhancement} stars`}>
+                        {enhancementStars.map((active, i) => <span key={i} className={active ? 'text-amber-300' : 'text-slate-600'}>★</span>)}
+                      </div>
+                      <div className="mt-1 text-center text-[9px] font-bold uppercase text-slate-400">Enhancement {enhancement}/5</div>
+                    </div>
+                    <div className="min-w-0 border-l border-slate-700 pl-3 sm:pl-5">
+                      <h4 className="text-xs font-black uppercase tracking-wider text-amber-300">Stats</h4>
+                      <ul className="mt-2 space-y-1 text-sm font-mono text-emerald-300">
+                        {stats.hp > 0 && <li>• HP +{stats.hp}</li>}
+                        {stats.atk > 0 && <li>• ATK +{stats.atk}</li>}
+                        {stats.def > 0 && <li>• DEF +{stats.def}</li>}
+                      </ul>
+                      <h4 className="mt-4 text-xs font-black uppercase tracking-wider text-sky-300">Effect</h4>
+                      <p className="mt-2 text-xs leading-relaxed text-slate-300">{item.description}</p>
+                      <div className="mt-5 grid grid-cols-2 gap-2">
+                        <button disabled={!cost || playerGold < cost.gold || (specialItems?.starShard || 0) < (cost?.shards || 0)} onClick={() => onUpgradeEquippedItem?.(selectedStarmon.id, inspectSlotIndex, level)} className="rounded-xl border border-sky-400/50 bg-sky-500/20 p-2 text-left text-sky-100 disabled:opacity-40">
+                          <b className="block font-game text-xs">Level Up</b><span className="text-[9px]">{cost ? `${cost.gold.toLocaleString()} Gold · ${cost.shards.toLocaleString()} Shards` : 'MAX LEVEL'}</span>
+                        </button>
+                        <button disabled className="rounded-xl border border-slate-700 bg-slate-800/70 p-2 text-left text-slate-500 cursor-not-allowed"><b className="block font-game text-xs">Enhance</b><span className="text-[9px]">Locked</span></button>
                       </div>
                     </div>
-                  )}
-
-                  {isDaPhucUniform && (
-                    <div className="my-3 p-3 rounded-xl bg-slate-950/90 border border-slate-800 w-full text-left">
-                      <span className="text-[10px] text-slate-400 font-bold uppercase block mb-1">
-                        Mô tả hiệu ứng:
-                      </span>
-                      <p className="text-xs text-sky-200 leading-relaxed">
-                        hãy trang bị lên người của Aquanymph để nhận phiên bản độc quyền Aquanymph Đa Phúc.
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Star Shard (Level Up) & Golden Anvil (Enhance) Action Strip */}
-                  <div className="grid grid-cols-2 gap-2 w-full my-2">
-                    <button
-                      onClick={() => {
-                        if (!specialItems?.starShard || specialItems.starShard <= 0) {
-                          sound.playWrong();
-                          setItemToast('Bạn không có đủ Star Shard để Level Up trang bị!');
-                          setTimeout(() => setItemToast(null), 3000);
-                          return;
-                        }
-                        sound.playRewardFanfare();
-                        onUseSpecialItem?.('starShard', selectedStarmon.id, inspectSlotIndex);
-                        setItemToast(`⭐ Đã dùng 1 Star Shard để Level Up trang bị cho ${selectedStarmon.name}! (+5 ATK, +20 HP)`);
-                        setTimeout(() => setItemToast(null), 3500);
-                      }}
-                      className="p-2 rounded-xl bg-slate-950/90 border border-sky-400/50 hover:border-sky-300 flex items-center justify-between gap-1.5 transition-all text-left cursor-pointer group"
-                      title="Dùng 1 Star Shard để Level Up trang bị"
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <img src={STAR_SHARD_IMAGE} alt="Star Shard" className="w-6 h-6 object-contain" />
-                        <div>
-                          <span className="text-[10px] font-black font-game text-sky-200 block leading-tight">
-                            Level Up
-                          </span>
-                          <span className="text-[9px] text-slate-400">
-                            1x Shard
-                          </span>
-                        </div>
-                      </div>
-                      <span className="text-[10px] font-mono font-bold text-sky-300 bg-sky-500/20 px-1.5 py-0.5 rounded-md border border-sky-400/30">
-                        x{specialItems?.starShard || 0}
-                      </span>
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        if (!specialItems?.goldenAnvil || specialItems.goldenAnvil <= 0) {
-                          sound.playWrong();
-                          setItemToast('Bạn không có đủ Golden Anvil để Cường Hóa trang bị!');
-                          setTimeout(() => setItemToast(null), 3000);
-                          return;
-                        }
-                        sound.playRewardFanfare();
-                        onUseSpecialItem?.('goldenAnvil', selectedStarmon.id, inspectSlotIndex);
-                        setItemToast(`🔨 Đã dùng 1 Golden Anvil để Enhance Cường Hóa trang bị cho ${selectedStarmon.name}! (+10 ATK, +5 DEF, +30 HP)`);
-                        setTimeout(() => setItemToast(null), 3500);
-                      }}
-                      className="p-2 rounded-xl bg-slate-950/90 border border-amber-400/50 hover:border-amber-300 flex items-center justify-between gap-1.5 transition-all text-left cursor-pointer group"
-                      title="Dùng 1 Golden Anvil để Enhance Cường Hóa trang bị"
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <img src={GOLDEN_ANVIL_IMAGE} alt="Golden Anvil" className="w-6 h-6 object-contain" />
-                        <div>
-                          <span className="text-[10px] font-black font-game text-amber-200 block leading-tight">
-                            Enhance
-                          </span>
-                          <span className="text-[9px] text-slate-400">
-                            1x Anvil
-                          </span>
-                        </div>
-                      </div>
-                      <span className="text-[10px] font-mono font-bold text-amber-300 bg-amber-500/20 px-1.5 py-0.5 rounded-md border border-amber-400/30">
-                        x{specialItems?.goldenAnvil || 0}
-                      </span>
-                    </button>
                   </div>
 
-                  <div className="flex gap-2 w-full mt-2">
+                  <div className="flex gap-2 w-full mt-4">
                     <button
                       onClick={() => {
                         sound.playClick();
@@ -1119,7 +1081,7 @@ export const StarmonManagement: React.FC<Props> = ({
                       }}
                       className="flex-1 py-2.5 rounded-xl bg-rose-600/30 hover:bg-rose-600/50 border border-rose-500/60 text-rose-200 text-xs font-bold transition-all"
                     >
-                      Tháo Trang Bị
+                      Unequip
                     </button>
 
                     <button
@@ -1131,7 +1093,7 @@ export const StarmonManagement: React.FC<Props> = ({
                       }}
                       className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black font-game transition-all"
                     >
-                      Đổi Món Khác
+                      Change Item
                     </button>
                   </div>
 
@@ -1142,7 +1104,7 @@ export const StarmonManagement: React.FC<Props> = ({
                     }}
                     className="mt-3 text-xs text-slate-400 hover:text-white"
                   >
-                    Đóng
+                    Close
                   </button>
                 </>
               );

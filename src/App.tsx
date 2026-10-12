@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { PlayerProfile, Starmon, QuestItem, ChatMessage, ChatChannel, ElementType } from './types';
+import { PlayerProfile, Starmon, QuestItem, ChatMessage, ChatChannel, ElementType, ResearchJob } from './types';
 import { STARMON_ROSTER } from './data/starmons';
+import { getStarmonClass, getStatsForLevel, calculateCP } from './data/starmonStats';
 import { INITIAL_QUESTS } from './data/questsData';
 import { INITIAL_CHAT_MESSAGES } from './data/chatData';
 import { MainHub } from './components/MainHub';
@@ -20,7 +21,9 @@ import { ChatModal } from './components/ChatModal';
 import { TutorialModal } from './components/TutorialModal';
 import { OnboardingSpotlight } from './components/OnboardingSpotlight';
 import { sound } from './services/sound';
+import { getEquipmentUpgradeCost, getItemLevelStats } from './data/itemStats';
 import { testFirestoreConnection, resetAccountInFirestore } from './services/firebase';
+import { getResearchLevel, getUnlockedItemSlots, RESEARCH_NODES, ResearchNodeId, isResearchNodeUnlocked, getResearchStatBonuses } from './data/techResearch';
 
 const STORAGE_KEY = 'starmon_game_save_v4'; // v4: Quests start strictly at 0, chat empty at start, new epic quests, 2 starter packs, 0 Starmon
 
@@ -66,6 +69,7 @@ export default function App() {
           ...parsed,
           googleId: parsed.googleId || savedGoogleId,
           googleEmail: parsed.googleEmail || '',
+          royalTokens: parsed.royalTokens || 0,
           energy: parsed.energy !== undefined ? parsed.energy : 100,
           maxEnergy: 100,
           lastEnergyRegenTime: parsed.lastEnergyRegenTime || Date.now(),
@@ -79,6 +83,9 @@ export default function App() {
             goldenAnvil: parsed.specialItems?.goldenAnvil !== undefined ? parsed.specialItems.goldenAnvil : 5,
           },
           equipmentInventory: parsed.equipmentInventory || [],
+          craftingJobs: parsed.craftingJobs || [],
+          techResearchLevels: parsed.techResearchLevels || {},
+          researchJobs: parsed.researchJobs || [],
           claimedAquanymphDaPhucPack: parsed.claimedAquanymphDaPhucPack || false,
         };
       }
@@ -94,6 +101,7 @@ export default function App() {
       nextExp: 100,
       gold: 0,       // Starts strictly at 0 Gold
       gems: 0,       // Starts strictly at 0 Gems
+      royalTokens: 0,
       energy: 100,   // Base energy 100/100, regens 1 per 10 mins, stops at 100
       maxEnergy: 100,
       lastEnergyRegenTime: Date.now(),
@@ -115,6 +123,9 @@ export default function App() {
       activeCompanionId: '', // Starts strictly with 0 Starmon in inventory!
       battleParty: [], // Battle Party lineup (1 to 3 Starmons)
       equipmentInventory: [],
+      craftingJobs: [],
+      techResearchLevels: {},
+      researchJobs: [],
       elementalPacks: { Wind: 0, Water: 0, Metal: 0, Fire: 0, Electric: 0, Earth: 0 },
       claimedAquanymphDaPhucPack: false,
       mailUnreadCount: 0, // Starts at 0 (only shows red badge when real unread mail exists)
@@ -149,7 +160,9 @@ export default function App() {
           const defaultUnlockedSlots = rosterMon.unlockedSlots || [false, false, false, false, false, false];
           const defaultEquipped = rosterMon.equippedItems || [null, null, null, null, null, null];
           if (userMon) {
-            const levelBonus = (userMon.level || 1) - 1;
+            const level = userMon.level || 1;
+            const starmonClass = getStarmonClass(rosterMon.id);
+            const levelStats = starmonClass ? getStatsForLevel(starmonClass, level) : undefined;
             const equippedItems = userMon.equippedItems || defaultEquipped;
             const hasDaPhucUniform = rosterMon.id === 'aquanymph' && equippedItems.includes('da_phuc_uniform');
             const unlockedSlots = userMon.unlockedSlots || defaultUnlockedSlots;
@@ -161,11 +174,13 @@ export default function App() {
               ...rosterMon,
               unlocked: !!userMon.unlocked,
               cards: userMon.cards || 0,
-              level: userMon.level || 1,
-              maxHp: rosterMon.maxHp + levelBonus * 25,
-              currentHp: rosterMon.maxHp + levelBonus * 25,
-              baseAtk: rosterMon.baseAtk + levelBonus * 8,
-              def: rosterMon.def + levelBonus * 5,
+              level,
+              starmonClass: starmonClass || undefined,
+              maxHp: levelStats?.hp ?? rosterMon.maxHp,
+              currentHp: levelStats?.hp ?? rosterMon.maxHp,
+              baseAtk: levelStats?.atk ?? rosterMon.baseAtk,
+              def: levelStats?.def ?? rosterMon.def,
+              cp: levelStats?.cp ?? calculateCP(rosterMon.maxHp, rosterMon.baseAtk, rosterMon.def),
               name: hasDaPhucUniform ? 'Aquanymph Đa Phúc' : (userMon.name && userMon.name !== 'Aquanymph Đa Phúc' ? userMon.name : rosterMon.name),
               title: hasDaPhucUniform ? 'Phiên Bản Độc Quyền Đa Phúc' : rosterMon.title,
               avatarSeed: hasDaPhucUniform ? 'aquanymph_dp' : rosterMon.avatarSeed,
@@ -638,49 +653,118 @@ export default function App() {
     }
   };
 
-  const handleUseSpecialItem = (type: 'starShard' | 'goldenAnvil', starmonId: string) => {
+  const handleCraftItem = (slot: number, itemId: string) => {
+    if (slot !== 0 || itemId !== 'old_pickaxe') return;
     setPlayer(prev => {
-      const currentCount = prev.specialItems?.[type] || 0;
-      if (currentCount <= 0) return prev;
+      if ((prev.craftingJobs || []).some(job => job.slot === slot)) return prev;
+      if (prev.gold < 200 || prev.energy < 50 || (prev.specialItems?.starShard || 0) < 50) return prev;
       return {
         ...prev,
-        specialItems: {
-          ...(prev.specialItems || { starShard: 0, goldenAnvil: 0 }),
-          [type]: currentCount - 1,
-        },
+        gold: prev.gold - 200,
+        energy: prev.energy - 50,
+        specialItems: { ...(prev.specialItems || { starShard: 0, goldenAnvil: 0 }), starShard: (prev.specialItems?.starShard || 0) - 50 },
+        craftingJobs: [...(prev.craftingJobs || []), { slot, itemId, completesAt: Date.now() + 60 * 60 * 1000 }],
       };
     });
-
-    setStarmons(prev =>
-      prev.map(s => {
-        if (s.id === starmonId) {
-          if (type === 'starShard') {
-            return {
-              ...s,
-              baseAtk: s.baseAtk + 5,
-              maxHp: s.maxHp + 20,
-              currentHp: s.currentHp + 20,
-            };
-          } else {
-            return {
-              ...s,
-              baseAtk: s.baseAtk + 10,
-              def: s.def + 5,
-              maxHp: s.maxHp + 30,
-              currentHp: s.currentHp + 30,
-            };
-          }
-        }
-        return s;
-      })
-    );
   };
 
-  const handleEquipItem = (starmonId: string, slotIndex: number, itemId: string) => {
+  const handleStartResearch = (element: ElementType, nodeId: ResearchNodeId) => {
+    const node = RESEARCH_NODES.find(entry => entry.id === nodeId);
+    if (!node) return;
+    setPlayer(prev => {
+      const slot = 0; // Research Queue 2 remains locked in the current design.
+      const levels = prev.techResearchLevels || {};
+      const currentLevel = getResearchLevel(levels, element, nodeId);
+      const royalCost = node.cost.royalTokens || 0;
+      if ((prev.researchJobs || []).some(job => job.slot === slot) || currentLevel >= node.maxLevel || !isResearchNodeUnlocked(levels, element, node)) return prev;
+      if (prev.energy < node.cost.energy || prev.gold < node.cost.gold || (prev.royalTokens || 0) < royalCost) return prev;
+      const job: ResearchJob = { slot, element, nodeId, completesAt: Date.now() + node.cost.hours * 60 * 60 * 1000 };
+      return {
+        ...prev,
+        energy: prev.energy - node.cost.energy,
+        gold: prev.gold - node.cost.gold,
+        royalTokens: (prev.royalTokens || 0) - royalCost,
+        researchJobs: [...(prev.researchJobs || []), job],
+      };
+    });
+  };
+
+  const handleFastForwardResearch = (slot: number) => {
+    setPlayer(prev => {
+      const job = (prev.researchJobs || []).find(entry => entry.slot === slot);
+      if (!job) return prev;
+      const minutes = Math.ceil(Math.max(0, job.completesAt - Date.now()) / 60000);
+      if (prev.gems < minutes) return prev;
+      return {
+        ...prev,
+        gems: prev.gems - minutes,
+        researchJobs: (prev.researchJobs || []).map(entry => entry.slot === slot ? { ...entry, completesAt: Date.now() } : entry),
+      };
+    });
+  };
+
+  const handleCompleteResearch = (slot: number) => {
+    setPlayer(prev => {
+      const now = Date.now();
+      const completed = (prev.researchJobs || []).filter(job => job.slot === slot && job.completesAt <= now);
+      if (completed.length === 0) return prev;
+      const levels = { ...(prev.techResearchLevels || {}) };
+      completed.forEach(job => {
+        const branch = { ...(levels[job.element] || {}) };
+        const node = RESEARCH_NODES.find(entry => entry.id === job.nodeId);
+        if (node) branch[job.nodeId] = Math.min(node.maxLevel, (branch[job.nodeId] || 0) + 1);
+        levels[job.element] = branch;
+      });
+      return {
+        ...prev,
+        techResearchLevels: levels,
+        researchJobs: (prev.researchJobs || []).filter(job => !completed.includes(job)),
+      };
+    });
+  };
+
+  const handleClaimCraftedItem = (slot: number) => {
+    setPlayer(prev => {
+      const job = (prev.craftingJobs || []).find(entry => entry.slot === slot);
+      if (!job || job.completesAt > Date.now()) return prev;
+      const inv = [...(prev.equipmentInventory || [])];
+      const existing = inv.find(entry => entry.itemId === job.itemId && (entry.level || 1) === 1);
+      if (existing) existing.count += 1;
+      else inv.push({ itemId: job.itemId, count: 1, level: 1, enhancement: 0 });
+      return { ...prev, equipmentInventory: inv, craftingJobs: prev.craftingJobs?.filter(entry => entry.slot !== slot) || [] };
+    });
+  };
+
+  const handleUpgradeItem = (itemId: string, currentLevel: number) => {
+    const cost = getEquipmentUpgradeCost(currentLevel + 1);
+    if (!cost || currentLevel >= 100) return;
+    setPlayer(prev => {
+      const inv = [...(prev.equipmentInventory || [])];
+      const sourceIdx = inv.findIndex(entry => entry.itemId === itemId && (entry.level || 1) === currentLevel && entry.count > 0);
+      if (sourceIdx < 0 || prev.gold < cost.gold || (prev.specialItems?.starShard || 0) < cost.shards) return prev;
+      inv[sourceIdx] = { ...inv[sourceIdx], count: inv[sourceIdx].count - 1 };
+      const target = inv.find(entry => entry.itemId === itemId && (entry.level || 1) === currentLevel + 1);
+      if (target) target.count += 1;
+      else inv.push({ itemId, count: 1, level: currentLevel + 1, enhancement: 0 });
+      return {
+        ...prev,
+        gold: prev.gold - cost.gold,
+        specialItems: { ...(prev.specialItems || { starShard: 0, goldenAnvil: 0 }), starShard: (prev.specialItems?.starShard || 0) - cost.shards },
+        equipmentInventory: inv.filter(entry => entry.count > 0),
+      };
+    });
+  };
+
+  const handleEquipItem = (starmonId: string, slotIndex: number, itemId: string, requestedLevel = 1) => {
+    const owner = starmons.find(mon => mon.id === starmonId);
+    if (!owner || !getUnlockedItemSlots(player.techResearchLevels, owner.element)[slotIndex]) return;
+    const requestedStack = (player.equipmentInventory || []).find(entry => entry.itemId === itemId && (entry.level || 1) === requestedLevel && entry.count > 0);
+    if (!requestedStack) return;
+    const itemLevel = requestedLevel;
     // 1. Deduct 1 from equipmentInventory
     setPlayer(prev => {
       const inv = prev.equipmentInventory ? [...prev.equipmentInventory] : [];
-      const itemIdx = inv.findIndex(i => i.itemId === itemId && i.count > 0);
+      const itemIdx = inv.findIndex(i => i.itemId === itemId && (i.level || 1) === itemLevel && i.count > 0);
       if (itemIdx >= 0) {
         inv[itemIdx] = { ...inv[itemIdx], count: inv[itemIdx].count - 1 };
       }
@@ -695,20 +779,23 @@ export default function App() {
       prev.map(s => {
         if (s.id === starmonId) {
           const currentEq = s.equippedItems ? [...s.equippedItems] : [null, null, null, null, null, null];
+          const currentLevels = s.equippedItemLevels ? [...s.equippedItemLevels] : Array(6).fill(1);
           const prevItem = currentEq[slotIndex];
           if (prevItem) {
+            const prevLevel = currentLevels[slotIndex] || 1;
             setPlayer(p => {
               const inv = p.equipmentInventory ? [...p.equipmentInventory] : [];
-              const pIdx = inv.findIndex(i => i.itemId === prevItem);
+              const pIdx = inv.findIndex(i => i.itemId === prevItem && (i.level || 1) === prevLevel);
               if (pIdx >= 0) {
                 inv[pIdx] = { ...inv[pIdx], count: inv[pIdx].count + 1 };
               } else {
-                inv.push({ itemId: prevItem, count: 1 });
+                inv.push({ itemId: prevItem, count: 1, level: prevLevel, enhancement: 0 });
               }
               return { ...p, equipmentInventory: inv };
             });
           }
           currentEq[slotIndex] = itemId;
+          currentLevels[slotIndex] = itemLevel;
 
           let newName = s.name;
           let newTitle = s.title;
@@ -740,6 +827,7 @@ export default function App() {
             isDaPhucVersion: isDaPhuc,
             unlockedSlots: slots,
             equippedItems: currentEq,
+            equippedItemLevels: currentLevels,
           };
         }
         return s;
@@ -747,22 +835,45 @@ export default function App() {
     );
   };
 
+  const handleUpgradeEquippedItem = (starmonId: string, slotIndex: number, currentLevel: number) => {
+    const itemId = starmons.find(mon => mon.id === starmonId)?.equippedItems?.[slotIndex];
+    const cost = itemId ? getEquipmentUpgradeCost(currentLevel + 1) : null;
+    if (itemId !== 'old_pickaxe' || !cost || currentLevel >= 100 || player.gold < cost.gold || (player.specialItems?.starShard || 0) < cost.shards) return;
+    setPlayer(prev => {
+      if (prev.gold < cost.gold || (prev.specialItems?.starShard || 0) < cost.shards) return prev;
+      return {
+        ...prev,
+        gold: prev.gold - cost.gold,
+        specialItems: { ...(prev.specialItems || { starShard: 0, goldenAnvil: 0 }), starShard: (prev.specialItems?.starShard || 0) - cost.shards },
+      };
+    });
+    setStarmons(prev => prev.map(mon => {
+      if (mon.id !== starmonId || mon.equippedItems?.[slotIndex] !== itemId || (mon.equippedItemLevels?.[slotIndex] || 1) !== currentLevel) return mon;
+      const levels = mon.equippedItemLevels ? [...mon.equippedItemLevels] : Array(6).fill(1);
+      levels[slotIndex] = currentLevel + 1;
+      return { ...mon, equippedItemLevels: levels };
+    }));
+  };
+
   const handleUnequipItem = (starmonId: string, slotIndex: number) => {
     setStarmons(prev =>
       prev.map(s => {
         if (s.id === starmonId) {
           const currentEq = s.equippedItems ? [...s.equippedItems] : [null, null, null, null, null, null];
+          const currentLevels = s.equippedItemLevels ? [...s.equippedItemLevels] : Array(6).fill(1);
           const unequippedItemId = currentEq[slotIndex];
+          const unequippedLevel = currentLevels[slotIndex] || 1;
           currentEq[slotIndex] = null;
+          currentLevels[slotIndex] = null;
 
           if (unequippedItemId) {
             setPlayer(p => {
               const inv = p.equipmentInventory ? [...p.equipmentInventory] : [];
-              const idx = inv.findIndex(i => i.itemId === unequippedItemId);
+              const idx = inv.findIndex(i => i.itemId === unequippedItemId && (i.level || 1) === unequippedLevel);
               if (idx >= 0) {
                 inv[idx] = { ...inv[idx], count: inv[idx].count + 1 };
               } else {
-                inv.push({ itemId: unequippedItemId, count: 1 });
+                inv.push({ itemId: unequippedItemId, count: 1, level: unequippedLevel, enhancement: 0 });
               }
               return { ...p, equipmentInventory: inv };
             });
@@ -795,6 +906,7 @@ export default function App() {
             avatarSeed: newAvatarSeed,
             isDaPhucVersion: isDaPhuc,
             equippedItems: currentEq,
+            equippedItemLevels: currentLevels,
           };
         }
         return s;
@@ -897,14 +1009,21 @@ export default function App() {
     setStarmons(prev =>
       prev.map(s => {
         if (s.id === starmonId) {
+          const starmonClass = getStarmonClass(s.id);
+          const nextLevel = Math.min(100, s.level + 1);
+          const levelStats = starmonClass ? getStatsForLevel(starmonClass, nextLevel) : undefined;
           return {
             ...s,
-            level: s.level + 1,
+            level: nextLevel,
             cards: Math.max(0, s.cards - cardsCost),
-            maxHp: s.maxHp + 25,
-            currentHp: s.maxHp + 25,
-            baseAtk: s.baseAtk + 8,
-            def: s.def + 5,
+            ...(levelStats ? {
+              starmonClass,
+              maxHp: levelStats.hp,
+              currentHp: levelStats.hp,
+              baseAtk: levelStats.atk,
+              def: levelStats.def,
+              cp: calculateCP(levelStats.hp, levelStats.atk, levelStats.def),
+            } : {}),
           };
         }
         return s;
@@ -1082,6 +1201,9 @@ export default function App() {
       ...loadedPlayer,
       name: uname,
       username: uname,
+      royalTokens: loadedPlayer.royalTokens || 0,
+      techResearchLevels: loadedPlayer.techResearchLevels || {},
+      researchJobs: loadedPlayer.researchJobs || [],
       energy: loadedPlayer.energy !== undefined ? loadedPlayer.energy : 100,
       maxEnergy: 100,
       lastEnergyRegenTime: loadedPlayer.lastEnergyRegenTime || Date.now(),
@@ -1099,16 +1221,20 @@ export default function App() {
     const merged = STARMON_ROSTER.map(rosterMon => {
       const userMon = savedMap.get(rosterMon.id);
       if (userMon) {
-        const levelBonus = (userMon.level || 1) - 1;
+        const level = userMon.level || 1;
+        const starmonClass = getStarmonClass(rosterMon.id);
+        const levelStats = starmonClass ? getStatsForLevel(starmonClass, level) : undefined;
         return {
           ...rosterMon,
           unlocked: !!userMon.unlocked,
           cards: userMon.cards || 0,
-          level: userMon.level || 1,
-          maxHp: rosterMon.maxHp + levelBonus * 25,
-          currentHp: rosterMon.maxHp + levelBonus * 25,
-          baseAtk: rosterMon.baseAtk + levelBonus * 8,
-          def: rosterMon.def + levelBonus * 5,
+          level,
+          starmonClass: starmonClass || undefined,
+          maxHp: levelStats?.hp ?? rosterMon.maxHp,
+          currentHp: levelStats?.hp ?? rosterMon.maxHp,
+          baseAtk: levelStats?.atk ?? rosterMon.baseAtk,
+          def: levelStats?.def ?? rosterMon.def,
+          cp: levelStats?.cp ?? calculateCP(rosterMon.maxHp, rosterMon.baseAtk, rosterMon.def),
         };
       }
       return {
@@ -1157,6 +1283,7 @@ export default function App() {
         nextExp: 100,
         gold: 0,
         gems: 0,
+        royalTokens: 0,
         energy: 100,
         maxEnergy: 100,
         lastEnergyRegenTime: Date.now(),
@@ -1174,6 +1301,8 @@ export default function App() {
         hasClaimedBeginnerPack: false,
         activeCompanionId: '',
         battleParty: [],
+        techResearchLevels: {},
+        researchJobs: [],
         mailUnreadCount: 1,
         soundEnabled: true,
         musicEnabled: true,
@@ -1249,6 +1378,29 @@ export default function App() {
   // Redeem Code Handler
   const handleRedeemCode = (rawCode: string): { success: boolean; message: string } => {
     const code = rawCode.trim().toLowerCase();
+
+    // Resource test codes are intentionally not listed in the interface.
+    const resourceTestCodes: Record<string, string> = {
+      goldtest: 'Gold',
+      gemstest: 'Gems',
+      energytest: 'Energy',
+      royaltokenstest: 'Royal Tokens',
+      starshardtest: 'Star Shards',
+      goldenanviltest: 'Golden Anvils',
+    };
+    const resourceName = resourceTestCodes[code];
+    if (resourceName) {
+      setPlayer(prev => {
+        if (code === 'goldtest') return { ...prev, gold: prev.gold + 5000 };
+        if (code === 'gemstest') return { ...prev, gems: prev.gems + 5000 };
+        if (code === 'energytest') return { ...prev, energy: prev.energy + 5000 };
+        if (code === 'royaltokenstest') return { ...prev, royalTokens: (prev.royalTokens || 0) + 5000 };
+        const specialItems = prev.specialItems || { starShard: 0, goldenAnvil: 0 };
+        if (code === 'starshardtest') return { ...prev, specialItems: { ...specialItems, starShard: specialItems.starShard + 5000 } };
+        return { ...prev, specialItems: { ...specialItems, goldenAnvil: specialItems.goldenAnvil + 5000 } };
+      });
+      return { success: true, message: `+5,000 ${resourceName}` };
+    }
 
     // Secret Code 1: Gems5000 (+5000 Gems)
     if (code === 'gems5000') {
@@ -1364,30 +1516,48 @@ export default function App() {
     const partyIds = (player.battleParty && player.battleParty.length > 0)
       ? player.battleParty.filter(id => unlocked.some(s => s.id === id))
       : unlocked.map(s => s.id).slice(0, 3);
+    const applyResearchStats = (mon: Starmon): Starmon => {
+      const bonus = getResearchStatBonuses(player.techResearchLevels, mon.element);
+      const hpScale = 1 + bonus.hp / 100;
+      return {
+        ...mon,
+        cp: mon.cp || calculateCP(mon.maxHp, mon.baseAtk, mon.def),
+        maxHp: Math.round(mon.maxHp * hpScale),
+        currentHp: Math.min(Math.round(mon.maxHp * hpScale), Math.round(mon.currentHp * hpScale)),
+        baseAtk: Math.round(mon.baseAtk * (1 + bonus.atk / 100)),
+        def: Math.round(mon.def * (1 + bonus.def / 100)),
+        researchCritChance: bonus.crit / 100,
+        researchPhysicalDamageReduction: bonus.reduction / 100,
+      };
+    };
     const applyEquipStats = (mon: Starmon): Starmon => {
-      const pickaxes = (mon.equippedItems || []).filter(id => id === 'old_pickaxe').length;
-      if (pickaxes <= 0) return mon;
-      const bonusAtk = 1 + pickaxes * 0.01;
-      const bonusHp = 1 + pickaxes * 0.01;
-      const newMaxHp = Math.round(mon.maxHp * bonusHp);
+      const itemStats = (mon.equippedItems || []).reduce((total, itemId, slot) => {
+        if (!itemId) return total;
+        const stats = getItemLevelStats(itemId, mon.equippedItemLevels?.[slot] || 1);
+        return { hp: total.hp + stats.hp, atk: total.atk + stats.atk, def: total.def + stats.def };
+      }, { hp: 0, atk: 0, def: 0 });
+      if (itemStats.hp + itemStats.atk + itemStats.def === 0) return mon;
+      const newMaxHp = mon.maxHp + itemStats.hp;
       return {
         ...mon,
         maxHp: newMaxHp,
         currentHp: newMaxHp,
-        baseAtk: Math.round(mon.baseAtk * bonusAtk),
+        baseAtk: mon.baseAtk + itemStats.atk,
+        def: mon.def + itemStats.def,
       };
     };
 
     const party = partyIds
       .map(id => starmons.find(s => s.id === id && s.unlocked))
       .filter((s): s is Starmon => !!s)
+      .map(applyResearchStats)
       .map(applyEquipStats);
-    return party.length > 0 ? party : (unlocked.length > 0 ? unlocked.slice(0, 3).map(applyEquipStats) : [
+    return party.length > 0 ? party : (unlocked.length > 0 ? unlocked.slice(0, 3).map(applyResearchStats).map(applyEquipStats) : [
       { ...STARMON_ROSTER[0], unlocked: true },
       { ...STARMON_ROSTER[1], unlocked: true },
       { ...STARMON_ROSTER[4], unlocked: true },
     ]);
-  }, [activeTutorialStage, starmons, player.battleParty]);
+  }, [activeTutorialStage, starmons, player.battleParty, player.techResearchLevels]);
 
   return (
     <div className="w-screen h-screen max-h-screen overflow-hidden bg-slate-950 font-sans flex flex-col justify-between relative select-none">
@@ -1433,6 +1603,12 @@ export default function App() {
           onOpenQuests={() => setShowQuestModal(true)}
           onOpenChat={() => setShowChatModal(true)}
           onStartBattle={handleStartBattle}
+          onCraftItem={handleCraftItem}
+          onClaimCraftedItem={handleClaimCraftedItem}
+          onUpgradeItem={handleUpgradeItem}
+          onStartResearch={handleStartResearch}
+          onFastForwardResearch={handleFastForwardResearch}
+          onCompleteResearch={handleCompleteResearch}
           onUpdateGoogleAccount={(googleId, googleEmail) => {
             setPlayer(prev => ({
               ...prev,
@@ -1480,6 +1656,7 @@ export default function App() {
           unitTestExpiry={player.unitTestExpiry}
           equipmentInventory={player.equipmentInventory}
           specialItems={player.specialItems}
+          techResearchLevels={player.techResearchLevels}
           onClose={() => setActiveScreen('hub')}
           onLevelUp={handleLevelUp}
           onSetActiveCompanion={handleSetActiveCompanion}
@@ -1487,7 +1664,7 @@ export default function App() {
           onUpdateBattleParty={handleUpdateBattleParty}
           onEquipItem={handleEquipItem}
           onUnequipItem={handleUnequipItem}
-          onUseSpecialItem={handleUseSpecialItem}
+          onUpgradeEquippedItem={handleUpgradeEquippedItem}
         />
       )}
 

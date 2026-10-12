@@ -3216,7 +3216,7 @@ export const BattleView: React.FC<Props> = ({
 
     // Critical Hit Calculation with Voltlynx / Vinedra Passive Buff:
     const isVoltlynx = (activeAttackingStarmon.id === 'voltlynx' || activeAttackingStarmon.avatarSeed === 'voltlynx');
-    let critChance = 0.10;
+    let critChance = 0.10 + (activeAttackingStarmon.researchCritChance || 0);
     if (isVoltlynx) {
       critChance += 0.25; // +25% extra critical chance
     }
@@ -5435,7 +5435,7 @@ export const BattleView: React.FC<Props> = ({
 
     // Voltlynx Passive: +25% extra critical chance, and critical attacks & abilities deal extra 25% DMG
     const isVoltlynxAbility = activeAttackingStarmon.id === 'voltlynx' || activeAttackingStarmon.avatarSeed === 'voltlynx';
-    let abilityCritChance = 0.10;
+    let abilityCritChance = 0.10 + (activeAttackingStarmon.researchCritChance || 0);
     if (isVoltlynxAbility) {
       abilityCritChance += 0.25; // +25% extra critical chance
       if (abilityNum === 1) {
@@ -5722,7 +5722,7 @@ export const BattleView: React.FC<Props> = ({
       return;
     }
 
-    const applyDamageToPlayer = (prevPlayers: Starmon[], dmg: number, isAoE: boolean = false) => {
+    const applyDamageToPlayer = (prevPlayers: Starmon[], dmg: number, isAoE: boolean = false, isOrbMatch: boolean = false) => {
       let finalDmg = dmg;
 
       // Ritual of the Sun Effect on enemy damage: Fire +20%, Water -20%
@@ -5773,6 +5773,9 @@ export const BattleView: React.FC<Props> = ({
 
         if (targetPIdx !== -1 && finalDmg > 0) {
           const targetMon = updated[targetPIdx];
+          if (isOrbMatch && targetMon.researchPhysicalDamageReduction) {
+            finalDmg = Math.max(1, Math.round(finalDmg * (1 - targetMon.researchPhysicalDamageReduction)));
+          }
           let dodged = false;
 
           // 1. Mossloth Passive: Mossy Camouflage (<50% Max HP -> 20% chance to dodge)
@@ -6258,7 +6261,7 @@ export const BattleView: React.FC<Props> = ({
 
           // Damage player frontline with Taunt redirection
           setPlayerTeam(prevPlayers => {
-            const updated = applyDamageToPlayer(prevPlayers, rawDmg, false);
+            const updated = applyDamageToPlayer(prevPlayers, rawDmg, false, true);
 
             // Refill board with anti-cascade lockout
             setBoard(prev => {

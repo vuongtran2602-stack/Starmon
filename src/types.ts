@@ -26,7 +26,24 @@ export interface EquipmentItem {
   bulletStats?: string[]; // e.g. ['+1% ATK', '+1% max HP']
   imageUrl: string;
   targetStarmonId?: string; // e.g. 'aquanymph'
-  rarity?: 'common' | 'rare' | 'epic' | 'legendary';
+  rarity?: 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
+  slotType?: 'headwear' | 'body_armor' | 'boots' | 'handheld' | 'handheld_shield' | 'relic' | 'special';
+}
+
+export interface CraftingJob {
+  slot: number;
+  itemId: string;
+  completesAt: number;
+}
+
+export type ResearchNodeLevels = Record<string, number>;
+export type ResearchTechLevels = Partial<Record<ElementType, ResearchNodeLevels>>;
+
+export interface ResearchJob {
+  slot: number;
+  element: ElementType;
+  nodeId: string;
+  completesAt: number;
 }
 
 export type StarmonClass =
@@ -66,7 +83,11 @@ export interface Starmon {
   avatarSeed: string; // for custom stylized vector art
   imageUrl?: string;
   equippedItems?: (string | null)[]; // 6 equipment slots
+  equippedItemLevels?: (number | null)[];
+  equippedItemEnhancements?: (number | null)[];
   unlockedSlots?: boolean[]; // 6 slots: boolean flag
+  researchCritChance?: number;
+  researchPhysicalDamageReduction?: number;
   isDaPhucVersion?: boolean;
 }
 
@@ -82,6 +103,7 @@ export interface PlayerProfile {
   nextExp: number;
   gold: number;
   gems: number;
+  royalTokens?: number;
   energy: number; // Current Energy (base 100/100, free regen caps at 100, batteries can exceed 100)
   maxEnergy: number; // Maximum natural energy capacity (100)
   lastEnergyRegenTime?: number; // Timestamp of last regen cycle (1 energy per 10 minutes)
@@ -103,7 +125,10 @@ export interface PlayerProfile {
   activeCompanionId: string;
   battleParty?: string[]; // IDs of 1 to 3 Starmons currently in the battle lineup
   unitTestExpiry?: number; // timestamp when UnitTest 0-cost mode expires
-  equipmentInventory?: { itemId: string; count: number }[];
+  equipmentInventory?: { itemId: string; count: number; level?: number; enhancement?: number }[];
+  craftingJobs?: CraftingJob[];
+  techResearchLevels?: ResearchTechLevels;
+  researchJobs?: ResearchJob[];
   elementalPacks?: Partial<Record<ElementType, number>>;
   claimedAquanymphDaPhucPack?: boolean;
   mailUnreadCount: number;

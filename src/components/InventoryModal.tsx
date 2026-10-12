@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { ElementType, InventoryCategory, InventoryItem, PlayerProfile, Starmon } from '../types';
 import { sound } from '../services/sound';
+import { getItemLevelStats } from '../data/itemStats';
 import {
   EQUIPMENT_ITEMS_CATALOG,
   STAR_SHARD_IMAGE,
@@ -8,6 +9,7 @@ import {
   ENERGY_BATTERY_50_IMAGE,
   ENERGY_BATTERY_100_IMAGE,
   ENERGY_BATTERY_200_IMAGE,
+  ROYAL_TOKENS_IMAGE,
 } from '../data/itemsData';
 import {
   X,
@@ -219,16 +221,26 @@ export const InventoryModal: React.FC<Props> = ({
       rarity: 'common',
       icon: '🪙',
     },
+    {
+      id: 'res_royal_tokens',
+      name: 'Royal Tokens',
+      category: 'materials',
+      description: 'Royal Tokens are required for advanced elemental research.',
+      quantity: player.royalTokens || 0,
+      rarity: 'legendary',
+      icon: '👑',
+      image: ROYAL_TOKENS_IMAGE,
+    },
     ...(player.equipmentInventory || [])
       .filter(eq => eq.count > 0)
       .map(eq => {
         const cat = EQUIPMENT_ITEMS_CATALOG[eq.itemId];
         if (!cat) return null;
         return {
-          id: `equip_${cat.id}`,
-          name: cat.name,
+          id: `equip_${cat.id}_${eq.level || 1}`,
+          name: `${cat.name} (Lv. ${eq.level || 1})`,
           category: 'materials' as InventoryCategory,
-          description: cat.id === 'old_pickaxe' ? '+1% ATK, +1% Max HP' : 'Đồng phục độc quyền trường Đa Phúc. Trang bị cho Aquanymph để kích hoạt bản đặc quyền.',
+          description: cat.id === 'old_pickaxe' ? `ATK +${getItemLevelStats(cat.id, eq.level || 1).atk}` : 'Đồng phục độc quyền trường Đa Phúc. Trang bị cho Aquanymph để kích hoạt bản đặc quyền.',
           quantity: eq.count,
           rarity: cat.rarity || 'common',
           icon: cat.id === 'old_pickaxe' ? '⛏️' : '👔',

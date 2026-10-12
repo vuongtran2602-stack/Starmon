@@ -2,6 +2,11 @@ import React, { useState } from 'react';
 import { PlayerProfile, Starmon } from '../types';
 import { StarmonAsset } from './StarmonAsset';
 import { PvpLobbyModal } from './PvpLobbyModal';
+import { calculateCP } from '../data/starmonStats';
+import { BlacksmithModal } from './BlacksmithModal';
+import { ShroomLabModal } from './ShroomLabModal';
+import { ElementType, CraftingJob, ResearchJob } from '../types';
+import { ResearchNodeId } from '../data/techResearch';
 import { sound } from '../services/sound';
 import { Settings, Maximize2, Minimize2, Sparkles, User, Package, BookOpen, Lock, Plus } from 'lucide-react';
 import mainHubBg from '../assets/images/mainhub_bg.png';
@@ -48,6 +53,12 @@ interface Props {
     opponentStarmons?: any[];
   }) => void;
   onUpdateGoogleAccount?: (googleId: string, googleEmail?: string) => void;
+  onCraftItem: (slot: number, itemId: string) => void;
+  onClaimCraftedItem: (slot: number) => void;
+  onUpgradeItem: (itemId: string, currentLevel: number) => void;
+  onStartResearch: (element: ElementType, nodeId: ResearchNodeId) => void;
+  onFastForwardResearch: (slot: number) => void;
+  onCompleteResearch: (slot: number) => void;
 }
 
 export const MainHub: React.FC<Props> = ({
@@ -72,8 +83,16 @@ export const MainHub: React.FC<Props> = ({
   onOpenEnergyBattery,
   onStartBattle,
   onUpdateGoogleAccount,
+  onCraftItem,
+  onClaimCraftedItem,
+  onUpgradeItem,
+  onStartResearch,
+  onFastForwardResearch,
+  onCompleteResearch,
 }) => {
   const [showPvpLobby, setShowPvpLobby] = useState(false);
+  const [showBlacksmith, setShowBlacksmith] = useState(false);
+  const [showShroomLab, setShowShroomLab] = useState(false);
   const [battleBlockedNotice, setBattleBlockedNotice] = useState(false);
   const [lockedFeatureNotice, setLockedFeatureNotice] = useState<string | null>(null);
 
@@ -81,10 +100,6 @@ export const MainHub: React.FC<Props> = ({
     sound.playWrong();
     if (name === 'Hatchery') {
       setLockedFeatureNotice('Hatchery (Breeding & Hatching): Sắp mở khóa! Yêu cầu tiêu hao Energy 🗲 để lai tạo và ấp trứng Starmon.');
-    } else if (name === 'Blacksmith') {
-      setLockedFeatureNotice('Blacksmith (Forging Items): Sắp mở khóa! Tiêu hao Energy 🗲, Star Shard và Golden Anvil để rèn trang bị.');
-    } else if (name === 'ShroomLab') {
-      setLockedFeatureNotice('ShroomLab (Researching): Sắp mở khóa! Yêu cầu tiêu hao Energy 🗲 để nghiên cứu bí thuật.');
     } else {
       setLockedFeatureNotice(`${name}: Đang khóa`);
     }
@@ -92,6 +107,10 @@ export const MainHub: React.FC<Props> = ({
   };
 
   const hasAnyStarmon = unlockedStarmonCount > 0 && activeStarmon && activeStarmon.unlocked;
+  const squadCP = playerStarmons.reduce(
+    (total, mon) => total + (mon.cp || calculateCP(mon.maxHp, mon.baseAtk, mon.def)),
+    0
+  );
 
   const handleBattleClick = () => {
     sound.playClick();
@@ -451,6 +470,9 @@ export const MainHub: React.FC<Props> = ({
                     {activeStarmon?.name || 'Starmon'} (Lv. {activeStarmon?.level || 1})
                   </span>
                 </div>
+                <div className="mt-1 px-3 py-1 rounded-full bg-slate-950/80 border border-amber-400/40 text-[10px] font-bold font-mono text-amber-200 shadow-lg">
+                  Squad CP: {squadCP.toLocaleString()}
+                </div>
               </div>
             )}
           </div>
@@ -458,9 +480,9 @@ export const MainHub: React.FC<Props> = ({
           {/* PART 4: ShroomLab (Right of Podium, slightly lower, clouds removed, -20% size) */}
           <div className="w-full flex flex-col items-center justify-center pointer-events-auto translate-y-2 sm:translate-y-4 md:translate-y-5">
             <div
-              onClick={() => handleLockedFeatureClick('ShroomLab')}
+              onClick={() => { sound.playClick(); setShowShroomLab(true); }}
               className="group relative flex flex-col items-center cursor-pointer transition-transform duration-300 hover:scale-105 active:scale-95 select-none animate-float-pedestal [animation-delay:0.8s]"
-              title="ShroomLab - Locked"
+              title="ShroomLab"
             >
               {/* Graphic (scaled down 20%) */}
               <div className="relative w-[128px] h-[93px] sm:w-[176px] sm:h-[128px] md:w-[224px] md:h-[163px] lg:w-[272px] lg:h-[198px] flex items-center justify-center">
@@ -472,9 +494,6 @@ export const MainHub: React.FC<Props> = ({
                     (e.target as HTMLImageElement).src = SHROOMLAB_IMAGE;
                   }}
                 />
-                <div className="absolute top-2 right-2 p-1.5 rounded-full bg-amber-500/30 border border-amber-400 text-amber-300 drop-shadow shadow-amber-500/50 animate-pulse">
-                  <Lock className="w-3.5 h-3.5 md:w-4 md:h-4 text-amber-300" />
-                </div>
               </div>
 
               {/* Big White Plaque with Golden Border & Bold Black English Text overlapping bottom */}
@@ -491,9 +510,9 @@ export const MainHub: React.FC<Props> = ({
           {/* PART 5: Blacksmith (Right of ShroomLab, on the far right, slightly higher than ShroomLab, clouds removed, -20% size) */}
           <div className="w-full flex flex-col items-center justify-center pointer-events-auto -translate-y-4 sm:-translate-y-6 md:-translate-y-8">
             <div
-              onClick={() => handleLockedFeatureClick('Blacksmith')}
+              onClick={() => setShowBlacksmith(true)}
               className="group relative flex flex-col items-center cursor-pointer transition-transform duration-300 hover:scale-105 active:scale-95 select-none animate-float-pedestal [animation-delay:1.5s]"
-              title="Blacksmith - Locked"
+              title="Blacksmith"
             >
               {/* Graphic (scaled down 20%) */}
               <div className="relative w-[128px] h-[93px] sm:w-[176px] sm:h-[128px] md:w-[224px] md:h-[163px] lg:w-[272px] lg:h-[198px] flex items-center justify-center">
@@ -505,9 +524,6 @@ export const MainHub: React.FC<Props> = ({
                     (e.target as HTMLImageElement).src = BLACKSMITH_IMAGE;
                   }}
                 />
-                <div className="absolute top-2 right-2 p-1.5 rounded-full bg-amber-500/30 border border-amber-400 text-amber-300 drop-shadow shadow-amber-500/50 animate-pulse">
-                  <Lock className="w-3.5 h-3.5 md:w-4 md:h-4 text-amber-300" />
-                </div>
               </div>
 
               {/* Big White Plaque with Golden Border & Bold Black English Text overlapping bottom */}
@@ -730,6 +746,28 @@ export const MainHub: React.FC<Props> = ({
             onOpenTutorial?.();
           }}
           onUpdateGoogleAccount={onUpdateGoogleAccount}
+        />
+      )}
+      {showBlacksmith && (
+        <BlacksmithModal
+          gold={player.gold}
+          energy={player.energy}
+          starShards={player.specialItems?.starShard || 0}
+          equipmentInventory={player.equipmentInventory || []}
+          craftingJobs={player.craftingJobs || []}
+          onClose={() => setShowBlacksmith(false)}
+          onCraft={onCraftItem}
+          onClaimCraft={onClaimCraftedItem}
+          onUpgrade={onUpgradeItem}
+        />
+      )}
+      {showShroomLab && (
+        <ShroomLabModal
+          player={player}
+          onClose={() => setShowShroomLab(false)}
+          onStartResearch={onStartResearch}
+          onFastForwardResearch={onFastForwardResearch}
+          onCompleteResearch={onCompleteResearch}
         />
       )}
     </div>

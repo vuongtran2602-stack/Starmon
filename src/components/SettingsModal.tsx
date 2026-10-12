@@ -777,7 +777,7 @@ export const SettingsModal: React.FC<Props> = ({
               <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 px-2 mb-1.5 flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
                   <Gift className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Redeem Gift Code (Mã Quà Tặng)</span>
+                  <span>Redeem Code</span>
                 </div>
                 <span className="text-[10px] text-amber-400 font-mono">Redeem</span>
               </div>
@@ -789,7 +789,7 @@ export const SettingsModal: React.FC<Props> = ({
                       <Sparkles className="w-3 h-3 text-emerald-400" /> Đặc Quyền Đang Kích Hoạt ({remainingDays}d)
                     </span>
                   ) : (
-                    <span className="text-[10px] text-amber-400/80 font-mono">Secret Code</span>
+                    <span className="text-[10px] text-amber-400/80 font-mono">Redeem</span>
                   )}
                 </div>
 
@@ -798,7 +798,7 @@ export const SettingsModal: React.FC<Props> = ({
                     type="text"
                     value={redeemInput}
                     onChange={e => setRedeemInput(e.target.value)}
-                    placeholder="Nhập mã quà tặng bí mật..."
+                    placeholder="Enter code"
                     className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400 font-mono"
                   />
                   <button
@@ -825,10 +825,6 @@ export const SettingsModal: React.FC<Props> = ({
                     <span>{redeemFeedback.message}</span>
                   </div>
                 )}
-
-                <p className="text-[10px] text-slate-400 leading-tight">
-                  Nhập các mã quà tặng đặc biệt hoặc mã sự kiện để nhận tài nguyên và mở khóa các đặc quyền bí mật.
-                </p>
               </div>
             </div>
           )}

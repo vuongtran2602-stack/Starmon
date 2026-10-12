@@ -31,6 +31,10 @@ export const STAR_SHARD_IMAGE = toDirectDropboxUrl(
   'https://www.dropbox.com/scl/fi/2p76tf6dvki6j2baz1ksp/Star_Shard-removebg.png?rlkey=t778famb7l7dp7ok3alzkz82w&st=612rc8xh&dl=0'
 );
 
+export const ROYAL_TOKENS_IMAGE = toDirectDropboxUrl(
+  'https://www.dropbox.com/scl/fi/eq4l3dfm7ye5315fctcul/Royal_Tokens-removebg.png?rlkey=2p8n3fw31mzwmiklcux98pm94&st=dmjvfetl&dl=0'
+);
+
 export const GOLDEN_ANVIL_IMAGE = toDirectDropboxUrl(
   'https://www.dropbox.com/scl/fi/osxxt4jpd9x19ulpyr2s3/Golden_Anvil-removebg.png?rlkey=w5b8e7dolmjejl352aalzxoqj&st=28ukah6o&dl=0'
 );
@@ -141,10 +145,11 @@ export const EQUIPMENT_ITEMS_CATALOG: Record<string, EquipmentItem> = {
   old_pickaxe: {
     id: 'old_pickaxe',
     name: 'Old Pickaxe',
-    description: 'Ancient weathered mining pickaxe that boosts offensive power and maximum vitality.',
-    bulletStats: ['+1% ATK', '+1% Max HP'],
+    description: 'A common handheld item. Its ATK increases as it levels up.',
+    bulletStats: ['ATK +8 (Level 1)'],
     imageUrl: OLD_PICKAXE_IMAGE,
     rarity: 'common',
+    slotType: 'handheld',
   },
   da_phuc_uniform: {
     id: 'da_phuc_uniform',
@@ -157,5 +162,6 @@ export const EQUIPMENT_ITEMS_CATALOG: Record<string, EquipmentItem> = {
     imageUrl: DA_PHUC_UNIFORM_IMAGE,
     targetStarmonId: 'aquanymph',
     rarity: 'legendary',
+    slotType: 'special',
   },
 };
