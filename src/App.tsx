@@ -21,7 +21,8 @@ import { ChatModal } from './components/ChatModal';
 import { TutorialModal } from './components/TutorialModal';
 import { OnboardingSpotlight } from './components/OnboardingSpotlight';
 import { sound } from './services/sound';
-import { getEquipmentUpgradeCost, getItemLevelStats } from './data/itemStats';
+import { getEquipmentUpgradeCost, getItemLevelStats, ITEM_CRAFT_COST } from './data/itemStats';
+import { EQUIPMENT_ITEMS_CATALOG } from './data/itemsData';
 import { testFirestoreConnection, resetAccountInFirestore } from './services/firebase';
 import { getResearchLevel, getUnlockedItemSlots, RESEARCH_NODES, ResearchNodeId, isResearchNodeUnlocked, getResearchStatBonuses } from './data/techResearch';
 
@@ -654,16 +655,17 @@ export default function App() {
   };
 
   const handleCraftItem = (slot: number, itemId: string) => {
-    if (slot !== 0 || itemId !== 'old_pickaxe') return;
+    const item = EQUIPMENT_ITEMS_CATALOG[itemId];
+    if (slot !== 0 || !item?.slotType || item.slotType === 'special') return;
     setPlayer(prev => {
       if ((prev.craftingJobs || []).some(job => job.slot === slot)) return prev;
-      if (prev.gold < 200 || prev.energy < 50 || (prev.specialItems?.starShard || 0) < 50) return prev;
+      if (prev.gold < ITEM_CRAFT_COST.gold || prev.energy < ITEM_CRAFT_COST.energy || (prev.specialItems?.starShard || 0) < ITEM_CRAFT_COST.starShards) return prev;
       return {
         ...prev,
-        gold: prev.gold - 200,
-        energy: prev.energy - 50,
-        specialItems: { ...(prev.specialItems || { starShard: 0, goldenAnvil: 0 }), starShard: (prev.specialItems?.starShard || 0) - 50 },
-        craftingJobs: [...(prev.craftingJobs || []), { slot, itemId, completesAt: Date.now() + 60 * 60 * 1000 }],
+        gold: prev.gold - ITEM_CRAFT_COST.gold,
+        energy: prev.energy - ITEM_CRAFT_COST.energy,
+        specialItems: { ...(prev.specialItems || { starShard: 0, goldenAnvil: 0 }), starShard: (prev.specialItems?.starShard || 0) - ITEM_CRAFT_COST.starShards },
+        craftingJobs: [...(prev.craftingJobs || []), { slot, itemId, completesAt: Date.now() + ITEM_CRAFT_COST.minutes * 60 * 1000 }],
       };
     });
   };
@@ -732,6 +734,20 @@ export default function App() {
       if (existing) existing.count += 1;
       else inv.push({ itemId: job.itemId, count: 1, level: 1, enhancement: 0 });
       return { ...prev, equipmentInventory: inv, craftingJobs: prev.craftingJobs?.filter(entry => entry.slot !== slot) || [] };
+    });
+  };
+
+  const handleFastForwardCraft = (slot: number) => {
+    setPlayer(prev => {
+      const job = (prev.craftingJobs || []).find(entry => entry.slot === slot);
+      if (!job) return prev;
+      const minutes = Math.ceil(Math.max(0, job.completesAt - Date.now()) / 60000);
+      if (prev.gems < minutes) return prev;
+      return {
+        ...prev,
+        gems: prev.gems - minutes,
+        craftingJobs: (prev.craftingJobs || []).map(entry => entry.slot === slot ? { ...entry, completesAt: Date.now() } : entry),
+      };
     });
   };
 
@@ -838,7 +854,7 @@ export default function App() {
   const handleUpgradeEquippedItem = (starmonId: string, slotIndex: number, currentLevel: number) => {
     const itemId = starmons.find(mon => mon.id === starmonId)?.equippedItems?.[slotIndex];
     const cost = itemId ? getEquipmentUpgradeCost(currentLevel + 1) : null;
-    if (itemId !== 'old_pickaxe' || !cost || currentLevel >= 100 || player.gold < cost.gold || (player.specialItems?.starShard || 0) < cost.shards) return;
+    if (!itemId || !EQUIPMENT_ITEMS_CATALOG[itemId]?.slotType || EQUIPMENT_ITEMS_CATALOG[itemId]?.slotType === 'special' || !cost || currentLevel >= 100 || player.gold < cost.gold || (player.specialItems?.starShard || 0) < cost.shards) return;
     setPlayer(prev => {
       if (prev.gold < cost.gold || (prev.specialItems?.starShard || 0) < cost.shards) return prev;
       return {
@@ -1580,6 +1596,7 @@ export default function App() {
           player={player}
           activeStarmon={activeStarmon}
           playerStarmons={battlePartyStarmons}
+          allOwnedStarmons={starmons.filter(mon => mon.unlocked)}
           unlockedStarmonCount={unlockedCount}
           isFullscreen={isFullscreen}
           unclaimedQuestsCount={quests.filter(q => !q.claimed && q.currentProgress >= q.maxProgress).length}
@@ -1605,7 +1622,9 @@ export default function App() {
           onStartBattle={handleStartBattle}
           onCraftItem={handleCraftItem}
           onClaimCraftedItem={handleClaimCraftedItem}
+          onFastForwardCraft={handleFastForwardCraft}
           onUpgradeItem={handleUpgradeItem}
+          onUpgradeEquippedItem={handleUpgradeEquippedItem}
           onStartResearch={handleStartResearch}
           onFastForwardResearch={handleFastForwardResearch}
           onCompleteResearch={handleCompleteResearch}

@@ -12,6 +12,17 @@ import mineacleImg from '../assets/images/mineacle.png';
 import zephyrionImg from '../assets/images/zephyrion.png';
 import mosslothImg from '../assets/images/mossloth.png';
 import khepriImg from '../assets/images/khepri.png';
+import armBandImg from '../assets/images/arm_band.jpeg';
+import woodenBowImg from '../assets/images/wooden_bow.png';
+import woodenChestplateImg from '../assets/images/wooden_chestplate.jpeg';
+import woodenClubImg from '../assets/images/wooden_club.jpeg';
+import woodenKettleHatImg from '../assets/images/wooden_kettle_hat.jpeg';
+import woodenShieldImg from '../assets/images/wooden_shield.jpeg';
+import woodenSwordImg from '../assets/images/wooden_sword.png';
+import woodStaffImg from '../assets/images/wood_staff.png';
+import egyptSandalsImg from '../assets/images/egypt_sandals.png';
+import rawHideShoesImg from '../assets/images/raw_hide_shoes.jpeg';
+import whiteFeatherImg from '../assets/images/white_feather.png';
 
 export function toDirectDropboxUrl(url: string): string {
   if (!url) return '';
@@ -142,6 +153,50 @@ export const SHROOMLAB_IMAGE = shroomlabImg || toDirectDropboxUrl(
 );
 
 export const EQUIPMENT_ITEMS_CATALOG: Record<string, EquipmentItem> = {
+  arm_band: {
+    id: 'arm_band', name: 'Arm band', description: 'A common handheld shield.',
+    imageUrl: armBandImg, rarity: 'common', slotType: 'handheld_shield',
+  },
+  wooden_bow: {
+    id: 'wooden_bow', name: 'Wooden Bow', description: 'A common handheld item.',
+    imageUrl: woodenBowImg, rarity: 'common', slotType: 'handheld',
+  },
+  wooden_chestplate: {
+    id: 'wooden_chestplate', name: 'Wooden Chestplate', description: 'Common body armor.',
+    imageUrl: woodenChestplateImg, rarity: 'common', slotType: 'body_armor',
+  },
+  wooden_club: {
+    id: 'wooden_club', name: 'Wooden Club', description: 'A common handheld item.',
+    imageUrl: woodenClubImg, rarity: 'common', slotType: 'handheld',
+  },
+  wooden_kettle_hat: {
+    id: 'wooden_kettle_hat', name: 'Wooden Kettle Hat', description: 'Common headwear.',
+    imageUrl: woodenKettleHatImg, rarity: 'common', slotType: 'headwear',
+  },
+  wooden_shield: {
+    id: 'wooden_shield', name: 'Wooden Shield', description: 'A common handheld shield.',
+    imageUrl: woodenShieldImg, rarity: 'common', slotType: 'handheld_shield',
+  },
+  wooden_sword: {
+    id: 'wooden_sword', name: 'Wooden Sword', description: 'A common handheld item.',
+    imageUrl: woodenSwordImg, rarity: 'common', slotType: 'handheld',
+  },
+  wood_staff: {
+    id: 'wood_staff', name: 'Wood Staff', description: 'A common handheld item.',
+    imageUrl: woodStaffImg, rarity: 'common', slotType: 'handheld',
+  },
+  egypt_sandals: {
+    id: 'egypt_sandals', name: 'Egypt Sandals', description: 'Common footwear.',
+    imageUrl: egyptSandalsImg, rarity: 'common', slotType: 'boots',
+  },
+  raw_hide_shoes: {
+    id: 'raw_hide_shoes', name: 'Raw Hide Shoes', description: 'Common footwear.',
+    imageUrl: rawHideShoesImg, rarity: 'common', slotType: 'boots',
+  },
+  white_feather: {
+    id: 'white_feather', name: 'White Feather', description: 'A common relic.',
+    imageUrl: whiteFeatherImg, rarity: 'common', slotType: 'relic',
+  },
   old_pickaxe: {
     id: 'old_pickaxe',
     name: 'Old Pickaxe',

@@ -29,6 +29,7 @@ interface Props {
   player: PlayerProfile;
   activeStarmon?: Starmon;
   playerStarmons?: Starmon[];
+  allOwnedStarmons?: Starmon[];
   unlockedStarmonCount: number;
   isFullscreen: boolean;
   unclaimedQuestsCount?: number;
@@ -55,7 +56,9 @@ interface Props {
   onUpdateGoogleAccount?: (googleId: string, googleEmail?: string) => void;
   onCraftItem: (slot: number, itemId: string) => void;
   onClaimCraftedItem: (slot: number) => void;
+  onFastForwardCraft: (slot: number) => void;
   onUpgradeItem: (itemId: string, currentLevel: number) => void;
+  onUpgradeEquippedItem: (starmonId: string, slotIndex: number, currentLevel: number) => void;
   onStartResearch: (element: ElementType, nodeId: ResearchNodeId) => void;
   onFastForwardResearch: (slot: number) => void;
   onCompleteResearch: (slot: number) => void;
@@ -65,6 +68,7 @@ export const MainHub: React.FC<Props> = ({
   player,
   activeStarmon,
   playerStarmons = [],
+  allOwnedStarmons = playerStarmons,
   unlockedStarmonCount,
   isFullscreen,
   unclaimedQuestsCount = 0,
@@ -85,7 +89,9 @@ export const MainHub: React.FC<Props> = ({
   onUpdateGoogleAccount,
   onCraftItem,
   onClaimCraftedItem,
+  onFastForwardCraft,
   onUpgradeItem,
+  onUpgradeEquippedItem,
   onStartResearch,
   onFastForwardResearch,
   onCompleteResearch,
@@ -764,14 +770,18 @@ export const MainHub: React.FC<Props> = ({
       {showBlacksmith && (
         <BlacksmithModal
           gold={player.gold}
+          gems={player.gems}
           energy={player.energy}
           starShards={player.specialItems?.starShard || 0}
           equipmentInventory={player.equipmentInventory || []}
+          starmons={allOwnedStarmons}
           craftingJobs={player.craftingJobs || []}
           onClose={() => setShowBlacksmith(false)}
           onCraft={onCraftItem}
           onClaimCraft={onClaimCraftedItem}
+          onFastForward={onFastForwardCraft}
           onUpgrade={onUpgradeItem}
+          onUpgradeEquipped={onUpgradeEquippedItem}
         />
       )}
       {showShroomLab && (

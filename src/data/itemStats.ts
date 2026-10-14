@@ -1,4 +1,5 @@
 import { EquipmentItem } from '../types';
+import { EQUIPMENT_ITEMS_CATALOG } from './itemsData';
 
 export type EquipmentStage = 'early' | 'mid1' | 'mid2' | 'mid3' | 'late';
 
@@ -9,6 +10,49 @@ export const OLD_PICKAXE_GAINS: Record<EquipmentStage, { atk: number }> = {
   mid2: { atk: 8.4 },
   mid3: { atk: 12.0 },
   late: { atk: 21.3 },
+};
+
+export const ITEM_CRAFT_COST = { gold: 200, starShards: 50, energy: 50, minutes: 60 } as const;
+
+type ItemSlotType = NonNullable<EquipmentItem['slotType']>;
+type ItemStats = { hp: number; atk: number; def: number };
+
+const ITEM_BASE_STATS: Record<ItemSlotType, ItemStats> = {
+  headwear: { hp: 20, atk: 0, def: 3 },
+  body_armor: { hp: 40, atk: 0, def: 1 },
+  boots: { hp: 25, atk: 0, def: 2 },
+  handheld: { hp: 0, atk: 8, def: 0 },
+  handheld_shield: { hp: 0, atk: 2, def: 5 },
+  relic: { hp: 25, atk: 2, def: 3 },
+  special: { hp: 0, atk: 0, def: 0 },
+};
+
+const ITEM_LEVEL_GAINS: Record<EquipmentStage, Record<ItemSlotType, ItemStats>> = {
+  early: {
+    headwear: { hp: 12.1, atk: 0, def: 1.0 }, body_armor: { hp: 22.4, atk: 0, def: 0.3 },
+    boots: { hp: 15.5, atk: 0, def: 0.7 }, handheld: { hp: 0, atk: 3.6, def: 0 },
+    handheld_shield: { hp: 0, atk: 0.4, def: 1.7 }, relic: { hp: 12.1, atk: 0.7, def: 1.0 }, special: { hp: 0, atk: 0, def: 0 },
+  },
+  mid1: {
+    headwear: { hp: 20.1, atk: 0, def: 1.7 }, body_armor: { hp: 37.4, atk: 0, def: 0.6 },
+    boots: { hp: 25.9, atk: 0, def: 1.2 }, handheld: { hp: 0, atk: 6.0, def: 0 },
+    handheld_shield: { hp: 0, atk: 0.7, def: 2.8 }, relic: { hp: 20.1, atk: 1.2, def: 1.7 }, special: { hp: 0, atk: 0, def: 0 },
+  },
+  mid2: {
+    headwear: { hp: 28.2, atk: 0, def: 2.4 }, body_armor: { hp: 52.3, atk: 0, def: 0.8 },
+    boots: { hp: 36.2, atk: 0, def: 1.7 }, handheld: { hp: 0, atk: 8.4, def: 0 },
+    handheld_shield: { hp: 0, atk: 0.9, def: 4.0 }, relic: { hp: 28.2, atk: 1.6, def: 2.4 }, special: { hp: 0, atk: 0, def: 0 },
+  },
+  mid3: {
+    headwear: { hp: 40.3, atk: 0, def: 3.4 }, body_armor: { hp: 74.7, atk: 0, def: 1.1 },
+    boots: { hp: 51.7, atk: 0, def: 2.5 }, handheld: { hp: 0, atk: 12.0, def: 0 },
+    handheld_shield: { hp: 0, atk: 1.3, def: 5.7 }, relic: { hp: 40.3, atk: 2.3, def: 3.4 }, special: { hp: 0, atk: 0, def: 0 },
+  },
+  late: {
+    headwear: { hp: 71.4, atk: 0, def: 6.1 }, body_armor: { hp: 132.4, atk: 0, def: 2.0 },
+    boots: { hp: 91.7, atk: 0, def: 4.4 }, handheld: { hp: 0, atk: 21.3, def: 0 },
+    handheld_shield: { hp: 0, atk: 2.4, def: 10.1 }, relic: { hp: 71.4, atk: 4.1, def: 6.1 }, special: { hp: 0, atk: 0, def: 0 },
+  },
 };
 
 type CostBand = { from: number; to: number; shards: number; gold: number; shardsTo?: number; goldTo?: number };
@@ -52,8 +96,9 @@ export function getEquipmentUpgradeCost(targetLevel: number): { shards: number; 
 }
 
 export function getItemLevelStats(itemId: string, level: number): { hp: number; atk: number; def: number } {
-  if (itemId !== 'old_pickaxe') return { hp: 0, atk: 0, def: 0 };
-  let atk = 8;
+  const slotType = EQUIPMENT_ITEMS_CATALOG[itemId]?.slotType;
+  if (!slotType) return { hp: 0, atk: 0, def: 0 };
+  const stats = { ...ITEM_BASE_STATS[slotType] };
   const boundedLevel = Math.max(1, Math.min(100, level));
   for (let target = 2; target <= boundedLevel; target += 1) {
     const stage: EquipmentStage = target > 75 ? 'late'
@@ -61,9 +106,12 @@ export function getItemLevelStats(itemId: string, level: number): { hp: number; 
       : target > 45 ? 'mid2'
       : target > 30 ? 'mid1'
       : 'early';
-    atk += Math.round(OLD_PICKAXE_GAINS[stage].atk);
+    const gain = ITEM_LEVEL_GAINS[stage][slotType];
+    stats.hp += Math.round(gain.hp);
+    stats.atk += Math.round(gain.atk);
+    stats.def += Math.round(gain.def);
   }
-  return { hp: 0, atk, def: 0 };
+  return stats;
 }
 
 export const BLACKSMITH_OPTION_IMAGES = {

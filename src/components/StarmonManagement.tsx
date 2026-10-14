@@ -28,6 +28,13 @@ import {
   Info
 } from 'lucide-react';
 
+const getEquippedItemBonuses = (starmon: Starmon) =>
+  (starmon.equippedItems || []).reduce((total, itemId, slotIndex) => {
+    if (!itemId) return total;
+    const stats = getItemLevelStats(itemId, starmon.equippedItemLevels?.[slotIndex] || 1);
+    return { hp: total.hp + stats.hp, atk: total.atk + stats.atk, def: total.def + stats.def };
+  }, { hp: 0, atk: 0, def: 0 });
+
 interface Props {
   starmons: Starmon[];
   playerGold: number;
@@ -380,6 +387,7 @@ export const StarmonManagement: React.FC<Props> = ({
           {/* Starmon List */}
           <div className="flex-1 overflow-y-auto mt-2 pr-1 space-y-1.5">
             {filteredStarmons.map(starmon => {
+              const equipmentBonus = getEquippedItemBonuses(starmon);
               const isSelected = starmon.id === selectedStarmon.id;
               const isCurrentCompanion = starmon.id === activeCompanionId;
               const partyIndex = currentPartyIds.indexOf(starmon.id);
@@ -431,16 +439,16 @@ export const StarmonManagement: React.FC<Props> = ({
                       </div>
                       <div className="flex items-center gap-1.5 text-[10px] text-slate-400 flex-wrap">
                         <span className="font-mono font-bold text-amber-300 bg-amber-400/10 px-1 py-0.5 rounded border border-amber-400/30 text-[9px]">
-                          CP {calculateCP(starmon.maxHp, starmon.baseAtk, starmon.def)}
+                          CP {calculateCP(starmon.maxHp + equipmentBonus.hp, starmon.baseAtk + equipmentBonus.atk, starmon.def + equipmentBonus.def)}
                         </span>
                         <span className="font-semibold text-slate-300 text-[9px] bg-slate-800 px-1 py-0.5 rounded">
                           {starmon.starmonClass || getStarmonClass(starmon.id) ? `Class: ${starmon.starmonClass || getStarmonClass(starmon.id)}` : ''}
                         </span>
                         <span>·</span>
                         <span>Lv. {starmon.level}</span>
-                        <span>HP {starmon.maxHp}</span>
-                        <span>ATK {starmon.baseAtk}</span>
-                        <span>DEF {starmon.def}</span>
+                        <span>HP {starmon.maxHp + equipmentBonus.hp}{equipmentBonus.hp > 0 && <b className="ml-0.5 text-emerald-400">(+{equipmentBonus.hp})</b>}</span>
+                        <span>ATK {starmon.baseAtk + equipmentBonus.atk}{equipmentBonus.atk > 0 && <b className="ml-0.5 text-emerald-400">(+{equipmentBonus.atk})</b>}</span>
+                        <span>DEF {starmon.def + equipmentBonus.def}{equipmentBonus.def > 0 && <b className="ml-0.5 text-emerald-400">(+{equipmentBonus.def})</b>}</span>
                         {isInParty && (
                           <span className="text-[9px] text-amber-300 font-bold bg-amber-500/20 px-1 rounded border border-amber-400/40">
                             Party #{partyIndex + 1}
@@ -580,9 +588,11 @@ export const StarmonManagement: React.FC<Props> = ({
 
                 {/* Base Attributes with Equipment Bonuses & CP */}
                 {(() => {
-                  const effectiveHp = selectedStarmon.maxHp;
-                  const effectiveAtk = selectedStarmon.baseAtk;
-                  const effectiveCp = calculateCP(effectiveHp, effectiveAtk, selectedStarmon.def);
+                  const equipmentBonus = getEquippedItemBonuses(selectedStarmon);
+                  const effectiveHp = selectedStarmon.maxHp + equipmentBonus.hp;
+                  const effectiveAtk = selectedStarmon.baseAtk + equipmentBonus.atk;
+                  const effectiveDef = selectedStarmon.def + equipmentBonus.def;
+                  const effectiveCp = calculateCP(effectiveHp, effectiveAtk, effectiveDef);
 
                   return (
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2">
@@ -603,7 +613,7 @@ export const StarmonManagement: React.FC<Props> = ({
                         <div>
                           <span className="text-[10px] text-slate-400 font-bold block">HP</span>
                           <div className="flex items-baseline gap-1">
-                            <span className="text-sm font-bold text-white font-mono">{effectiveHp}</span>
+                            <span className="text-sm font-bold text-white font-mono">{effectiveHp}{equipmentBonus.hp > 0 && <b className="ml-1 text-xs text-emerald-400">(+{equipmentBonus.hp})</b>}</span>
                           </div>
                         </div>
                       </div>
@@ -614,7 +624,7 @@ export const StarmonManagement: React.FC<Props> = ({
                         <div>
                           <span className="text-[10px] text-slate-400 font-bold block">ATK</span>
                           <div className="flex items-baseline gap-1">
-                            <span className="text-sm font-bold text-white font-mono">{effectiveAtk}</span>
+                            <span className="text-sm font-bold text-white font-mono">{effectiveAtk}{equipmentBonus.atk > 0 && <b className="ml-1 text-xs text-emerald-400">(+{equipmentBonus.atk})</b>}</span>
                           </div>
                         </div>
                       </div>
@@ -624,7 +634,7 @@ export const StarmonManagement: React.FC<Props> = ({
                         <Shield className="w-4 h-4 text-sky-400 shrink-0" />
                         <div>
                           <span className="text-[10px] text-slate-400 font-bold block">DEF</span>
-                          <span className="text-sm font-bold text-white font-mono">{selectedStarmon.def}</span>
+                          <span className="text-sm font-bold text-white font-mono">{effectiveDef}{equipmentBonus.def > 0 && <b className="ml-1 text-xs text-emerald-400">(+{equipmentBonus.def})</b>}</span>
                         </div>
                       </div>
                     </div>

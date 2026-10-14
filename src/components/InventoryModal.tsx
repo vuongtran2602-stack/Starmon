@@ -121,36 +121,12 @@ export const InventoryModal: React.FC<Props> = ({
     }
   });
 
-  // 2. DEDICATED ITEMS CATEGORY: Star Shard, Golden Anvil, Energy Batteries
+  // Energy batteries are usable consumables; upgrade materials belong in Resources.
   const itemsCategoryList: InventoryItem[] = [
-    {
-      id: 'item_star_shard',
-      name: 'Star Shard',
-      category: 'items',
-      description: 'Mảnh Sao Tinh Tú quý hiếm. Vật phẩm dùng để Level Up (Nâng cấp cấp độ) các trang bị của Starmon, mở rộng giới hạn chỉ số chiến đấu ATK và HP.',
-      quantity: player.specialItems?.starShard || 0,
-      rarity: 'epic',
-      icon: '⭐',
-      image: STAR_SHARD_IMAGE,
-      actionLabel: 'NÂNG CẤP TRANG BỊ',
-      subType: 'level_up',
-    },
-    {
-      id: 'item_golden_anvil',
-      name: 'Golden Anvil',
-      category: 'items',
-      description: 'Đe Vàng Hoàng Kim cổ đại chứa ma thuật tối thượng. Vật phẩm dùng để Cường Hóa (Enhance) trang bị, kích hoạt hiệu ứng phẩm chất đặc biệt và chỉ số vượt bậc.',
-      quantity: player.specialItems?.goldenAnvil || 0,
-      rarity: 'legendary',
-      icon: '🔨',
-      image: GOLDEN_ANVIL_IMAGE,
-      actionLabel: 'CƯỜNG HÓA TRANG BỊ',
-      subType: 'enhance',
-    },
     {
       id: 'item_battery_50',
       name: 'Energy Battery 50 🗲',
-      category: 'items',
+      category: 'consumables',
       description: 'Bình pin năng lượng cơ bản. Hồi phục +50 Energy tức thì cho các hoạt động breeding, hatching, forging và researching.',
       quantity: player.energyBatteries?.battery50 || 0,
       rarity: 'rare',
@@ -163,7 +139,7 @@ export const InventoryModal: React.FC<Props> = ({
     {
       id: 'item_battery_100',
       name: 'Energy Battery 100 🗲',
-      category: 'items',
+      category: 'consumables',
       description: 'Bình pin năng lượng cao cấp. Hồi phục +100 Energy tức thì cho các hoạt động breeding, hatching, forging và researching.',
       quantity: player.energyBatteries?.battery100 || 0,
       rarity: 'epic',
@@ -176,7 +152,7 @@ export const InventoryModal: React.FC<Props> = ({
     {
       id: 'item_battery_200',
       name: 'Energy Battery 200 🗲',
-      category: 'items',
+      category: 'consumables',
       description: 'Bình pin năng lượng cực đại. Hồi phục +200 Energy tức thì cho các hoạt động breeding, hatching, forging và researching.',
       quantity: player.energyBatteries?.battery200 || 0,
       rarity: 'legendary',
@@ -203,6 +179,26 @@ export const InventoryModal: React.FC<Props> = ({
 
   // 4. RESOURCES & EQUIPMENT
   const materialsCategoryList: InventoryItem[] = [
+    {
+      id: 'res_star_shard',
+      name: 'Star Shard',
+      category: 'materials',
+      description: 'Vật liệu dùng để Level Up trang bị của Starmon.',
+      quantity: player.specialItems?.starShard || 0,
+      rarity: 'epic',
+      icon: '⭐',
+      image: STAR_SHARD_IMAGE,
+    },
+    {
+      id: 'res_golden_anvil',
+      name: 'Golden Anvil',
+      category: 'materials',
+      description: 'Vật liệu dùng để Enhance trang bị.',
+      quantity: player.specialItems?.goldenAnvil || 0,
+      rarity: 'legendary',
+      icon: '🔨',
+      image: GOLDEN_ANVIL_IMAGE,
+    },
     {
       id: 'res_gems',
       name: 'Gems',
@@ -231,6 +227,9 @@ export const InventoryModal: React.FC<Props> = ({
       icon: '👑',
       image: ROYAL_TOKENS_IMAGE,
     },
+  ];
+
+  const equipmentCategoryList: InventoryItem[] = [
     ...(player.equipmentInventory || [])
       .filter(eq => eq.count > 0)
       .map(eq => {
@@ -239,7 +238,7 @@ export const InventoryModal: React.FC<Props> = ({
         return {
           id: `equip_${cat.id}_${eq.level || 1}`,
           name: `${cat.name} (Lv. ${eq.level || 1})`,
-          category: 'materials' as InventoryCategory,
+          category: 'items' as InventoryCategory,
           description: cat.id === 'old_pickaxe' ? `ATK +${getItemLevelStats(cat.id, eq.level || 1).atk}` : 'Đồng phục độc quyền trường Đa Phúc. Trang bị cho Aquanymph để kích hoạt bản đặc quyền.',
           quantity: eq.count,
           rarity: cat.rarity || 'common',
@@ -256,6 +255,7 @@ export const InventoryModal: React.FC<Props> = ({
     ...itemsCategoryList,
     ...shardsCategoryList,
     ...materialsCategoryList,
+    ...equipmentCategoryList,
   ];
 
   const filteredItems = items.filter(it => it.category === activeTab);
@@ -350,7 +350,7 @@ export const InventoryModal: React.FC<Props> = ({
                 </span>
               </h3>
               <p className="text-xs text-slate-400">
-                Packs, vật phẩm nâng cấp (Star Shard, Golden Anvil), Energy Batteries, cards & resources.
+                Packs, Energy Batteries, Starmon equipment, cards & resources.
               </p>
             </div>
           </div>
@@ -434,7 +434,7 @@ export const InventoryModal: React.FC<Props> = ({
                     <Package className="w-12 h-12 text-slate-600 mb-2 stroke-1" />
                     <p className="text-sm font-bold text-slate-300">Không có Gói Thẻ nào</p>
                     <p className="text-xs text-slate-400 mt-1 max-w-sm">
-                      Mục Consumables chỉ hiển thị các Gói Thẻ khi bạn có sẵn trong kho đồ. Hãy nhận quà Nhiệm vụ hoặc vào Cửa Hàng để mở thêm!
+                      Gói thẻ và Energy Battery bạn sở hữu sẽ xuất hiện ở đây.
                     </p>
                   </>
                 ) : activeTab === 'items' ? (
@@ -442,7 +442,7 @@ export const InventoryModal: React.FC<Props> = ({
                     <Sparkles className="w-12 h-12 text-slate-600 mb-2 stroke-1" />
                     <p className="text-sm font-bold text-slate-300">Kho Vật Phẩm Trống</p>
                     <p className="text-xs text-slate-400 mt-1">
-                      Chưa có vật phẩm nâng cấp hoặc bình năng lượng trong túi.
+                      Chưa có trang bị Starmon hoặc vật phẩm trong túi.
                     </p>
                   </>
                 ) : (
