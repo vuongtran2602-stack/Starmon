@@ -12,6 +12,7 @@ import {
   subscribeToPvpRoom,
   subscribeToActivePvpRooms,
   sanitizeRoomCode,
+  FIREBASE_PROJECT_ID,
 } from '../services/firebase';
 import {
   Swords,
@@ -487,40 +488,41 @@ export const PvpLobbyModal: React.FC<Props> = ({
       updatedAt: Date.now(),
     };
 
-    let createdRoom: PvpRoom = newRoom;
+    let createdRoom: PvpRoom;
 
     try {
-      // 1. Save directly to Firestore for global cross-container / cross-device visibility
-      try {
-        await savePvpRoomToFirestore(newRoom);
-      } catch (err) {
-        console.warn('Firestore room create warning:', err);
+      const res = await fetch('/api/rooms/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...newRoom,
+          custom_code: newCode,
+          host_id: activeGoogleId,
+          host_name: activeGoogleName,
+          hostLevel: playerLevel || 1,
+          starmons: myPartyStarmons,
+          players: [hostPlayer],
+        }),
+      });
+      const contentType = res.headers.get('content-type') || '';
+      const responseBody = contentType.includes('application/json')
+        ? await res.json()
+        : null;
+      if (!res.ok) {
+        throw new Error(responseBody?.error || `Server trả về lỗi ${res.status}.`);
       }
+      if (!responseBody?.room_code) {
+        throw new Error('Server không phản hồi dữ liệu phòng hợp lệ. Hãy mở game qua server đầy đủ, không dùng Vite frontend độc lập.');
+      }
+      createdRoom = responseBody as PvpRoom;
 
-      // 2. Also notify Express server
-      try {
-        const res = await fetch('/api/rooms/create', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ...newRoom,
-            custom_code: newCode,
-            host_id: activeGoogleId,
-            host_name: activeGoogleName,
-            hostLevel: playerLevel || 1,
-            starmons: myPartyStarmons,
-            players: [hostPlayer],
-          }),
-        });
-        if (res.ok) {
-          const sRoom = await res.json();
-          if (sRoom && sRoom.room_code) {
-            createdRoom = sRoom;
-          }
+      // Firestore is a cross-device mirror; the Express server is required for
+      // room creation and remains the authoritative local PvP server.
+      void savePvpRoomToFirestore(createdRoom).then(firestoreSaved => {
+        if (!firestoreSaved) {
+          console.warn('Firestore room mirror failed; room remains available on the game server.');
         }
-      } catch (err) {
-        console.warn('Server room create notice:', err);
-      }
+      });
 
       setCurrentRoom(createdRoom);
       sound.playRewardFanfare();
@@ -535,7 +537,7 @@ export const PvpLobbyModal: React.FC<Props> = ({
       }
     } catch (err: any) {
       console.error('Error creating room:', err);
-      setJoinError('Không thể tạo phòng lúc này. Vui lòng thử lại!');
+      setJoinError(err instanceof Error ? err.message : 'Không thể tạo phòng lúc này. Vui lòng thử lại!');
     } finally {
       setIsProcessing(false);
     }
@@ -1090,11 +1092,11 @@ export const PvpLobbyModal: React.FC<Props> = ({
                   </h2>
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-950 border border-amber-500/60 text-amber-300 font-mono font-bold flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-                    Firebase: starmon-7f34b
+                    Firebase: {FIREBASE_PROJECT_ID}
                   </span>
                 </div>
                 <p className="text-xs text-slate-400">
-                  Đồng bộ phòng thời gian thực qua Firebase Cloud Firestore (starmon-7f34b)
+                  Đồng bộ phòng thời gian thực qua Firebase Cloud Firestore ({FIREBASE_PROJECT_ID})
                 </p>
               </div>
             </div>

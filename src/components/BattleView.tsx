@@ -1806,6 +1806,7 @@ export const BattleView: React.FC<Props> = ({
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number | null>(null);
   const speechRecognitionRef = useRef<any>(null);
+  const recordingSessionRef = useRef(0);
 
   // Dynamic quiz questions generated randomly: always 3 questions in Phase 1 (except Tutorial 1)
   const [currentQuizSet, setCurrentQuizSet] = useState<QuizQuestion[]>(() =>
@@ -2191,6 +2192,7 @@ export const BattleView: React.FC<Props> = ({
           speechRecognitionRef.current.stop();
         } catch {}
       }
+      recordingSessionRef.current += 1;
 
       const textToAnalyze = spokenTranscript.trim() || (tutorialStage === 1 ? (currentQ.speakingPrompt || currentIeltsMetadata.sampleAnswer || 'Yes, I really enjoy reading books. It is a wonderful way to relax, broaden my horizons, and acquire useful knowledge in my daily life.') : '');
       if (!textToAnalyze) {
@@ -2208,19 +2210,10 @@ export const BattleView: React.FC<Props> = ({
     setRecordingErrorNotice('');
     setSpokenTranscript('');
     setIsRecording(true);
+    const recordingSession = ++recordingSessionRef.current;
     recordingStartTimeRef.current = Date.now();
     lastSpeechTimeRef.current = Date.now();
     speechPausesCountRef.current = 0;
-
-    try {
-      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        mediaStreamRef.current = stream;
-        startVolumeVisualizer(stream);
-      }
-    } catch (micErr) {
-      console.warn('Microphone permission info:', micErr);
-    }
 
     const SpeechRecognition =
       (window as unknown as { SpeechRecognition?: any }).SpeechRecognition ||
@@ -2251,11 +2244,46 @@ export const BattleView: React.FC<Props> = ({
 
         recognition.onerror = (e: any) => {
           console.warn('Speech recognition event:', e.error);
+          if (recordingSessionRef.current === recordingSession && ['not-allowed', 'audio-capture', 'service-not-allowed'].includes(e.error)) {
+            setIsRecording(false);
+            setRecordingErrorNotice(e.error === 'not-allowed' || e.error === 'service-not-allowed'
+              ? 'Microphone access was blocked. Allow microphone access in your browser, then try again.'
+              : 'No microphone was detected. Check your microphone connection and try again.');
+            recordingSessionRef.current += 1;
+            stopVolumeVisualizer();
+          }
         };
 
         recognition.start();
       } catch (e) {
         console.warn('Recognition start notice:', e);
+        setIsRecording(false);
+        setRecordingErrorNotice('Speech recognition could not start. Please check microphone permission and try again.');
+        recordingSessionRef.current += 1;
+        return;
+      }
+    } else {
+      setIsRecording(false);
+      setRecordingErrorNotice('Speech recognition is not supported in this browser. Please use a supported browser.');
+      recordingSessionRef.current += 1;
+      return;
+    }
+
+    // Start recognition synchronously inside the user's click, before the permission prompt can consume the activation.
+    try {
+      if (navigator.mediaDevices?.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        if (recordingSessionRef.current !== recordingSession) {
+          stream.getTracks().forEach(track => track.stop());
+          return;
+        }
+        mediaStreamRef.current = stream;
+        startVolumeVisualizer(stream);
+      }
+    } catch (micErr) {
+      console.warn('Microphone permission info:', micErr);
+      if (recordingSessionRef.current === recordingSession) {
+        setRecordingErrorNotice('Microphone access is unavailable. Allow microphone access in your browser and try again.');
       }
     }
   };

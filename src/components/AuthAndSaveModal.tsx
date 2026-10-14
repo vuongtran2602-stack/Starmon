@@ -6,7 +6,8 @@ import {
   saveAccountToFirestore,
   loadAccountsFromFirestore,
   isFirestoreConnected,
-  testFirestoreConnection
+  testFirestoreConnection,
+  FIREBASE_PROJECT_ID,
 } from '../services/firebase';
 import {
   User,
@@ -79,7 +80,7 @@ export function saveAccount(account: UserAccount) {
     }
     localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(accounts));
 
-    // Centrally synchronize account to Firebase Cloud Firestore (starmon-7f34b)
+    // Centrally synchronize account to the configured Firebase Cloud Firestore project.
     saveAccountToFirestore(account).catch(e => console.warn('Firestore account sync notice:', e));
 
     // Also synchronize account to backend Express store
@@ -98,7 +99,7 @@ export async function syncAccountsFromServer(): Promise<Record<string, UserAccou
     const local = getAllAccounts();
     const merged = { ...local };
 
-    // 1. Fetch from Firebase Cloud Firestore (starmon-7f34b)
+    // 1. Fetch from the configured Firebase Cloud Firestore project.
     try {
       const firestoreAccounts = await loadAccountsFromFirestore();
       for (const [key, acc] of Object.entries(firestoreAccounts)) {
@@ -650,7 +651,7 @@ export const AuthAndSaveModal: React.FC<Props> = ({
                 <span>Account & Cloud Save</span>
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono font-bold flex items-center gap-1">
                   <Cloud className="w-3 h-3 text-amber-400" />
-                  Firebase: starmon-7f34b
+                  Firebase: {FIREBASE_PROJECT_ID}
                 </span>
               </h3>
               <p className="text-[11px] text-slate-400">

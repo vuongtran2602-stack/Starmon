@@ -64,7 +64,9 @@ export const BlacksmithModal: React.FC<Props> = ({
     }] : [];
   }));
   const upgradeableItems = [
-    ...inventoryUpgradeItems.map(stack => ({ ...stack, equippedBy: null as Starmon | null, slotIndex: -1, source: 'inventory' as const })),
+    ...inventoryUpgradeItems.flatMap((stack, stackIndex) => Array.from({ length: stack.count }, (_, copyIndex) => ({
+      ...stack, count: 1, stackIndex, copyIndex, equippedBy: null as Starmon | null, slotIndex: -1, source: 'inventory' as const,
+    }))),
     ...equippedUpgradeItems.map(stack => ({ ...stack, source: 'equipped' as const })),
   ];
   const craftableItems = Object.values(EQUIPMENT_ITEMS_CATALOG).filter(item => item.slotType && item.slotType !== 'special');
@@ -118,29 +120,36 @@ export const BlacksmithModal: React.FC<Props> = ({
               <span>Enhance: <b className="text-slate-400">LOCKED</b></span>
             </div>
             {upgradeableItems.length === 0 ? <p className="rounded-xl bg-slate-950 p-6 text-center text-slate-400">No upgradeable items in Inventory.</p> : (
-              <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
                 {upgradeableItems.map(stack => {
                   const item = EQUIPMENT_ITEMS_CATALOG[stack.itemId];
                   const level = stack.level || 1;
                   const targetLevel = level + 1;
                   const cost = getEquipmentUpgradeCost(targetLevel);
                   const stats = getItemLevelStats(stack.itemId, level);
+                  const nextStats = getItemLevelStats(stack.itemId, targetLevel);
                   const canUpgrade = !!cost && level < 100 && gold >= cost.gold && starShards >= cost.shards;
-                  return <div key={`${stack.source}-${stack.itemId}-${level}-${stack.equippedBy?.id || 'inventory'}-${stack.slotIndex}`} className="flex flex-col sm:flex-row sm:items-center gap-4 rounded-2xl border border-slate-700 bg-slate-950/80 p-4">
-                    <div className="relative h-20 w-20 shrink-0">
+                  return <div key={`${stack.source}-${stack.itemId}-${level}-${stack.equippedBy?.id || 'inventory'}-${stack.slotIndex}-${'stackIndex' in stack ? `${stack.stackIndex}-${stack.copyIndex}` : 'equipped'}`} className="grid min-w-0 grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-2 rounded-2xl border border-slate-700 bg-slate-950/80 p-2">
+                    <div className="flex min-w-0 flex-col items-center text-center">
+                      <div className="relative h-14 w-14 shrink-0">
                       <img src={item?.imageUrl || OLD_PICKAXE_IMAGE} alt={item?.name || stack.itemId} className="h-full w-full rounded-xl bg-slate-900 object-contain p-2" />
                       {stack.equippedBy && <div className="absolute -bottom-1 -right-1 z-10 h-9 w-9 overflow-hidden rounded-full border-2 border-amber-300 bg-slate-950 shadow-lg" title={`Equipped by ${stack.equippedBy.name}`}><StarmonAsset id={stack.equippedBy.id} customSrc={stack.equippedBy.imageUrl} size="custom" className="h-full w-full" isDaPhucVersion={stack.equippedBy.isDaPhucVersion} /></div>}
+                      </div>
+                      <h3 className="mt-1 break-words font-game text-[10px] font-black leading-tight text-white">{item?.name || stack.itemId}</h3>
+                      <p className="mt-1 text-[9px] leading-tight text-amber-200">{item?.rarity || 'Common'}</p>
+                      <p className="mt-1 break-words text-[9px] leading-tight text-slate-400">{slotTypeLabels[item?.slotType || ''] || item?.slotType}</p>
+                      <p className="mt-1 text-[9px] text-slate-500">Lv {level}</p>
                     </div>
-                    <div className="flex-1">
-                      <h3 className="font-game font-black text-white">{item?.name || stack.itemId} <span className="text-xs text-amber-300">x{stack.count}</span></h3>
-                      <p className="text-xs text-slate-400">{slotTypeLabels[item?.slotType || ''] || item?.slotType} · {item?.rarity || 'Common'} · Level {level}</p>
-                      <div className="mt-1 flex flex-wrap gap-x-3 font-mono text-sm text-emerald-300">
+                    <div className="flex min-w-0 flex-col items-center gap-2 text-center">
+                      <div className="flex flex-wrap justify-center gap-x-1 font-mono text-[10px] leading-tight text-emerald-300">
                         {stats.hp > 0 && <span>HP +{stats.hp}</span>}{stats.atk > 0 && <span>ATK +{stats.atk}</span>}{stats.def > 0 && <span>DEF +{stats.def}</span>}
                       </div>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-3">
-                      <div className="text-xs text-slate-300">Next Level {targetLevel}<br /><span className="text-amber-300">{cost ? `${cost.gold.toLocaleString()} Gold` : 'MAX LEVEL'}</span> · <span className="text-cyan-300">{cost?.shards.toLocaleString() || 0} Star Shard</span></div>
-                      <button disabled={!canUpgrade} onClick={() => stack.equippedBy ? onUpgradeEquipped(stack.equippedBy.id, stack.slotIndex, level) : onUpgrade(stack.itemId, level)} className="rounded-xl border border-cyan-300/60 bg-cyan-500/20 px-5 py-2 font-game text-sm font-black text-cyan-100 disabled:cursor-not-allowed disabled:opacity-40">LEVEL UP</button>
+                      <div className="text-[9px] leading-tight text-slate-300">Next Lv {targetLevel}</div>
+                      <div className="flex flex-wrap justify-center gap-x-1 text-[9px] leading-tight text-emerald-200">
+                        {nextStats.hp > 0 && <span>HP +{nextStats.hp}</span>}{nextStats.atk > 0 && <span>ATK +{nextStats.atk}</span>}{nextStats.def > 0 && <span>DEF +{nextStats.def}</span>}
+                      </div>
+                      <button disabled={!canUpgrade} onClick={() => stack.equippedBy ? onUpgradeEquipped(stack.equippedBy.id, stack.slotIndex, level) : onUpgrade(stack.itemId, level)} className="mt-auto flex min-h-12 w-full items-center justify-center rounded-xl border border-yellow-200 bg-gradient-to-b from-yellow-300 to-amber-500 px-1.5 py-2 font-game text-[10px] font-black leading-tight text-slate-950 shadow-md shadow-amber-950/40 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40">Upgrade</button>
+                      <p className="text-[9px] leading-tight text-slate-300">{cost ? `${cost.gold.toLocaleString()} Gold · ${cost.shards} Star Shard` : 'MAX LEVEL'}</p>
                     </div>
                   </div>;
                 })}

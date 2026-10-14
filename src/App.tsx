@@ -1348,7 +1348,7 @@ export default function App() {
         sessionStorage.setItem('starmon_just_reset', 'true');
       } catch {}
 
-      // 1. Reset in Firebase Cloud Firestore (starmon-7f34b)
+      // 1. Reset in the configured Firebase Cloud Firestore project.
       try {
         if (gid) await resetAccountInFirestore(gid, u);
         if (u) await resetAccountInFirestore(u, u);

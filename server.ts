@@ -14,7 +14,7 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = http.createServer(app);
-const PORT = 3000;
+const PORT = Number.parseInt(process.env.PORT || '3000', 10);
 
 app.use(express.json());
 
@@ -454,6 +454,7 @@ interface PvpMatchState {
   phase: string; // "1.1", "1.2", "1.3", "2.1", "2.2", "2.3"...
   subPhase: 1 | 2 | 3; // 1 = Answer, 2 = P1 Attack, 3 = P2 Attack
   step: number; // 1, 2, 3 (Step 1 = Starmon 1, Step 2 = Starmon 2, Step 3 = Starmon 3)
+  actionCommittedStep: number; // prevents duplicate actions for the same Starmon step
   attackerSlot: 1 | 2 | null;
   targetSlot: 1 | 2 | null;
   players: {
@@ -777,6 +778,7 @@ function initializeMatchForRoom(room: PvpRoom): PvpMatchState {
     phase: '1.1',
     subPhase: 1,
     step: 1,
+    actionCommittedStep: 0,
     attackerSlot: null,
     targetSlot: null,
     players: {
@@ -915,6 +917,7 @@ function startPhase(state: PvpMatchState, roomCode: string, subPhase: 1 | 2 | 3)
     state.attackerSlot = (subPhase - 1) as 1 | 2; // 2 -> 1, 3 -> 2
     state.targetSlot = (3 - state.attackerSlot) as 1 | 2;
     state.step = 1;
+    state.actionCommittedStep = 0;
   }
 
   // Hẹn giờ kết thúc phase — CHỈ 1 timer duy nhất
@@ -1311,12 +1314,14 @@ function endStep(state: PvpMatchState, roomCode: string, _skipped: boolean = fal
   runStep(state, roomCode);
 }
 
-function onStepTimeout(state: PvpMatchState, roomCode: string) {
+function onStepTimeout(state: PvpMatchState, roomCode: string, playerSlot: 1 | 2, requestedStarmonIndex: number) {
+  if (Date.now() < state.phaseEndsAt) return;
+  const attackerSlot = state.attackerSlot || ((state.subPhase - 1) as 1 | 2);
+  if (playerSlot !== attackerSlot || requestedStarmonIndex !== state.step - 1) return;
   if (state.stepTimerHandle) {
     clearTimeout(state.stepTimerHandle);
     state.stepTimerHandle = null;
   }
-  const attackerSlot = state.attackerSlot || ((state.subPhase - 1) as 1 | 2);
   const starmonIndex = Math.max(0, Math.min(2, (state.step || 1) - 1));
   const attacker = state.players[attackerSlot];
   const starmon = attacker?.starmons[starmonIndex];
@@ -1437,6 +1442,10 @@ function onStarmonAction(
     return reject('không phải phase tấn công');
   }
 
+  if (Date.now() >= state.phaseEndsAt) {
+    return reject('phase tấn công đã kết thúc');
+  }
+
   const attackerSlot: 1 | 2 = state.attackerSlot || ((state.subPhase - 1) as 1 | 2);
   const targetSlot: 1 | 2 = state.targetSlot || ((3 - attackerSlot) as 1 | 2);
   state.attackerSlot = attackerSlot;
@@ -1451,6 +1460,10 @@ function onStarmonAction(
 
   if (starmonIndex !== state.step - 1) {
     return reject('không phải starmon đang đến lượt');
+  }
+
+  if (state.actionCommittedStep === state.step) {
+    return reject('starmon này đã hành động trong lượt hiện tại');
   }
 
   const attacker = state.players[state.attackerSlot];
@@ -1495,6 +1508,9 @@ function onStarmonAction(
   } else {
     return reject('action không hợp lệ');
   }
+
+  // Lock the step before mutating shared state; repeated or delayed client messages cannot apply damage twice.
+  state.actionCommittedStep = state.step;
 
   const targetStarmon = target.starmons[targetIdx];
 
@@ -2319,7 +2335,8 @@ wss.on('connection', (ws) => {
 
           const { attackerSlot } = getAttackerAndTargetByPhase(match.phase);
           if (attackerSlot === playerSlot && (match.subPhase === 2 || match.subPhase === 3)) {
-            onStepTimeout(match, targetCode);
+            const requestedStarmonIndex = Number(msg.starmon_index);
+            onStepTimeout(match, targetCode, playerSlot, requestedStarmonIndex);
           }
           break;
         }

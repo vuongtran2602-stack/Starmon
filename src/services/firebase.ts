@@ -16,20 +16,16 @@ import {
 import firebaseConfig from '../../firebase-applet-config.json';
 import { UserAccount, PvpRoom, PlayerInRoom, PvpSpeakingSubmission, PvpMatchState } from '../types';
 
-// Support both configured project ID and user-requested ID 'starmon-7f34b'
-const activeFirebaseConfig = {
-  ...firebaseConfig,
-  projectId: 'starmon-7f34b',
-  authDomain: 'starmon-7f34b.firebaseapp.com',
-  storageBucket: 'starmon-7f34b.firebasestorage.app',
-};
+// Keep Firebase project and Firestore database settings together in the app config.
+const activeFirebaseConfig = firebaseConfig;
+export const FIREBASE_PROJECT_ID = activeFirebaseConfig.projectId;
 
 // Initialize or reuse Firebase App instance
 export const app = getApps().length === 0 ? initializeApp(activeFirebaseConfig) : getApp();
 
-// Initialize Firestore with Database ID from config
-export const db = firebaseConfig.firestoreDatabaseId
-  ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
+// Connect to the configured Firestore database for this project.
+export const db = activeFirebaseConfig.firestoreDatabaseId
+  ? getFirestore(app, activeFirebaseConfig.firestoreDatabaseId)
   : getFirestore(app);
 export const auth = getAuth(app);
 
@@ -93,12 +89,9 @@ export async function testFirestoreConnection(): Promise<boolean> {
     console.info(`🔥 Successfully connected to Firebase Cloud Firestore (Project: ${activeFirebaseConfig.projectId})`);
     return true;
   } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.warn('Firestore client is offline. Checking fallback.');
-    }
-    // Also consider reachable if read permission returned without hard network drop
-    isConnected = true;
-    return true;
+    isConnected = false;
+    handleFirestoreError(error, OperationType.GET, 'test/connection');
+    return false;
   }
 }
 
