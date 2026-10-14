@@ -44,6 +44,7 @@ export const BlacksmithModal: React.FC<Props> = ({
   const [now, setNow] = useState(Date.now());
   const [selectedCraftSlot, setSelectedCraftSlot] = useState<number | null>(null);
   const [selectedCraftItemId, setSelectedCraftItemId] = useState<string | null>(null);
+  const [selectedCraftCategory, setSelectedCraftCategory] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -71,13 +72,21 @@ export const BlacksmithModal: React.FC<Props> = ({
     headwear: 'Headwear', body_armor: 'Body Armor', boots: 'Footwear', handheld: 'Handheld',
     handheld_shield: 'Handheld Shield', relic: 'Relic',
   };
+  const craftCategories = [
+    { id: 'headwear', label: 'Headwear' },
+    { id: 'body_armor', label: 'Body Armor' },
+    { id: 'boots', label: 'Footwear' },
+    { id: 'handheld', label: 'Handheld' },
+    { id: 'handheld_shield', label: 'Handheld Shield' },
+    { id: 'relic', label: 'Relic' },
+  ];
 
   return (
     <div className="fixed inset-0 z-[80] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-3 md:p-6">
       <section className="relative w-full max-w-6xl max-h-[94vh] overflow-y-auto rounded-3xl border-2 border-amber-400/80 bg-gradient-to-b from-slate-900 to-slate-950 text-white shadow-2xl">
         <header className="sticky top-0 z-10 flex items-center justify-between gap-3 px-5 py-4 border-b border-amber-400/30 bg-slate-950/95 backdrop-blur">
           <div className="flex items-center gap-3">
-            {mode !== 'menu' && <button onClick={() => { if (mode === 'craft' && selectedCraftItemId !== null) setSelectedCraftItemId(null); else if (mode === 'craft' && selectedCraftSlot !== null) setSelectedCraftSlot(null); else setMode('menu'); }} className="rounded-lg p-2 bg-slate-800 hover:bg-slate-700" aria-label="Back"><ArrowLeft className="w-4 h-4" /></button>}
+            {mode !== 'menu' && <button onClick={() => { if (mode === 'craft' && selectedCraftItemId !== null) setSelectedCraftItemId(null); else if (mode === 'craft' && selectedCraftCategory !== null) setSelectedCraftCategory(null); else if (mode === 'craft' && selectedCraftSlot !== null) setSelectedCraftSlot(null); else setMode('menu'); }} className="rounded-lg p-2 bg-slate-800 hover:bg-slate-700" aria-label="Back"><ArrowLeft className="w-4 h-4" /></button>}
             <div>
               <h2 className="font-game text-lg sm:text-2xl font-black tracking-wider text-amber-300">BLACKSMITH</h2>
               {mode === 'menu' && <p className="text-xs text-slate-400">Choose a service</p>}
@@ -170,10 +179,16 @@ export const BlacksmithModal: React.FC<Props> = ({
                   </> : <button onClick={() => setSelectedCraftSlot(slot)} className="group flex flex-1 flex-col items-center justify-center gap-3 text-slate-300"><span className="flex h-14 w-14 items-center justify-center rounded-full border-2 border-dashed border-amber-300/70 bg-amber-400/10 text-amber-200 transition group-hover:scale-110 group-hover:bg-amber-400/20"><span className="text-4xl leading-none">+</span></span><span className="font-game text-xs font-black">CHOOSE ITEM</span></button>}
                 </div>;
               })}
+            </div> : selectedCraftItemId === null && selectedCraftCategory === null ? <div className="grid grid-cols-3 gap-3">
+              {craftCategories.map(category => (
+                <button key={category.id} onClick={() => setSelectedCraftCategory(category.id)} className="flex min-h-24 items-center justify-center rounded-xl border border-amber-400/50 bg-slate-950/80 p-3 text-center font-game text-xs font-black text-amber-100 transition hover:border-amber-200 hover:bg-slate-900 sm:min-h-28 sm:text-sm">
+                  {category.label}
+                </button>
+              ))}
             </div> : selectedCraftItemId === null ? <div className="space-y-3">
-              <p className="text-center text-xs text-slate-300">Choose an item to craft in Slot {selectedCraftSlot + 1}</p>
+              <p className="text-center text-xs text-slate-300">Choose a {slotTypeLabels[selectedCraftCategory || ''] || 'category'} item to craft in Slot {selectedCraftSlot + 1}</p>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-                {craftableItems.map(item => {
+                {craftableItems.filter(item => item.slotType === selectedCraftCategory).map(item => {
                   const stats = getItemLevelStats(item.id, 1);
                   return <button key={item.id} onClick={() => setSelectedCraftItemId(item.id)} className="flex min-h-44 flex-col items-center rounded-xl border border-slate-700 bg-slate-950/80 p-3 text-center transition hover:border-amber-300 hover:bg-slate-900">
                     <img src={item.imageUrl} alt={item.name} className="h-20 w-20 object-contain" />
@@ -203,7 +218,7 @@ export const BlacksmithModal: React.FC<Props> = ({
                     <p className="mt-3 text-sm font-bold text-slate-200">Craft Cost</p>
                     <p className="text-xs text-amber-100">{ITEM_CRAFT_COST.gold} Gold · {ITEM_CRAFT_COST.starShards} Star Shard · {ITEM_CRAFT_COST.energy} Energy</p>
                   </div>
-                  <button disabled={!canCraft} onClick={() => { onCraft(selectedCraftSlot, item.id); setSelectedCraftSlot(null); setSelectedCraftItemId(null); }} className="w-full rounded-xl bg-amber-400 px-8 py-3 font-game font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto">CRAFT</button>
+                  <button disabled={!canCraft} onClick={() => { onCraft(selectedCraftSlot, item.id); setSelectedCraftSlot(null); setSelectedCraftItemId(null); setSelectedCraftCategory(null); }} className="w-full rounded-xl bg-amber-400 px-8 py-3 font-game font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto">CRAFT</button>
                 </article>
               </div>;
             })()}

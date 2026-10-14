@@ -23,6 +23,9 @@ import woodStaffImg from '../assets/images/wood_staff.png';
 import egyptSandalsImg from '../assets/images/egypt_sandals.png';
 import rawHideShoesImg from '../assets/images/raw_hide_shoes.jpeg';
 import whiteFeatherImg from '../assets/images/white_feather.png';
+import skullMaskImg from '../assets/images/skull_mask.png';
+import medievalCoifImg from '../assets/images/medieval_coif.jpeg';
+import seashellShieldImg from '../assets/images/seashell_shield.png';
 
 export function toDirectDropboxUrl(url: string): string {
   if (!url) return '';
@@ -173,9 +176,21 @@ export const EQUIPMENT_ITEMS_CATALOG: Record<string, EquipmentItem> = {
     id: 'wooden_kettle_hat', name: 'Wooden Kettle Hat', description: 'Common headwear.',
     imageUrl: woodenKettleHatImg, rarity: 'common', slotType: 'headwear',
   },
+  skull_mask: {
+    id: 'skull_mask', name: 'Skull Mask', description: 'Common headwear.',
+    imageUrl: skullMaskImg, rarity: 'common', slotType: 'headwear',
+  },
+  medieval_coif: {
+    id: 'medieval_coif', name: 'Medieval Coif', description: 'Common headwear.',
+    imageUrl: medievalCoifImg, rarity: 'common', slotType: 'headwear',
+  },
   wooden_shield: {
     id: 'wooden_shield', name: 'Wooden Shield', description: 'A common handheld shield.',
     imageUrl: woodenShieldImg, rarity: 'common', slotType: 'handheld_shield',
+  },
+  seashell_shield: {
+    id: 'seashell_shield', name: 'Seashell Shield', description: 'A common handheld shield.',
+    imageUrl: seashellShieldImg, rarity: 'common', slotType: 'handheld_shield',
   },
   wooden_sword: {
     id: 'wooden_sword', name: 'Wooden Sword', description: 'A common handheld item.',
