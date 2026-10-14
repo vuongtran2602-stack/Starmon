@@ -95,6 +95,30 @@ export const IELTS_SPEAKING_POOL: IeltsSpeakingChallenge[] = [
   },
 ];
 
+export const PART1_PREFERENCE_QUESTIONS = [
+  'Do you like singing? Why/Why not?',
+  'Do you prefer listening to music or singing along to it?',
+  'Do you like reading books in your free time?',
+  'Do you prefer reading paper books or e-books?',
+  'Do you like playing sports?',
+  'Do you prefer playing sports or watching sports?',
+  'Do you like cooking?',
+  'Do you prefer cooking at home or eating out?',
+  'Do you like taking photos?',
+  'Do you like going shopping?',
+  'Do you like using social media?',
+  'Do you prefer chatting online or talking face-to-face?',
+  'Do you think social media is a good way to make new friends?',
+  'Do you like watching TV? Why/Why not?',
+  'Do you prefer watching TV or playing games?',
+  'Do you like walking in the park? Why/Why not?',
+  'Do you prefer walking or riding a bike?',
+  'Do you like going to the cinema? Why/Why not?',
+  'Do you prefer going to the cinema or watching movies at home?',
+  'Do you like traveling? Why/Why not?',
+  'Do you prefer traveling alone or with friends?',
+] as const;
+
 export const MCQ_POOL_Q1: QuizQuestion[] = [
   {
     id: 'mcq_1',
@@ -270,6 +294,31 @@ export function getRandomQuizSet(
 ): QuizQuestion[] {
   // Dynamically generate questions corresponding strictly to the number of Starmons in the Party (1, 2, or 3)
   const count = Math.max(1, Math.min(3, activeStarmonCount));
+
+  if (mode === 'random' || mode === 'part1_preference') {
+    const preferenceQuestions = PART1_PREFERENCE_QUESTIONS;
+    const existingSpeakingQuestions = [
+      ...EXTENDED_SPEAKING_BANK.map(item => ({ question: item.question, sampleAnswer: item.sampleAnswer })),
+      ...IELTS_SPEAKING_POOL.map(item => ({ question: item.question, sampleAnswer: item.sampleAnswer })),
+    ];
+    const selected = mode === 'part1_preference'
+      ? {
+          question: preferenceQuestions[Math.floor(Math.random() * preferenceQuestions.length)],
+          sampleAnswer: '',
+        }
+      : existingSpeakingQuestions[Math.floor(Math.random() * existingSpeakingQuestions.length)];
+    const assignedStarmonIndex = Math.floor(Math.random() * count);
+    return [{
+      id: `speaking_${mode}_${Date.now()}`,
+      type: 'speaking',
+      title: mode === 'part1_preference' ? 'IELTS SPEAKING PART 1: PREFERENCE' : 'IELTS SPEAKING: RANDOM QUESTION',
+      category: 'IELTS Speaking',
+      question: selected.question,
+      speakingPrompt: selected.sampleAnswer || undefined,
+      minBand: 5.5,
+      assignedStarmonIndex,
+    }];
+  }
 
   // 1. CHẾ ĐỘ ONLY SPEAKING (DEFAULT: Số câu hỏi speaking bằng đúng số lượng Starmon trong Party)
   if (mode === 'speaking_only') {

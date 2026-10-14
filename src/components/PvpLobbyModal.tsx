@@ -33,7 +33,8 @@ import {
   AlertCircle,
   UserCheck,
   Edit3,
-  Bot
+  Bot,
+  Bluetooth
 } from 'lucide-react';
 
 interface Props {
@@ -87,6 +88,7 @@ export const PvpLobbyModal: React.FC<Props> = ({
   const [hasCopiedCode, setHasCopiedCode] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
+  const [bluetoothPrompt, setBluetoothPrompt] = useState<'create' | 'join' | null>(null);
 
   // WebSocket reference
   const wsRef = useRef<WebSocket | null>(null);
@@ -1233,6 +1235,25 @@ export const PvpLobbyModal: React.FC<Props> = ({
                   )}
                 </div>
 
+                <div className="flex flex-col gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sound.playClick();
+                      setBluetoothPrompt(bluetoothPrompt === 'join' ? null : 'join');
+                    }}
+                    className="w-full py-3 rounded-2xl border border-sky-500/50 bg-sky-950/50 hover:bg-sky-900/60 text-sky-200 font-black font-game text-sm flex items-center justify-center gap-2 transition-colors"
+                  >
+                    <Bluetooth className="w-4 h-4" />
+                    <span>JOIN ROOM VIA BLUETOOTH</span>
+                  </button>
+                  {bluetoothPrompt === 'join' && (
+                    <p role="status" className="text-center text-xs font-bold text-sky-300">
+                      Vui lòng bật Bluetooth trên thiết bị để tham gia trận đấu.
+                    </p>
+                  )}
+                </div>
+
                 {/* Active Available Rooms List on Central Server */}
                 <div className="flex flex-col gap-2">
                   <div className="flex items-center justify-between text-xs px-1">
@@ -1374,6 +1395,24 @@ export const PvpLobbyModal: React.FC<Props> = ({
                   <Sparkles className="w-4 h-4" />
                   <span>{isProcessing ? 'ĐANG TẠO PHÒNG TRÊN SERVER...' : '⚔️ TẠO PHÒNG VÀ VÀO PHÒNG CHỜ (LOBBY)'}</span>
                 </button>
+                <div className="flex flex-col gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sound.playClick();
+                      setBluetoothPrompt(bluetoothPrompt === 'create' ? null : 'create');
+                    }}
+                    className="w-full py-3 rounded-2xl border border-sky-500/50 bg-sky-950/50 hover:bg-sky-900/60 text-sky-200 font-black font-game text-sm flex items-center justify-center gap-2 transition-colors"
+                  >
+                    <Bluetooth className="w-4 h-4" />
+                    <span>CREATE ROOM VIA BLUETOOTH</span>
+                  </button>
+                  {bluetoothPrompt === 'create' && (
+                    <p role="status" className="text-center text-xs font-bold text-sky-300">
+                      Vui lòng bật Bluetooth trên thiết bị để tạo trận đấu.
+                    </p>
+                  )}
+                </div>
               </div>
             )}
 

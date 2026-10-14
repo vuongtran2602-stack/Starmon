@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { PlayerProfile, Starmon, QuestItem, ChatMessage, ChatChannel, ElementType, ResearchJob } from './types';
+import { PlayerProfile, Starmon, QuestItem, ChatMessage, ChatChannel, ElementType, ResearchJob, SpeakingLogEntry } from './types';
 import { STARMON_ROSTER } from './data/starmons';
 import { getStarmonClass, getStatsForLevel, calculateCP } from './data/starmonStats';
 import { INITIAL_QUESTS } from './data/questsData';
@@ -68,6 +68,8 @@ export default function App() {
         const parsed = JSON.parse(saved);
         return {
           ...parsed,
+          quizQuestionMode: parsed.quizQuestionMode === 'part1_preference' ? 'part1_preference' : 'random',
+          speakingLog: Array.isArray(parsed.speakingLog) ? parsed.speakingLog : [],
           googleId: parsed.googleId || savedGoogleId,
           googleEmail: parsed.googleEmail || '',
           royalTokens: parsed.royalTokens || 0,
@@ -133,7 +135,8 @@ export default function App() {
       soundEnabled: true,
       musicEnabled: true,
       showSpeakingHints: false, // Speaking hints hidden by default, can be enabled in settings
-      quizQuestionMode: 'speaking_only', // Default: 3 random speaking questions from extended bank
+      quizQuestionMode: 'random',
+      speakingLog: [],
       graphicsQuality: 'High',
     };
   });
@@ -1215,6 +1218,8 @@ export default function App() {
     const uname = accountUsername || loadedPlayer.username || loadedPlayer.name || 'Player';
     setPlayer({
       ...loadedPlayer,
+      quizQuestionMode: loadedPlayer.quizQuestionMode === 'part1_preference' ? 'part1_preference' : 'random',
+      speakingLog: Array.isArray(loadedPlayer.speakingLog) ? loadedPlayer.speakingLog : [],
       name: uname,
       username: uname,
       royalTokens: loadedPlayer.royalTokens || 0,
@@ -1694,8 +1699,12 @@ export default function App() {
           allRosterStarmons={STARMON_ROSTER} // Full roster for Victory Chest random drops (obtained and unobtained!)
           isFullscreen={isFullscreen}
           showSpeakingHints={player.showSpeakingHints ?? false}
-          questionMode={player.quizQuestionMode || 'speaking_only'}
+          questionMode={player.quizQuestionMode || 'random'}
           onChangeQuestionMode={mode => setPlayer(p => ({ ...p, quizQuestionMode: mode }))}
+          onSaveSpeakingLog={(entry: SpeakingLogEntry) => setPlayer(p => ({
+            ...p,
+            speakingLog: [entry, ...(p.speakingLog || [])].slice(0, 30),
+          }))}
           onToggleFullscreen={toggleFullscreen}
           onExitBattle={handleExitBattle}
           onQuestProgress={handleQuestEvent}
@@ -1772,7 +1781,8 @@ export default function App() {
           musicEnabled={player.musicEnabled}
           volume={sound.getVolume()}
           showSpeakingHints={player.showSpeakingHints ?? false}
-          questionMode={player.quizQuestionMode || 'speaking_only'}
+          questionMode={player.quizQuestionMode || 'random'}
+          speakingLog={player.speakingLog || []}
           playerName={player.username || player.name}
           unitTestExpiry={player.unitTestExpiry}
           onToggleSound={() => {

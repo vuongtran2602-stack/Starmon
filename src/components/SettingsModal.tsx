@@ -29,7 +29,7 @@ import {
   ArrowLeft
 } from 'lucide-react';
 
-import { QuizQuestionMode } from '../types';
+import { QuizQuestionMode, SpeakingLogEntry } from '../types';
 
 interface Props {
   soundEnabled: boolean;
@@ -38,6 +38,7 @@ interface Props {
   showSpeakingHints: boolean;
   questionMode?: QuizQuestionMode;
   playerName?: string;
+  speakingLog?: SpeakingLogEntry[];
   unitTestExpiry?: number;
   onToggleSound: () => void;
   onToggleMusic: () => void;
@@ -51,15 +52,16 @@ interface Props {
   onClose: () => void;
 }
 
-type SettingsSection = 'all' | 'account' | 'audio' | 'edtech' | 'redeem' | 'display' | 'reset';
+type SettingsSection = 'all' | 'account' | 'speaking_log' | 'audio' | 'edtech' | 'redeem' | 'display' | 'reset';
 
 export const SettingsModal: React.FC<Props> = ({
   soundEnabled,
   musicEnabled,
   volume,
   showSpeakingHints,
-  questionMode = 'speaking_only',
+  questionMode = 'random',
   playerName,
+  speakingLog = [],
   unitTestExpiry,
   onToggleSound,
   onToggleMusic,
@@ -109,6 +111,53 @@ export const SettingsModal: React.FC<Props> = ({
     }
   };
 
+  const downloadSpeakingLog = (entry: SpeakingLogEntry) => {
+    const criteria = Object.entries(entry.criteria)
+      .map(([name, result]) => `${name}: Band ${result?.band ?? '-'} — ${result?.feedback ?? ''}`)
+      .join('\n');
+    const grammar = entry.grammarErrors.map((error, index) =>
+      `${index + 1}. ${error.sentence}\n   Lỗi: ${error.error}\n   Sửa: ${error.correction}\n   Giải thích: ${error.explanation}`
+    ).join('\n');
+    const pronunciation = entry.pronunciationErrors.map((error, index) =>
+      `${index + 1}. ${error.word} ${error.phonetic}\n   Vấn đề: ${error.issue}\n   Hướng dẫn: ${error.guide}`
+    ).join('\n');
+    const content = [
+      `Speaking Log — ${new Date(entry.createdAt).toLocaleString()}`,
+      `Câu hỏi: ${entry.question}`,
+      `Band tổng: ${entry.overallBand}`,
+      `\nBài nói:\n${entry.transcript}`,
+      `\nNhận xét: ${entry.feedbackVi?.summary || entry.summary}`,
+      `\nĐiểm thành phần:\n${criteria}`,
+      `\nFluency: ${entry.fluencyDetail?.feedback || ''}`,
+      `\nLỗi ngữ pháp:\n${grammar || 'Không ghi nhận'}`,
+      `\nPhát âm:\n${pronunciation || 'Không ghi nhận'}`,
+      `\nĐiểm mạnh:\n${entry.strengths.join('\n') || '—'}`,
+      `\nCần cải thiện:\n${entry.improvements.join('\n') || '—'}`,
+      `\nGợi ý: ${entry.feedbackVi?.suggestion || ''}`,
+    ].join('\n');
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `speaking-log-${new Date(entry.createdAt).toISOString().slice(0, 10)}.txt`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const downloadAllSpeakingLogs = () => {
+    const blob = new Blob([JSON.stringify(speakingLog, null, 2)], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'starmon-speaking-log.json';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
   const handleSelectSection = (sec: SettingsSection) => {
     sound.playClick();
     setSelectedSection(sec);
@@ -136,6 +185,14 @@ export const SettingsModal: React.FC<Props> = ({
       color: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/30',
     },
     {
+      id: 'speaking_log' as SettingsSection,
+      label: 'Speaking Log',
+      shortLabel: 'Speaking Log',
+      icon: <BookOpen className="w-3.5 h-3.5" />,
+      badge: String(speakingLog.length),
+      color: 'text-amber-400 bg-amber-500/10 border-amber-500/30',
+    },
+    {
       id: 'audio' as SettingsSection,
       label: 'Audio & Sound',
       shortLabel: 'Audio',
@@ -148,7 +205,7 @@ export const SettingsModal: React.FC<Props> = ({
       label: 'Học Tập & Hướng Dẫn',
       shortLabel: 'Học Tập',
       icon: <GraduationCap className="w-3.5 h-3.5" />,
-      badge: questionMode === 'speaking_only' ? 'Only Speaking' : questionMode === 'mcq_only' ? 'Only MCQ' : 'MCQ + Speaking',
+      badge: questionMode === 'part1_preference' ? 'Part 1 Preference' : 'Random',
       color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
     },
     {
@@ -327,6 +384,25 @@ export const SettingsModal: React.FC<Props> = ({
                   </button>
                 </div>
 
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleSelectSection('speaking_log');
+                  }}
+                  className="w-full p-3 flex items-center justify-between hover:bg-slate-900/90 transition-colors text-left cursor-pointer group"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+                      <BookOpen className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-bold text-white block">Speaking Log</span>
+                      <span className="text-[10px] text-slate-400 block">Xem và tải {speakingLog.length} bài nói cùng nhận xét chi tiết</span>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-amber-400 group-hover:translate-x-0.5 transition-all" />
+                </button>
+
                 {/* Setting Row: Manage Account */}
                 <button
                   type="button"
@@ -412,6 +488,65 @@ export const SettingsModal: React.FC<Props> = ({
                 </button>
               </div>
             </div>
+          )}
+
+          {selectedSection === 'speaking_log' && (
+            <section className="space-y-3 animate-in fade-in duration-200">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h4 className="text-sm font-black text-amber-300">Speaking Log</h4>
+                  <p className="text-[10px] text-slate-400">Bài nói và kết quả được lưu trên hồ sơ người chơi này.</p>
+                </div>
+                <button
+                  type="button"
+                  disabled={speakingLog.length === 0}
+                  onClick={downloadAllSpeakingLogs}
+                  className="px-3 py-2 rounded-xl bg-cyan-700 hover:bg-cyan-600 disabled:bg-slate-800 disabled:text-slate-500 text-white text-[10px] font-bold flex items-center gap-1.5"
+                >
+                  <Download className="w-3.5 h-3.5" /> Tải tất cả (.json)
+                </button>
+              </div>
+
+              {speakingLog.length === 0 ? (
+                <div className="p-5 rounded-2xl border border-slate-800 bg-slate-950 text-center text-xs text-slate-400">
+                  Chưa có bài nói nào. Bài và nhận xét sẽ xuất hiện sau khi hoàn tất chấm điểm IELTS Speaking.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {[...speakingLog].sort((a, b) => b.createdAt - a.createdAt).map(entry => (
+                    <details key={entry.id} className="rounded-2xl border border-slate-800 bg-slate-950/90 overflow-hidden">
+                      <summary className="p-3 cursor-pointer list-none flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-[10px] text-slate-500">{new Date(entry.createdAt).toLocaleString()}</div>
+                          <div className="text-xs text-white font-bold truncate">{entry.question}</div>
+                        </div>
+                        <span className="shrink-0 px-2 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-black">Band {entry.overallBand}</span>
+                      </summary>
+                      <div className="px-3 pb-3 space-y-2 text-[11px]">
+                        <div className="p-2 rounded-xl bg-slate-900 text-slate-200 whitespace-pre-wrap">{entry.transcript}</div>
+                        <p className="text-slate-300">{entry.feedbackVi?.summary || entry.summary}</p>
+                        {entry.feedbackVi?.suggestion && <p className="text-emerald-300">Gợi ý: {entry.feedbackVi.suggestion}</p>}
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {Object.entries(entry.criteria).map(([name, result]) => (
+                            <div key={name} className="p-2 rounded-lg bg-slate-900 text-slate-300">
+                              <b className="text-amber-300">{name}: Band {result?.band ?? '—'}</b>
+                              <div>{result?.feedback}</div>
+                            </div>
+                          ))}
+                        </div>
+                        {entry.fluencyDetail?.feedback && <p className="text-sky-300">Fluency: {entry.fluencyDetail.feedback}</p>}
+                        {entry.grammarErrors.length > 0 && <div className="text-rose-200"><b>Ngữ pháp:</b> {entry.grammarErrors.map(error => `${error.error} → ${error.correction}`).join(' | ')}</div>}
+                        {entry.pronunciationErrors.length > 0 && <div className="text-purple-200"><b>Phát âm:</b> {entry.pronunciationErrors.map(error => `${error.word} ${error.phonetic}: ${error.guide}`).join(' | ')}</div>}
+                        {entry.feedbackVi?.weaknesses?.length ? <p className="text-rose-300">Cần cải thiện: {entry.feedbackVi.weaknesses.join(' · ')}</p> : null}
+                        <button type="button" onClick={() => downloadSpeakingLog(entry)} className="px-3 py-1.5 rounded-lg bg-cyan-700 hover:bg-cyan-600 text-white text-[10px] font-bold flex items-center gap-1.5">
+                          <Download className="w-3.5 h-3.5" /> Tải bài nói và nhận xét (.txt)
+                        </button>
+                      </div>
+                    </details>
+                  ))}
+                </div>
+              )}
+            </section>
           )}
 
           {/* ======================================================== */}
@@ -617,7 +752,7 @@ export const SettingsModal: React.FC<Props> = ({
                 <span className="text-[10px] text-indigo-400 font-mono">EdTech</span>
               </div>
               <div className="bg-slate-950/80 border border-slate-800 rounded-2xl overflow-hidden divide-y divide-slate-800/60 shadow-sm">
-                {/* Question Mode Selector (MCQ + Speaking, Only MCQ, Only Speaking) */}
+                {/* Speaking question bank selector */}
                 <div className="p-3.5 flex flex-col gap-2.5">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2.5">
@@ -627,88 +762,60 @@ export const SettingsModal: React.FC<Props> = ({
                       <div>
                         <span className="text-xs font-bold text-white block">Định dạng câu hỏi trận đấu (Question Mode)</span>
                         <span className="text-[10px] text-slate-400 block">
-                          Tùy chỉnh định dạng câu hỏi trong Phase 1 (Mặc định: 3 câu Speaking ngẫu nhiên)
+                          Mỗi Phase 1 có một câu Speaking; chọn ngân hàng câu hỏi.
                         </span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
-                    {/* Option 1: Only Speaking (Default) */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
                     <button
                       type="button"
                       onClick={() => {
                         sound.playClick();
-                        onChangeQuestionMode?.('speaking_only');
+                        onChangeQuestionMode?.('random');
                       }}
                       className={`p-3 rounded-xl border-2 text-left transition-all cursor-pointer flex flex-col justify-between gap-1.5 relative ${
-                        questionMode === 'speaking_only'
+                        questionMode !== 'part1_preference'
                           ? 'bg-amber-500/20 border-amber-400 text-white shadow-lg shadow-amber-500/20 ring-1 ring-amber-400'
                           : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
                       }`}
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-black font-game text-amber-300">🎙️ Only Speaking</span>
-                        {questionMode === 'speaking_only' && (
+                        <span className="text-xs font-black font-game text-amber-300">🎲 Random</span>
+                        {questionMode !== 'part1_preference' && (
                           <span className="text-[9px] px-1.5 py-0.2 bg-amber-400 text-slate-950 font-black rounded-full uppercase">
-                            Mặc định
+                            Ngẫu nhiên
                           </span>
                         )}
                       </div>
                       <span className="text-[10px] text-slate-300 leading-snug">
-                        3 câu hỏi Speaking ngẫu nhiên trong ngân hàng 250+ câu hỏi IELTS
+                        Chọn ngẫu nhiên 1 câu từ ngân hàng IELTS Speaking có sẵn.
                       </span>
                     </button>
 
-                    {/* Option 2: MCQ + Speaking */}
                     <button
                       type="button"
                       onClick={() => {
                         sound.playClick();
-                        onChangeQuestionMode?.('mixed');
+                        onChangeQuestionMode?.('part1_preference');
                       }}
                       className={`p-3 rounded-xl border-2 text-left transition-all cursor-pointer flex flex-col justify-between gap-1.5 relative ${
-                        questionMode === 'mixed'
+                        questionMode === 'part1_preference'
                           ? 'bg-indigo-500/20 border-indigo-400 text-white shadow-lg shadow-indigo-500/20 ring-1 ring-indigo-400'
                           : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
                       }`}
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-black font-game text-indigo-300">⚡ MCQ + Speaking</span>
-                        {questionMode === 'mixed' && (
+                        <span className="text-xs font-black font-game text-indigo-300">🗣️ Part 1 Preference</span>
+                        {questionMode === 'part1_preference' && (
                           <span className="text-[9px] px-1.5 py-0.2 bg-indigo-400 text-slate-950 font-black rounded-full uppercase">
                             Đang chọn
                           </span>
                         )}
                       </div>
                       <span className="text-[10px] text-slate-300 leading-snug">
-                        Hỗn hợp: Trắc nghiệm ngữ pháp & Luyện nói IELTS Speaking
-                      </span>
-                    </button>
-
-                    {/* Option 3: Only MCQ */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        sound.playClick();
-                        onChangeQuestionMode?.('mcq_only');
-                      }}
-                      className={`p-3 rounded-xl border-2 text-left transition-all cursor-pointer flex flex-col justify-between gap-1.5 relative ${
-                        questionMode === 'mcq_only'
-                          ? 'bg-sky-500/20 border-sky-400 text-white shadow-lg shadow-sky-500/20 ring-1 ring-sky-400'
-                          : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-black font-game text-sky-300">🎯 Only MCQ</span>
-                        {questionMode === 'mcq_only' && (
-                          <span className="text-[9px] px-1.5 py-0.2 bg-sky-400 text-slate-950 font-black rounded-full uppercase">
-                            Đang chọn
-                          </span>
-                        )}
-                      </div>
-                      <span className="text-[10px] text-slate-300 leading-snug">
-                        Chỉ gồm trắc nghiệm ngữ pháp & từ vựng (Không dùng Mic)
+                        Lấy ngẫu nhiên 1 câu trong bộ câu hỏi Part 1 Preference.
                       </span>
                     </button>
                   </div>

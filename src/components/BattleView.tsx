@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import confetti from 'canvas-confetti';
-import { Starmon, QuizQuestion, OrbTile, ElementType, BattlePhase, BattlePerformanceStats, SpeakingFeedbackVi, GrammarErrorDetail, PronunciationErrorDetail, FluencyDetail, QuizQuestionMode } from '../types';
+import { Starmon, QuizQuestion, OrbTile, ElementType, BattlePhase, BattlePerformanceStats, SpeakingFeedbackVi, GrammarErrorDetail, PronunciationErrorDetail, FluencyDetail, QuizQuestionMode, SpeakingLogEntry } from '../types';
 import { BattlePerformanceSummary } from './BattlePerformanceSummary';
 import { StarmonAsset } from './StarmonAsset';
 import { getRandomQuizSet, IELTS_SPEAKING_POOL, EXTENDED_SPEAKING_BANK } from '../data/quizzes';
@@ -61,6 +61,7 @@ interface Props {
   showSpeakingHints?: boolean;
   questionMode?: QuizQuestionMode;
   onChangeQuestionMode?: (mode: QuizQuestionMode) => void;
+  onSaveSpeakingLog?: (entry: SpeakingLogEntry) => void;
   onToggleFullscreen: () => void;
   onExitBattle: (result: 'win' | 'loss', rewards?: { gold: number; cards: number; cardStarmonId?: string; exp: number }) => void;
   pvpRoomInfo?: {
@@ -114,7 +115,7 @@ export interface IeltsAiEvaluationResult {
 
 const ELEMENTS: ElementType[] = ['Fire', 'Water', 'Electric', 'Wind', 'Earth', 'Metal'];
 const BOARD_SIZE = 8;
-const QUESTION_TIME_LIMIT = 120; // 120 seconds (2 minutes) total for Phase 1 (3 questions)
+const QUESTION_TIME_LIMIT = 120; // 120 seconds for Phase 1 speaking practice
 
 export function deserializeBoard(snapshot: any): OrbTile[][] | null {
   if (!snapshot) return null;
@@ -149,8 +150,9 @@ export const BattleView: React.FC<Props> = ({
   allRosterStarmons,
   isFullscreen,
   showSpeakingHints = false,
-  questionMode = 'speaking_only',
+  questionMode = 'random',
   onChangeQuestionMode,
+  onSaveSpeakingLog,
   onToggleFullscreen,
   onExitBattle,
   pvpRoomInfo,
@@ -1812,7 +1814,7 @@ export const BattleView: React.FC<Props> = ({
   const [currentQuizSet, setCurrentQuizSet] = useState<QuizQuestion[]>(() =>
     tutorialStage === 1
       ? []
-      : getRandomQuizSet(3, isPvP ? (questionMode === 'mcq_only' ? 'mcq_only' : 'speaking_only') : questionMode)
+    : getRandomQuizSet(3, isPvP ? (questionMode === 'mcq_only' ? 'mcq_only' : 'speaking_only') : questionMode)
   );
 
   const currentQ = currentQuizSet[activeQuestionIndex] || currentQuizSet[0] || {
@@ -1822,6 +1824,15 @@ export const BattleView: React.FC<Props> = ({
     category: 'Speaking',
     question: 'Did you have any opportunities to take part in new activities as a child?',
     assignedStarmonIndex: 0,
+  };
+
+  const mapQuizAnswersToStarmons = (quizAnswers: boolean[]) => {
+    const results = Array(isPvP ? 3 : partySize).fill(false) as boolean[];
+    currentQuizSet.forEach((question, questionIndex) => {
+      const starmonIndex = Math.max(0, Math.min(results.length - 1, question.assignedStarmonIndex));
+      results[starmonIndex] = Boolean(quizAnswers[questionIndex]);
+    });
+    return results;
   };
 
   // Current IELTS Speaking prompt metadata (checks extended bank of 257 questions first)
@@ -1838,7 +1849,7 @@ export const BattleView: React.FC<Props> = ({
     suggestedIdiom: 'broaden my horizons'
   };
 
-  // 120s total countdown timer for the entire Phase 1 (3 questions + waiting for opponent)
+  // 120s countdown timer for Phase 1 and opponent wait.
   useEffect(() => {
     if (phase !== 'phase1_quiz') return;
 
@@ -1855,21 +1866,21 @@ export const BattleView: React.FC<Props> = ({
       }
 
       // If time runs out, any unanswered questions are counted as 0 points (false)
-      const qCount = Math.max(3, currentQuizSet.length);
-      const finalAns: boolean[] = [];
-      for (let i = 0; i < qCount; i++) {
+      const questionResults: boolean[] = [];
+      for (let i = 0; i < currentQuizSet.length; i++) {
         if (answeredState[i] !== undefined) {
-          finalAns.push(Boolean(answeredState[i]));
+          questionResults.push(Boolean(answeredState[i]));
         } else if (pvpQuizAnswersRef.current[i] !== undefined) {
-          finalAns.push(Boolean(pvpQuizAnswersRef.current[i]));
+          questionResults.push(Boolean(pvpQuizAnswersRef.current[i]));
         } else if (i === activeQuestionIndex && ieltsAiResult) {
-          finalAns.push(Boolean(ieltsAiResult.passed));
+          questionResults.push(Boolean(ieltsAiResult.passed));
         } else {
-          finalAns.push(false);
+          questionResults.push(false);
         }
       }
 
-      pvpQuizAnswersRef.current = finalAns;
+      const finalAns = mapQuizAnswersToStarmons(questionResults);
+      pvpQuizAnswersRef.current = questionResults;
       setUnlockedPositions(finalAns);
       setIeltsAiResult(null);
       setSpokenTranscript('');
@@ -1891,7 +1902,7 @@ export const BattleView: React.FC<Props> = ({
     }, 1000);
 
     return () => clearInterval(t);
-  }, [phase, questionTimer, isPvP, currentQuizSet.length, answeredState, activeQuestionIndex, ieltsAiResult, isRecording, pvpRoomInfo?.code, sendPvpMessage]);
+  }, [phase, questionTimer, isPvP, currentQuizSet, answeredState, activeQuestionIndex, ieltsAiResult, isRecording, pvpRoomInfo?.code, sendPvpMessage]);
 
   const handleAdvanceQuestion = (isCorrect: boolean) => {
     setExpandedFeedbackSection('none');
@@ -1917,11 +1928,11 @@ export const BattleView: React.FC<Props> = ({
       ieltsSpeakingBandSum: ieltsAiResult?.overallBand ? prev.ieltsSpeakingBandSum + ieltsAiResult.overallBand : prev.ieltsSpeakingBandSum,
     }));
 
-    // Rule: Q1 unlocks Starmon 1, Q2 unlocks Starmon 2, Q3 unlocks Starmon 3
+    // A question unlocks the Starmon assigned to it.
     if (isCorrect) {
       setUnlockedPositions(prev => {
         const next = [...prev];
-        next[activeQuestionIndex] = true;
+        next[currentQ.assignedStarmonIndex] = true;
         return next;
       });
     }
@@ -1963,10 +1974,11 @@ export const BattleView: React.FC<Props> = ({
         setRecordingErrorNotice('');
       }, 700);
     } else {
-      const finalResults = currentQuizSet.map((_, idx) =>
+      const questionResults = currentQuizSet.map((_, idx) =>
         idx === activeQuestionIndex ? isCorrect : Boolean(pvpQuizAnswersRef.current[idx] ?? answeredState[idx])
       );
-      pvpQuizAnswersRef.current = finalResults;
+      const finalResults = mapQuizAnswersToStarmons(questionResults);
+      pvpQuizAnswersRef.current = questionResults;
       setUnlockedPositions(finalResults);
 
       // CRITICAL: Always dismiss IELTS AI scorecard modal and clean transcript immediately!
@@ -2030,10 +2042,11 @@ export const BattleView: React.FC<Props> = ({
       setSpokenTranscript('');
       setRecordingErrorNotice('');
     } else {
-      const finalResults = currentQuizSet.map((_, idx) =>
+      const questionResults = currentQuizSet.map((_, idx) =>
         idx === activeQuestionIndex ? false : Boolean(pvpQuizAnswersRef.current[idx] ?? answeredState[idx])
       );
-      pvpQuizAnswersRef.current = finalResults;
+      const finalResults = mapQuizAnswersToStarmons(questionResults);
+      pvpQuizAnswersRef.current = questionResults;
       setUnlockedPositions(finalResults);
 
       setIeltsAiResult(null);
@@ -2289,7 +2302,7 @@ export const BattleView: React.FC<Props> = ({
   };
 
   // Submit candidate response, trigger background AI analysis, and IMMEDIATELY advance to next question
-  const submitSpeakingResponseAndAdvance = (textToAnalyze: string) => {
+  const submitSpeakingResponseAndAdvance = (textToAnalyze: string, responseSource: 'spoken' | 'sample' = 'spoken') => {
     const targetIndex = activeQuestionIndex;
     const targetQuestion = currentQ;
 
@@ -2323,7 +2336,7 @@ export const BattleView: React.FC<Props> = ({
       hesitations,
       pauses,
       durationSeconds,
-    });
+    }, responseSource);
 
     setSpokenTranscript('');
     setRecordingErrorNotice('');
@@ -2350,7 +2363,7 @@ export const BattleView: React.FC<Props> = ({
       setBackgroundNotice(`⚡ AI đang chấm Câu ${targetIndex + 1} trong nền. Bạn có thể trả lời Câu ${targetIndex + 2} ngay bây giờ!`);
       setTimeout(() => setBackgroundNotice(''), 4500);
     } else {
-      // Completed all 3 questions!
+      // Completed the current question set.
       setShowAllQuestionsReport(true);
       setSelectedReportTab(0);
     }
@@ -2359,7 +2372,26 @@ export const BattleView: React.FC<Props> = ({
   // Helper for using sample model answer
   const handleUseSampleAnswer = (sampleText: string) => {
     sound.playClick();
-    submitSpeakingResponseAndAdvance(sampleText);
+    submitSpeakingResponseAndAdvance(sampleText, 'sample');
+  };
+
+  const saveSpeakingLogEntry = (questionItem: QuizQuestion, transcriptText: string, result: IeltsAiEvaluationResult) => {
+    const createdAt = Date.now();
+    onSaveSpeakingLog?.({
+      id: `speaking-${createdAt}-${Math.random().toString(36).slice(2, 8)}`,
+      createdAt,
+      question: questionItem.question,
+      transcript: transcriptText,
+      overallBand: result.overall_score ?? result.overallBand,
+      summary: result.summary || '',
+      strengths: result.strengths || [],
+      improvements: result.improvements || [],
+      criteria: result.criteria || {},
+      ...(result.feedback_vi ? { feedbackVi: result.feedback_vi } : {}),
+      ...(result.fluency_detail ? { fluencyDetail: result.fluency_detail } : {}),
+      grammarErrors: result.grammar_errors || [],
+      pronunciationErrors: result.pronunciation_errors || [],
+    });
   };
 
   // Background Asynchronous Evaluation Worker
@@ -2367,7 +2399,8 @@ export const BattleView: React.FC<Props> = ({
     targetIndex: number,
     questionItem: QuizQuestion,
     transcriptText: string,
-    telemetry: { stutters: string[]; hesitations: string[]; pauses: number; durationSeconds: number }
+    telemetry: { stutters: string[]; hesitations: string[]; pauses: number; durationSeconds: number },
+    responseSource: 'spoken' | 'sample' = 'spoken'
   ) => {
     setEvaluatingMap(prev => ({ ...prev, [targetIndex]: true }));
 
@@ -2407,13 +2440,14 @@ export const BattleView: React.FC<Props> = ({
         }
 
         setIeltsResultsMap(prev => ({ ...prev, [targetIndex]: data }));
+        if (responseSource === 'spoken') saveSpeakingLogEntry(questionItem, transcriptText, data as IeltsAiEvaluationResult);
         setEvaluatingMap(prev => ({ ...prev, [targetIndex]: false }));
         pvpQuizAnswersRef.current[targetIndex] = canAttack;
 
         if (canAttack) {
           setUnlockedPositions(prev => {
             const next = [...prev];
-            next[targetIndex] = true;
+            next[questionItem.assignedStarmonIndex] = true;
             return next;
           });
           sound.playRewardFanfare();
@@ -2587,12 +2621,13 @@ export const BattleView: React.FC<Props> = ({
     };
 
     setIeltsResultsMap(prev => ({ ...prev, [targetIndex]: fallbackResult }));
+    if (responseSource === 'spoken') saveSpeakingLogEntry(questionItem, transcriptText, fallbackResult);
     setEvaluatingMap(prev => ({ ...prev, [targetIndex]: false }));
     pvpQuizAnswersRef.current[targetIndex] = isPassed;
     if (isPassed) {
       setUnlockedPositions(prev => {
         const next = [...prev];
-        next[targetIndex] = true;
+        next[questionItem.assignedStarmonIndex] = true;
         return next;
       });
       sound.playRewardFanfare();
@@ -2611,13 +2646,14 @@ export const BattleView: React.FC<Props> = ({
     setShowAllQuestionsReport(false);
     setIeltsAiResult(null);
 
-    const finalResults = currentQuizSet.map((_, idx) => {
+    const questionResults = currentQuizSet.map((_, idx) => {
       const res = ieltsResultsMap[idx];
       if (res) return Boolean(res.passed || (res.overall_score !== undefined && res.overall_score >= 5.5));
       return Boolean(pvpQuizAnswersRef.current[idx] ?? answeredState[idx]);
     });
+    const finalResults = mapQuizAnswersToStarmons(questionResults);
 
-    pvpQuizAnswersRef.current = finalResults;
+    pvpQuizAnswersRef.current = questionResults;
     setUnlockedPositions(finalResults);
 
     let totalBands = 0;
@@ -6696,7 +6732,7 @@ export const BattleView: React.FC<Props> = ({
           </button>
 
           <span className="text-[11px] font-mono text-slate-400 hidden sm:inline">
-            PHASE 1: 120s (3 CÂU HỎI) · MAX MANA 200
+            PHASE 1: 120s ({isPvP ? 3 : currentQuizSet.length} CÂU) · MAX MANA 200
           </span>
 
           <button
@@ -6779,7 +6815,7 @@ export const BattleView: React.FC<Props> = ({
           <div className="w-full max-w-2xl mx-auto mb-1 px-2">
             <div className="w-full py-1.5 px-3 rounded-xl bg-gradient-to-r from-amber-950/90 via-slate-900/95 to-amber-950/90 border border-amber-400/80 text-center shadow-md">
               <p className="text-[11px] md:text-xs font-black text-amber-300 tracking-wide">
-                ⏱️ Phase 1: Bạn có tổng cộng 2 phút để trả lời 3 câu hỏi. Nếu hết giờ, những câu chưa được trả lời sẽ bị tính là 0 điểm
+                ⏱️ Phase 1: Bạn có 2 phút để trả lời {isPvP ? 3 : currentQuizSet.length} câu hỏi. Câu chưa trả lời sẽ bị tính là 0 điểm
               </p>
             </div>
           </div>
@@ -6787,72 +6823,36 @@ export const BattleView: React.FC<Props> = ({
           {/* Top Rainbow Countdown Bar + Mode Switcher + Skip Button */}
           <div className="w-full max-w-2xl mx-auto flex flex-wrap items-center justify-between gap-2 px-2">
             {/* QUESTION MODE QUICK TOGGLE - HIDDEN IN TUTORIAL */}
-            {!tutorialStage && (
+            {!tutorialStage && !isPvP && (
               <div className="flex items-center gap-1 bg-slate-950/80 border border-slate-800 rounded-xl p-1 shadow-sm shrink-0">
                 <span className="text-[10px] text-slate-400 font-bold px-1 hidden sm:inline">Chế độ:</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    sound.playClick();
-                    onChangeQuestionMode?.('speaking_only');
-                    if (phase === 'phase1_quiz') {
-                      setCurrentQuizSet(getRandomQuizSet(partySize, 'speaking_only'));
-                      setActiveQuestionIndex(0);
-                      setAnsweredState({});
-                      setQuestionTimer(QUESTION_TIME_LIMIT);
-                    }
-                  }}
-                  className={`px-2 py-1 rounded-lg text-xs font-black font-game transition-all cursor-pointer ${
-                    questionMode === 'speaking_only'
-                      ? 'bg-amber-400 text-slate-950 shadow-md ring-1 ring-amber-300'
-                      : 'text-slate-400 hover:text-white bg-slate-900/60'
-                  }`}
-                  title="Câu hỏi Speaking theo số lượng Starmon trong Party"
-                >
-                  🎙️ Speaking
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    sound.playClick();
-                    onChangeQuestionMode?.('mixed');
-                    if (phase === 'phase1_quiz') {
-                      setCurrentQuizSet(getRandomQuizSet(partySize, 'mixed'));
-                      setActiveQuestionIndex(0);
-                      setAnsweredState({});
-                      setQuestionTimer(QUESTION_TIME_LIMIT);
-                    }
-                  }}
-                  className={`px-2 py-1 rounded-lg text-xs font-black font-game transition-all cursor-pointer ${
-                    questionMode === 'mixed'
-                      ? 'bg-indigo-500 text-white shadow-md ring-1 ring-indigo-300'
-                      : 'text-slate-400 hover:text-white bg-slate-900/60'
-                  }`}
-                  title="MCQ + Speaking theo Party"
-                >
-                  ⚡ MCQ + Speak
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    sound.playClick();
-                    onChangeQuestionMode?.('mcq_only');
-                    if (phase === 'phase1_quiz') {
-                      setCurrentQuizSet(getRandomQuizSet(partySize, 'mcq_only'));
-                      setActiveQuestionIndex(0);
-                      setAnsweredState({});
-                      setQuestionTimer(QUESTION_TIME_LIMIT);
-                    }
-                  }}
-                  className={`px-2 py-1 rounded-lg text-xs font-black font-game transition-all cursor-pointer ${
-                    questionMode === 'mcq_only'
-                      ? 'bg-sky-500 text-white shadow-md ring-1 ring-sky-300'
-                      : 'text-slate-400 hover:text-white bg-slate-900/60'
-                  }`}
-                  title="Trắc nghiệm MCQ theo Party (Không dùng Mic)"
-                >
-                  🎯 MCQ
-                </button>
+                {(['random', 'part1_preference'] as const).map(mode => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => {
+                      sound.playClick();
+                      onChangeQuestionMode?.(mode);
+                      if (phase === 'phase1_quiz') {
+                        setCurrentQuizSet(getRandomQuizSet(partySize, mode));
+                        setActiveQuestionIndex(0);
+                        setAnsweredState({});
+                        pvpQuizAnswersRef.current = [];
+                        setIeltsAiResult(null);
+                        setQuestionTimer(QUESTION_TIME_LIMIT);
+                      }
+                    }}
+                    className={`px-2 py-1 rounded-lg text-xs font-black font-game transition-all cursor-pointer ${
+                      questionMode === mode
+                        ? mode === 'random'
+                          ? 'bg-amber-400 text-slate-950 shadow-md ring-1 ring-amber-300'
+                          : 'bg-indigo-500 text-white shadow-md ring-1 ring-indigo-300'
+                        : 'text-slate-400 hover:text-white bg-slate-900/60'
+                    }`}
+                  >
+                    {mode === 'random' ? '🎲 Random' : '🗣️ Part 1 Preference'}
+                  </button>
+                ))}
               </div>
             )}
 
@@ -7181,7 +7181,7 @@ export const BattleView: React.FC<Props> = ({
                 <Award className="w-6 h-6 text-amber-400" />
                 <div>
                   <h3 className="text-base md:text-lg font-black font-game text-amber-300">
-                    BÁO CÁO ĐÁNH GIÁ 3 CÂU HỎI IELTS SPEAKING
+                    BÁO CÁO ĐÁNH GIÁ {currentQuizSet.length} CÂU IELTS SPEAKING
                   </h3>
                   <p className="text-[11px] text-slate-400">
                     Phân tích chi tiết Fluency, Ngữ pháp, Phát âm & Đề xuất luyện tập
@@ -7299,7 +7299,7 @@ export const BattleView: React.FC<Props> = ({
                   }`}>
                     <span>
                       {isPassed
-                        ? `🎉 CÂU ${selectedReportTab + 1} ĐẠT BAND ${score} (≥ 5.5) — STARMON #${selectedReportTab + 1} SẴN SÀNG!`
+                        ? `🎉 CÂU ${selectedReportTab + 1} ĐẠT BAND ${score} (≥ 5.5) — STARMON #${(activeQ?.assignedStarmonIndex ?? selectedReportTab) + 1} SẴN SÀNG!`
                         : `⚠️ CÂU ${selectedReportTab + 1} ĐẠT BAND ${score} (< 5.5) — Cần cải thiện thêm`}
                     </span>
                     <span className="text-[10px] font-mono opacity-80">Mục tiêu: Band 5.5</span>

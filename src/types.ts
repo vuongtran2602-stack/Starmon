@@ -91,7 +91,23 @@ export interface Starmon {
   isDaPhucVersion?: boolean;
 }
 
-export type QuizQuestionMode = 'mixed' | 'mcq_only' | 'speaking_only';
+export type QuizQuestionMode = 'random' | 'part1_preference' | 'mixed' | 'mcq_only' | 'speaking_only';
+
+export interface SpeakingLogEntry {
+  id: string;
+  createdAt: number;
+  question: string;
+  transcript: string;
+  overallBand: number;
+  summary: string;
+  strengths: string[];
+  improvements: string[];
+  criteria: Partial<Record<'fluencyCoherence' | 'lexicalResource' | 'grammaticalRange' | 'pronunciation', { band: number; feedback: string }>>;
+  feedbackVi?: SpeakingFeedbackVi;
+  fluencyDetail?: FluencyDetail;
+  grammarErrors: GrammarErrorDetail[];
+  pronunciationErrors: PronunciationErrorDetail[];
+}
 
 export interface PlayerProfile {
   name: string;
@@ -136,6 +152,7 @@ export interface PlayerProfile {
   musicEnabled: boolean;
   showSpeakingHints?: boolean;
   quizQuestionMode?: QuizQuestionMode;
+  speakingLog?: SpeakingLogEntry[];
   graphicsQuality: 'High' | 'Medium';
 }
 
