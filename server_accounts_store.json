@@ -2078,7 +2078,7 @@
   "player": {
     "username": "Player",
     "createdAt": "2026-10-14T10:04:38.619Z",
-    "lastPlayedAt": "2026-10-14T11:40:00.250Z",
+    "lastPlayedAt": "2026-10-14T12:17:32.653Z",
     "player": {
       "name": "Player",
       "username": "Player",
@@ -2091,7 +2091,7 @@
       "gems": 5700,
       "energy": 4581,
       "maxEnergy": 100,
-      "lastEnergyRegenTime": 1791977999914,
+      "lastEnergyRegenTime": 1791980252058,
       "energyBatteries": {
         "battery50": 5,
         "battery100": 3,
@@ -3440,7 +3440,7 @@
     "username": "Player",
     "googleId": "google_crzuz34",
     "createdAt": "2026-10-12T18:36:01.733Z",
-    "lastPlayedAt": "2026-10-14T11:40:00.213Z",
+    "lastPlayedAt": "2026-10-14T12:17:32.281Z",
     "quests": [
       {
         "id": "daily_login",
@@ -4040,7 +4040,7 @@
       "gems": 5700,
       "energy": 4581,
       "maxEnergy": 100,
-      "lastEnergyRegenTime": 1791977999914,
+      "lastEnergyRegenTime": 1791980252058,
       "energyBatteries": {
         "battery50": 5,
         "battery100": 3,

@@ -1922,15 +1922,12 @@ wss.on('connection', (ws) => {
               const isGuestFlag = msg.is_host === false || msg.isHost === false;
 
               let slot: 1 | 2;
-              if (requestedSlot === 2 || isGuestFlag) {
+              if (isHostFlag || requestedSlot === 1) {
+                // Room role is authoritative. Reconnecting host sockets must not be
+                // reassigned as the guest just because an old socket is still open.
+                slot = 1;
+              } else if (isGuestFlag || requestedSlot === 2) {
                 slot = 2;
-              } else if (requestedSlot === 1 || isHostFlag) {
-                // If slot 1 is requested but already occupied by an active socket, route to slot 2
-                if (isSlot1Connected && !isSlot2Connected) {
-                  slot = 2;
-                } else {
-                  slot = 1;
-                }
               } else if (isSlot1Connected && !isSlot2Connected) {
                 slot = 2;
               } else if (isSlot2Connected && !isSlot1Connected) {
@@ -1939,16 +1936,13 @@ wss.on('connection', (ws) => {
                 slot = (match.players[1].id === pId && !isSlot1Connected) ? 1 : 2;
               }
 
-              // Disambiguate user IDs if testing 2 tabs on the same machine/localStorage
-              if (slot === 2) {
-                const uniqueP2Id = (pId === match.players[1].id || match.players[2].id === 'guest_player')
-                  ? (pId === match.players[1].id ? `${pId}_tab2` : pId)
-                  : pId;
-                match.players[2].id = uniqueP2Id;
-                match.players[2].name = pId === match.players[1].id ? `${pName} (2)` : pName;
-              } else if (slot === 1) {
+              if (slot === 1) {
                 match.players[1].id = pId;
                 match.players[1].name = pName;
+              } else {
+                // Preserve distinct slot identities even when both tabs use one account.
+                match.players[2].id = pId === match.players[1].id ? `${pId}_tab2` : pId;
+                match.players[2].name = pId === match.players[1].id ? `${pName} (2)` : pName;
               }
               match.players[slot].socket = ws;
               if (Array.isArray(msg.starmons) && msg.starmons.length > 0 && match.turn === 1 && match.subPhase === 1 && !match.players[slot].hasSubmittedAnswer) {
@@ -2899,13 +2893,42 @@ app.post('/api/accounts/google-auth', (req, res) => {
   res.json({ success: true, account: newAccount, isNew: true });
 });
 
+const ADVANCED_SPEAKING_VOCAB = [
+  'sustainable development', 'renewable energy', 'carbon footprint', 'climate change', 'biodiversity', 'artificial intelligence',
+  'critical thinking', 'broaden my horizons', 'a double-edged sword', 'plays a pivotal role', 'quality of life', 'work-life balance',
+  'mental well-being', 'public transportation', 'economic growth', 'cultural heritage', 'social media', 'cutting-edge technology',
+  'make ends meet', 'once in a blue moon', 'the best of both worlds', 'pose a threat', 'raise awareness', 'take for granted',
+  'fast-paced lifestyle', 'lifelong learning', 'sense of accomplishment', 'strong sense of community', 'limited access to',
+  'highly competitive', 'gain practical experience', 'heavily dependent on', 'address the issue', 'in the long run', 'from my perspective',
+  'a wide range of', 'significant impact', 'deep-rooted', 'cost-effective', 'time-consuming', 'user-friendly', 'energy-efficient',
+];
+
+function countAdvancedSpeakingVocab(transcript: string): number {
+  return ADVANCED_SPEAKING_VOCAB.filter(phrase => {
+    const escaped = phrase.split('').map(char => /[.*+?^${}()|[\]\\]/.test(char) ? `\\${char}` : char).join('').replace(/\s+/g, '\\s+');
+    return new RegExp(`\\b${escaped}\\b`, 'i').test(transcript);
+  }).length;
+}
+
+function countRepeatedPromptKeywords(question: string, transcript: string): number {
+  const stopWords = new Set(['a', 'an', 'and', 'are', 'be', 'do', 'does', 'did', 'for', 'from', 'how', 'in', 'is', 'it', 'like', 'of', 'on', 'or', 'the', 'to', 'what', 'when', 'where', 'which', 'who', 'why', 'you', 'your']);
+  const keywords = [...new Set((question.toLowerCase().match(/[a-z]+/g) || []).filter(word => word.length > 2 && !stopWords.has(word)))];
+  return keywords.reduce((count, word) => count + ((transcript.toLowerCase().match(new RegExp(`\\b${word}(?:s|es)?\\b`, 'g')) || []).length), 0);
+}
+
+function getSpeakingRatePenalty(wordCount: number, durationSeconds: number): number {
+  if (!(durationSeconds > 0)) return 0;
+  const wordsPerMinute = wordCount * 60 / durationSeconds;
+  return wordsPerMinute < 60 ? 2 : wordsPerMinute < 70 ? 1.5 : wordsPerMinute < 80 ? 1 : wordsPerMinute < 90 ? 0.5 : 0;
+}
+
 // API: Evaluate IELTS Speaking with Gemini API
 app.post('/api/evaluate-speaking', async (req, res) => {
   try {
     const {
       question,
       transcript,
-      targetBand = 5.5,
+      targetBand = 5.0,
       pauses = [],
       hesitations = [],
       stutters = [],
@@ -2962,7 +2985,7 @@ app.post('/api/evaluate-speaking', async (req, res) => {
       // Precise Fallback Evaluation following the user's specific rules:
       // 1. Grammar: Default 6.5 to 7.5 if fairly natural and accurate.
       // Only penalize below 6.5 if severe errors (word form errors > 2 or missing subject/predicate).
-      let baseGRA = 7.0;
+      let baseGRA = 8.0;
       let severeGrammarErrorsCount = 0;
 
       const grammarErrors: Array<{
@@ -3001,38 +3024,18 @@ app.post('/api/evaluate-speaking', async (req, res) => {
         });
       }
 
-      if (severeGrammarErrorsCount > 1) {
-        baseGRA = 5.5; // Severe penalty as requested
-      } else if (severeGrammarErrorsCount === 1) {
-        baseGRA = 6.0;
-      } else {
-        // Natural speech: 6.5 to 7.5 depending on minor issues
-        baseGRA = wordCount >= 25 ? 7.5 : wordCount >= 15 ? 7.0 : 6.5;
-        if (grammarErrors.length === 0 && !lowerText.includes('because') && !lowerText.includes('which') && !lowerText.includes('although')) {
-          grammarErrors.push({
-            sentence: trimmedTranscript.slice(0, 65) + '...',
-            error: 'Câu trả lời chủ yếu là câu đơn, nên bổ sung liên từ phụ thuộc để đạt band cao hơn.',
-            correction: `${trimmedTranscript.slice(0, 45)}... because it provides me with numerous benefits.`,
-            practice_structure: 'Mệnh đề phụ thuộc chỉ nguyên nhân & nhượng bộ (because, although, whereas)',
-            explanation: 'Sử dụng liên từ phụ thuộc giúp câu nói tự nhiên, kết nối ý mạch lạc và thể hiện sự đa dạng cấu trúc ngữ pháp.'
-          });
-        }
-      }
+      const severeClauseErrors = grammarErrors.filter(e => e.error.includes('thiếu thành phần')).length;
+      const verbFormErrors = grammarErrors.filter(e => /dạng từ|verb|V-ing|phân từ/i.test(`${e.error} ${e.practice_structure}`)).length;
+      const minorGrammarErrors = Math.max(0, grammarErrors.length - severeClauseErrors - verbFormErrors);
+      baseGRA = Math.max(1, 8 - severeClauseErrors * 2 - verbFormErrors - minorGrammarErrors * 0.5);
 
       // 2. Fluency: based on real stutters, pauses, hesitations
-      let baseFC = 7.5;
-      if (stutterCount >= 2 || pauseCount >= 3) {
-        baseFC = 6.0;
-      } else if (stutterCount === 1 || pauseCount >= 1 || hesitationCount >= 2) {
-        baseFC = 6.5;
-      } else if (wordCount < 12) {
-        baseFC = 6.0;
-      } else {
-        baseFC = 7.5;
-      }
+      const shortAnswerPenalty = wordCount < 10 ? 3 : wordCount < 12 ? 2 : wordCount < 15 ? 1 : wordCount < 20 ? 0.5 : 0;
+      const speakingRatePenalty = getSpeakingRatePenalty(wordCount, durationSeconds);
+      let baseFC = Math.max(1, 8 - shortAnswerPenalty - speakingRatePenalty - stutterCount * 0.5 - hesitationCount * 0.5 - pauseCount * 0.5);
 
       // 3. Pronunciation: identify REAL phonetic points, NOT generic ending sounds
-      let basePR = 7.0;
+      let basePR = 8.0;
       const pronunciationErrors: Array<{
         word: string;
         sound: string;
@@ -3092,25 +3095,19 @@ app.post('/api/evaluate-speaking', async (req, res) => {
         }
       }
 
-      if (pronunciationErrors.length === 0) {
-        // Pick words with diphthongs or consonant clusters
-        const candidateWords = words.map(w => w.replace(/[^a-zA-Z]/g, '')).filter(w => w.length >= 5);
-        const picked = candidateWords[0] || 'activity';
-        pronunciationErrors.push({
-          word: picked,
-          sound: 'Trọng âm và nguyên âm chuẩn xác',
-          phonetic: `/${picked.toLowerCase()}/`,
-          issue: `Cần chú ý nhấn đúng trọng âm của từ "${picked}" và không làm biến dạng nguyên âm chính.`,
-          guide: 'Phát âm chậm rãi, xác định âm tiết được nhấn và phát âm rõ nguyên âm mang trọng âm.'
-        });
-      }
+      basePR = Math.max(1, 8 - pronunciationErrors.length * 0.5);
 
-      const baseLR = wordCount > 25 ? 7.0 : wordCount > 15 ? 6.5 : 5.5;
+      const advancedVocabCount = countAdvancedSpeakingVocab(trimmedTranscript);
+      const repeatedPromptKeywords = countRepeatedPromptKeywords(question || '', trimmedTranscript);
+      const repeatedKeywordPenalty = Math.floor(repeatedPromptKeywords / wordCount * 10) * 0.5;
+      const baseLR = Math.max(1, Math.min(8, 6 + Math.floor(advancedVocabCount / 2) * 0.5 - repeatedKeywordPenalty));
       const rawAvg = (baseFC + baseLR + baseGRA + basePR) / 4;
       const roundedScore = floorToHalf(rawAvg);
-      const canAttack = roundedScore >= 5.5;
+      const canAttack = roundedScore >= Number(targetBand || 5.0);
 
       const dynamicWeaknesses: string[] = [];
+      if (repeatedKeywordPenalty > 0) dynamicWeaknesses.push('Từ vựng: Lặp từ, thiếu linh hoạt từ vựng.');
+      if (speakingRatePenalty > 0) dynamicWeaknesses.push('Độ trôi chảy (Fluency): Tốc độ nói chậm.');
       if (detectedStutters.length > 0) {
         dynamicWeaknesses.push(`Độ trôi chảy (Fluency): Phát hiện ${detectedStutters.length} vị trí lặp từ (${detectedStutters.join(', ')}).`);
       }
@@ -3135,12 +3132,14 @@ app.post('/api/evaluate-speaking', async (req, res) => {
           hesitationCount,
           pauseCount,
           stumbles: [...detectedStutters, ...detectedHesitations],
-          feedback: stutterCount === 0 && hesitationCount === 0
+          feedback: speakingRatePenalty > 0
+            ? 'Tốc độ nói chậm.'
+            : stutterCount === 0 && hesitationCount === 0
             ? 'Tốc độ nói đều đặn, không có biểu hiện ngập ngừng hay nói lắp.'
             : `Ghi nhận ${stutterCount} lần lặp từ và ${hesitationCount} từ đệm ngập ngừng trong bài nói.`
         },
         feedback_vi: {
-          summary: `Thí sinh phản xạ tự nhiên câu hỏi. Ghi nhận ${wordCount} từ với ngữ pháp đạt khoảng ${baseGRA.toFixed(1)}. Điểm tổng kết: Band ${roundedScore}.`,
+          summary: `Thí sinh phản xạ tự nhiên câu hỏi. ${wordCount < 20 ? 'Bài nói quá ngắn.' : ''} Ngữ pháp đạt khoảng ${baseGRA.toFixed(1)}. Điểm tổng kết: Band ${roundedScore}.`,
           weaknesses: dynamicWeaknesses,
           grammar_summary: severeGrammarErrorsCount > 0
             ? `Phát hiện ${severeGrammarErrorsCount} lỗi ngữ pháp cơ bản cần khắc phục.`
@@ -3151,11 +3150,11 @@ app.post('/api/evaluate-speaking', async (req, res) => {
         criteria: {
           fluencyCoherence: {
             band: floorToHalf(baseFC),
-            feedback: stutterCount > 0 ? `Good conversational flow with ${stutterCount} minor repetitions.` : 'Smooth conversational pace with consistent ideas.',
+            feedback: speakingRatePenalty > 0 ? 'Tốc độ nói chậm.' : stutterCount > 0 ? `Good conversational flow with ${stutterCount} minor repetitions.` : 'Smooth conversational pace with consistent ideas.',
           },
           lexicalResource: {
             band: floorToHalf(baseLR),
-            feedback: 'Natural, effective vocabulary suited for IELTS Speaking topics.',
+            feedback: repeatedKeywordPenalty > 0 ? 'Lặp từ, thiếu linh hoạt từ vựng.' : 'Natural, effective vocabulary suited for IELTS Speaking topics.',
           },
           grammaticalRange: {
             band: floorToHalf(baseGRA),
@@ -3188,12 +3187,7 @@ RECORDING TELEMETRY:
 
 CRITICAL SCORING & BAND EVALUATION GUIDELINES (PLEASE READ VERY CAREFULLY):
 1. GRAMMATICAL RANGE & ACCURACY (GRA):
-   - DO NOT excessively penalize spoken English! Spoken language is naturally more colloquial and communicative.
-   - If the candidate speaks fairly naturally and grammatically accurately with only minor slips, award a band of 6.5 to 7.5 (depending on how natural and varied the structures are).
-   - ONLY heavily deduct below 6.5 (e.g. 5.0 - 5.5) IF the candidate commits BASIC & SEVERE errors:
-     (a) Wrong word form (sai dạng từ, e.g. using adjective instead of adverb/verb) more than 2 times; OR
-     (b) Incomplete sentences lacking essential subject or predicate (câu thiếu thành phần chủ ngữ hoặc vị ngữ); OR
-     (c) Breakdown of basic clause coherence preventing communication.
+   - Start each criterion at band 8.0 when no error is present. Apply each deduction separately: minor verb agreement, singular/plural, or preposition error: -0.5; wrong verb vs V-ing form: -1.0; incomplete sentence or extra/missing subject or predicate: -2.0.
    - For every grammar error identified, you MUST specify:
      * sentence: original sentence
      * error: exactly where and what the grammar error is ("sai ở đâu")
@@ -3202,6 +3196,7 @@ CRITICAL SCORING & BAND EVALUATION GUIDELINES (PLEASE READ VERY CAREFULLY):
      * explanation: detailed explanation in Vietnamese.
 
 2. PRONUNCIATION (PR):
+   - Start at 8.0 with no pronunciation errors. Deduct 0.5 for each mispronounced word and 0.5 for each omitted plural/third-person -s/-es or past -ed ending. Identify only errors supported by the audio; do not infer pronunciation errors from transcript text alone.
    - DO NOT merely pick random words and lazily complain about "cần luyện phát âm âm đuôi (ending sounds)"!
    - ACCURATELY identify real pronunciation / phonetic challenges from words spoken in the transcript:
      * Specify the exact word and the specific sound/phoneme mispronounced ("phát âm sai ở từ nào, âm gì"):
@@ -3213,6 +3208,8 @@ CRITICAL SCORING & BAND EVALUATION GUIDELINES (PLEASE READ VERY CAREFULLY):
      * guide: actionable phonetic guide on how to pronounce correctly in Vietnamese.
 
 3. FLUENCY & COHERENCE (FC):
+   - Start at 8.0 with no fluency/coherence issue. For total transcript length, deduct 0.5 below 20 words, 1.0 below 15, 2.0 below 12, or 3.0 below 10 (use the strongest matching deduction only). Describe this only as "the answer is too short"; never state a word count or threshold in feedback. For speaking rate, deduct 0.5 below 90 words/minute, 1.0 below 80, 1.5 below 70, or 2.0 below 60 (use the strongest matching deduction only) and describe it as "speaking rate is slow". Also deduct 0.5 for each unreasonable idea and point it out; deduct 0.5 for a 1-second hesitation, 1.0 for 2-3 seconds, and 1.5 for a pause longer than 3 seconds. Do not treat every pause as the same duration.
+4. LEXICAL RESOURCE: Start at 6.0. Add 0.5 for each pair of distinct advanced, topic-specific vocabulary items, collocations, or idioms actually used, capped at 8.0. Do not reward repeated use of the same item.
    - Accurately assess fluency based on candidate's real speaking performance:
      * Check for stuttering (nói lắp / repetitions like "I... I think", "the the")
      * Check for stumbles, hesitation fillers ("uh", "um", "er") and prolonged unnatural pauses
@@ -3224,7 +3221,7 @@ CRITICAL SCORING & BAND EVALUATION GUIDELINES (PLEASE READ VERY CAREFULLY):
    - STRICT ROUNDING DOWN RULE: ALWAYS round down to the nearest 0.5 step! Formula: Math.floor(raw_avg * 2) / 2.
      Examples: 7.7 -> 7.5, 7.4 -> 7.0, 6.8 -> 6.5.
    - overall_score MUST EQUAL Math.floor(raw_avg * 2) / 2.
-   - can_attack is true if overall_score >= 5.5, false otherwise.
+   - can_attack is true if overall_score >= ${Number(targetBand || 5.0)}, false otherwise.
 
 Output STRICTLY a valid JSON object without markdown fences, conforming to this JSON format:
 {
@@ -3283,8 +3280,14 @@ Output STRICTLY a valid JSON object without markdown fences, conforming to this 
     const result = JSON.parse(cleanJson);
 
     // Compute criteria bands and enforce strict floor-to-half rounding
-    const fc = Number(result.criteria?.fluencyCoherence?.band) || 6.5;
-    const lr = Number(result.criteria?.lexicalResource?.band) || 6.5;
+    const modelFc = Number(result.criteria?.fluencyCoherence?.band) || 6.5;
+    const wordCount = trimmedTranscript.split(/\s+/).length;
+    const shortAnswerPenalty = wordCount < 10 ? 3 : wordCount < 12 ? 2 : wordCount < 15 ? 1 : wordCount < 20 ? 0.5 : 0;
+    const speakingRatePenalty = getSpeakingRatePenalty(wordCount, Number(durationSeconds));
+    const fc = Math.min(modelFc, Math.max(1, 8 - shortAnswerPenalty - speakingRatePenalty));
+    const repeatedPromptKeywords = countRepeatedPromptKeywords(question || '', trimmedTranscript);
+    const repeatedKeywordPenalty = Math.floor(repeatedPromptKeywords / wordCount * 10) * 0.5;
+    const lr = Math.max(1, Math.min(8, 6 + Math.floor(countAdvancedSpeakingVocab(trimmedTranscript) / 2) * 0.5 - repeatedKeywordPenalty));
     const gr = Number(result.criteria?.grammaticalRange?.band) || 7.0;
     const pr = Number(result.criteria?.pronunciation?.band) || 6.5;
 
@@ -3294,9 +3297,16 @@ Output STRICTLY a valid JSON object without markdown fences, conforming to this 
 
     result.overall_score = overallScore;
     result.overallBand = overallScore;
-    result.can_attack = overallScore >= 5.5;
+    result.can_attack = overallScore >= Number(targetBand || 5.0);
     result.passed = result.can_attack;
     result.transcript = trimmedTranscript;
+    result.criteria ||= {};
+    result.criteria.fluencyCoherence ||= { band: 6.5, feedback: '' };
+    result.criteria.lexicalResource ||= { band: 6.0, feedback: '' };
+    result.criteria.fluencyCoherence.band = floorToHalf(fc);
+    result.criteria.lexicalResource.band = floorToHalf(lr);
+    if (repeatedKeywordPenalty > 0) result.criteria.lexicalResource.feedback = 'Keyword repetition reduces lexical flexibility.';
+    if (speakingRatePenalty > 0) result.criteria.fluencyCoherence.feedback = 'Speaking rate is slow.';
 
     if (!Array.isArray(result.grammar_errors)) {
       result.grammar_errors = [];
@@ -3323,6 +3333,32 @@ Output STRICTLY a valid JSON object without markdown fences, conforming to this 
         weaknesses: ['Cần phát triển câu dài hơn và sử dụng từ nối đa dạng.'],
         suggestion: 'Mở rộng câu trả lời với lý do và ví dụ thực tế.',
       };
+    }
+    if (wordCount < 20) {
+      result.criteria.fluencyCoherence.feedback = 'The answer is too short, which limits fluency and idea development.';
+      result.feedback_vi.summary = `${result.feedback_vi.summary || ''} Bài nói quá ngắn.`.trim();
+      result.feedback_vi.weaknesses = Array.isArray(result.feedback_vi.weaknesses) ? result.feedback_vi.weaknesses : [];
+      result.feedback_vi.weaknesses.push('Bài nói quá ngắn.');
+      const sanitizeShortAnswerFeedback = (value: string) => value
+        .replace(/\b(?:under|below|fewer than)\s+\d+\s+words?\b/gi, 'the answer is too short')
+        .replace(/\b\d+[- ]word(?:s)?\b/gi, 'the answer is too short')
+        .replace(/\b\d+\s+words?\b/gi, 'the answer is too short')
+        .replace(/dưới\s+\d+\s+từ/gi, 'bài nói quá ngắn')
+        .replace(/\b\d+\s+từ\b/gi, 'bài nói quá ngắn');
+      result.summary = sanitizeShortAnswerFeedback(result.summary || '');
+      result.feedback_vi.summary = sanitizeShortAnswerFeedback(result.feedback_vi.summary);
+      result.feedback_vi.weaknesses = result.feedback_vi.weaknesses.map((item: string) => sanitizeShortAnswerFeedback(item));
+      result.fluency_detail.feedback = sanitizeShortAnswerFeedback(result.fluency_detail?.feedback || 'Bài nói quá ngắn.');
+    }
+    if (repeatedKeywordPenalty > 0) {
+      result.feedback_vi.summary = `${result.feedback_vi.summary || ''} Lặp từ, thiếu linh hoạt từ vựng.`.trim();
+      result.feedback_vi.weaknesses = Array.isArray(result.feedback_vi.weaknesses) ? result.feedback_vi.weaknesses : [];
+      result.feedback_vi.weaknesses.push('Lặp từ, thiếu linh hoạt từ vựng.');
+    }
+    if (speakingRatePenalty > 0) {
+      result.feedback_vi.weaknesses = Array.isArray(result.feedback_vi.weaknesses) ? result.feedback_vi.weaknesses : [];
+      result.feedback_vi.weaknesses.push('Tốc độ nói chậm.');
+      result.fluency_detail.feedback = `${result.fluency_detail.feedback || ''} Tốc độ nói chậm.`.trim();
     }
 
     return res.json(result);

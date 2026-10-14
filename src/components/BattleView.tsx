@@ -116,6 +116,34 @@ export interface IeltsAiEvaluationResult {
 const ELEMENTS: ElementType[] = ['Fire', 'Water', 'Electric', 'Wind', 'Earth', 'Metal'];
 const BOARD_SIZE = 8;
 const QUESTION_TIME_LIMIT = 120; // 120 seconds for Phase 1 speaking practice
+const ADVANCED_SPEAKING_VOCAB = [
+  'sustainable development', 'renewable energy', 'carbon footprint', 'climate change', 'biodiversity', 'artificial intelligence',
+  'critical thinking', 'broaden my horizons', 'a double-edged sword', 'plays a pivotal role', 'quality of life', 'work-life balance',
+  'mental well-being', 'public transportation', 'economic growth', 'cultural heritage', 'social media', 'cutting-edge technology',
+  'make ends meet', 'once in a blue moon', 'the best of both worlds', 'pose a threat', 'raise awareness', 'take for granted',
+  'fast-paced lifestyle', 'lifelong learning', 'sense of accomplishment', 'strong sense of community', 'limited access to',
+  'highly competitive', 'gain practical experience', 'heavily dependent on', 'address the issue', 'in the long run', 'from my perspective',
+  'a wide range of', 'significant impact', 'deep-rooted', 'cost-effective', 'time-consuming', 'user-friendly', 'energy-efficient',
+];
+
+function countAdvancedSpeakingVocab(transcript: string): number {
+  return ADVANCED_SPEAKING_VOCAB.filter(phrase => {
+    const escaped = phrase.split('').map(char => /[.*+?^${}()|[\]\\]/.test(char) ? `\\${char}` : char).join('').replace(/\s+/g, '\\s+');
+    return new RegExp(`\\b${escaped}\\b`, 'i').test(transcript);
+  }).length;
+}
+
+function countRepeatedPromptKeywords(question: string, transcript: string): number {
+  const stopWords = new Set(['a', 'an', 'and', 'are', 'be', 'do', 'does', 'did', 'for', 'from', 'how', 'in', 'is', 'it', 'like', 'of', 'on', 'or', 'the', 'to', 'what', 'when', 'where', 'which', 'who', 'why', 'you', 'your']);
+  const keywords = [...new Set((question.toLowerCase().match(/[a-z]+/g) || []).filter(word => word.length > 2 && !stopWords.has(word)))];
+  return keywords.reduce((count, word) => count + ((transcript.toLowerCase().match(new RegExp(`\\b${word}(?:s|es)?\\b`, 'g')) || []).length), 0);
+}
+
+function getSpeakingRatePenalty(wordCount: number, durationSeconds: number): number {
+  if (!(durationSeconds > 0)) return 0;
+  const wordsPerMinute = wordCount * 60 / durationSeconds;
+  return wordsPerMinute < 60 ? 2 : wordsPerMinute < 70 ? 1.5 : wordsPerMinute < 80 ? 1 : wordsPerMinute < 90 ? 0.5 : 0;
+}
 
 export function deserializeBoard(snapshot: any): OrbTile[][] | null {
   if (!snapshot) return null;
@@ -166,6 +194,7 @@ export const BattleView: React.FC<Props> = ({
 }) => {
   const [phase, setPhase] = useState<BattlePhase>('phase1_quiz');
   const [currentRoundNumber, setCurrentRoundNumber] = useState(1);
+  const [pveLevel, setPveLevel] = useState(1);
 
   // Status Effect Duration States (Frostbite, Silence)
   const [playerFrostbiteTurns, setPlayerFrostbiteTurns] = useState<Record<number, number>>({});
@@ -237,6 +266,7 @@ export const BattleView: React.FC<Props> = ({
     pvpRoomInfo.code !== 'PVE_BOT' &&
     pvpRoomInfo.code !== 'RANKED-PVP'
   );
+  const requiredSpeakingBand = isPvP ? 5.0 : Math.min(7.5, 5 + Math.floor(pveLevel / 10) * 0.5);
   const pvpWsRef = useRef<WebSocket | null>(null);
   const currentRoundNumberRef = useRef(currentRoundNumber);
   currentRoundNumberRef.current = currentRoundNumber;
@@ -901,6 +931,7 @@ export const BattleView: React.FC<Props> = ({
   // AI Opponent highlighted tiles & active enemy index
   const [aiHighlightedTiles, setAiHighlightedTiles] = useState<{ row: number; col: number }[] | null>(null);
   const [activeEnemyAttackerIndex, setActiveEnemyAttackerIndex] = useState<number | null>(null);
+  const enemyAttackerQueueRef = useRef<number[]>([]);
 
   // Opponent Team (Stacked vertically on right side)
   const [enemyTeam, setEnemyTeam] = useState<Starmon[]>(() => {
@@ -1014,6 +1045,8 @@ export const BattleView: React.FC<Props> = ({
     },
   ];
 });
+  const pveBaseEnemyTeamRef = useRef<Starmon[]>(enemyTeam.map(enemy => ({ ...enemy })));
+  const pveLevelTransitioningRef = useRef(false);
 
   const [tutorialHasSwappedOrbs, setTutorialHasSwappedOrbs] = useState(false);
   const [tutorialHasRecordedSpeaking, setTutorialHasRecordedSpeaking] = useState(false);
@@ -1811,10 +1844,11 @@ export const BattleView: React.FC<Props> = ({
   const recordingSessionRef = useRef(0);
 
   // Dynamic quiz questions generated randomly: always 3 questions in Phase 1 (except Tutorial 1)
+  const soloQuizMode = questionMode === 'random' || questionMode === 'part1_preference' ? 'speaking_only' : questionMode;
   const [currentQuizSet, setCurrentQuizSet] = useState<QuizQuestion[]>(() =>
     tutorialStage === 1
       ? []
-    : getRandomQuizSet(3, isPvP ? (questionMode === 'mcq_only' ? 'mcq_only' : 'speaking_only') : questionMode)
+    : getRandomQuizSet(3, isPvP ? (questionMode === 'mcq_only' ? 'mcq_only' : 'speaking_only') : soloQuizMode)
   );
 
   const currentQ = currentQuizSet[activeQuestionIndex] || currentQuizSet[0] || {
@@ -2104,7 +2138,7 @@ export const BattleView: React.FC<Props> = ({
       question: 'Do you like reading books?',
       speakingPrompt: 'Yes, I really enjoy reading books. It is a wonderful way to relax, broaden my horizons, and acquire useful knowledge in my daily life.',
       assignedStarmonIndex: 0,
-      minBand: 5.5,
+      minBand: 5.0,
     };
     setCurrentQuizSet([tut1Speaking]);
     setActiveQuestionIndex(0);
@@ -2115,7 +2149,7 @@ export const BattleView: React.FC<Props> = ({
     setRecordingErrorNotice('');
     setTutorialHasRecordedSpeaking(false);
     setUnlockedPositions([false]);
-    setTurnAnnouncement('TUTORIAL 1: Phase 3 IELTS Speaking - Record your answer (Score >= 5.5 to attack)!');
+    setTurnAnnouncement('TUTORIAL 1: Phase 3 IELTS Speaking - Record your answer (Score >= 5.0 to attack)!');
   };
 
   const handleAdvanceToFinalAttack = () => {
@@ -2411,7 +2445,7 @@ export const BattleView: React.FC<Props> = ({
         body: JSON.stringify({
           question: questionItem.question,
           transcript: transcriptText,
-          targetBand: 5.5,
+          targetBand: requiredSpeakingBand,
           stutters: telemetry.stutters,
           hesitations: telemetry.hesitations,
           pauses: telemetry.pauses,
@@ -2422,7 +2456,7 @@ export const BattleView: React.FC<Props> = ({
       if (response.ok) {
         const data = await response.json();
         const score = typeof data.overall_score === 'number' ? data.overall_score : Number(data.overallBand) || 5.0;
-        const canAttack = data.can_attack !== undefined ? Boolean(data.can_attack) : score >= 5.5;
+        const canAttack = score >= requiredSpeakingBand;
 
         data.overall_score = score;
         data.overallBand = score;
@@ -2466,7 +2500,7 @@ export const BattleView: React.FC<Props> = ({
     const lower = transcriptText.toLowerCase();
     const floorToHalf = (num: number): number => Math.floor(num * 2) / 2;
 
-    let baseGRA = 7.0;
+    let baseGRA = 8.0;
     let severeGrammarCount = 0;
     const grammarErrors: GrammarErrorDetail[] = [];
 
@@ -2496,26 +2530,18 @@ export const BattleView: React.FC<Props> = ({
       });
     }
 
-    if (severeGrammarCount > 1) {
-      baseGRA = 5.5;
-    } else if (severeGrammarCount === 1) {
-      baseGRA = 6.0;
-    } else {
-      baseGRA = wordCount >= 25 ? 7.5 : wordCount >= 15 ? 7.0 : 6.5;
-      if (grammarErrors.length === 0 && !lower.includes('because') && !lower.includes('which') && !lower.includes('although')) {
-        grammarErrors.push({
-          sentence: transcriptText.slice(0, 65) + '...',
-          error: 'Câu trả lời chủ yếu là câu đơn, nên bổ sung liên từ phụ thuộc để đạt band cao hơn.',
-          correction: `${transcriptText.slice(0, 45)}... because it provides me with numerous benefits.`,
-          practice_structure: 'Mệnh đề phụ thuộc chỉ nguyên nhân & nhượng bộ (because, although, whereas)',
-          explanation: 'Sử dụng liên từ phụ thuộc giúp câu nói tự nhiên, kết nối ý mạch lạc và thể hiện sự đa dạng cấu trúc ngữ pháp.'
-        });
-      }
-    }
+    const severeClauseErrors = grammarErrors.filter(e => e.error.includes('thiếu thành phần')).length;
+    const verbFormErrors = grammarErrors.filter(e => /dạng từ|verb|V-ing|phân từ/i.test(`${e.error} ${e.practice_structure}`)).length;
+    const minorGrammarErrors = Math.max(0, grammarErrors.length - severeClauseErrors - verbFormErrors);
+    baseGRA = Math.max(1, 8 - severeClauseErrors * 2 - verbFormErrors - minorGrammarErrors * 0.5);
 
-    let baseFC = telemetry.stutters.length >= 2 || telemetry.pauses >= 3 ? 6.0 : telemetry.stutters.length === 1 || telemetry.pauses >= 1 ? 6.5 : wordCount < 12 ? 6.0 : 7.5;
-    let baseLR = wordCount > 25 ? 7.0 : wordCount > 15 ? 6.5 : 5.5;
-    let basePR = 7.0;
+    const shortAnswerPenalty = wordCount < 10 ? 3 : wordCount < 12 ? 2 : wordCount < 15 ? 1 : wordCount < 20 ? 0.5 : 0;
+    const speakingRatePenalty = getSpeakingRatePenalty(wordCount, telemetry.durationSeconds);
+    let baseFC = Math.max(1, 8 - shortAnswerPenalty - speakingRatePenalty - telemetry.stutters.length * 0.5 - telemetry.hesitations.length * 0.5 - telemetry.pauses * 0.5);
+    const repeatedPromptKeywords = countRepeatedPromptKeywords(questionItem.question, transcriptText);
+    const repeatedKeywordPenalty = Math.floor(repeatedPromptKeywords / wordCount * 10) * 0.5;
+    let baseLR = Math.max(1, Math.min(8, 6 + Math.floor(countAdvancedSpeakingVocab(transcriptText) / 2) * 0.5 - repeatedKeywordPenalty));
+    let basePR = 8.0;
 
     const pronunciationErrors: PronunciationErrorDetail[] = [];
     const phoneticLibrary: Record<string, { sound: string; phonetic: string; issue: string; guide: string }> = {
@@ -2564,21 +2590,11 @@ export const BattleView: React.FC<Props> = ({
       }
     }
 
-    if (pronunciationErrors.length === 0) {
-      const candidateWords = words.map(w => w.replace(/[^a-zA-Z]/g, '')).filter(w => w.length >= 5);
-      const picked = candidateWords[0] || 'activity';
-      pronunciationErrors.push({
-        word: picked,
-        sound: 'Trọng âm và nguyên âm chuẩn xác',
-        phonetic: `/${picked.toLowerCase()}/`,
-        issue: `Cần chú ý nhấn đúng trọng âm của từ "${picked}" và không làm biến dạng nguyên âm chính.`,
-        guide: 'Phát âm chậm rãi, xác định âm tiết được nhấn và phát âm rõ nguyên âm mang trọng âm.'
-      });
-    }
+    basePR = Math.max(1, 8 - pronunciationErrors.length * 0.5);
 
     const rawAvg = (baseFC + baseLR + baseGRA + basePR) / 4;
     const roundedScore = floorToHalf(rawAvg);
-    const isPassed = roundedScore >= 5.5;
+    const isPassed = roundedScore >= requiredSpeakingBand;
 
     const fallbackResult: IeltsAiEvaluationResult = {
       overall_score: roundedScore,
@@ -2594,14 +2610,19 @@ export const BattleView: React.FC<Props> = ({
         hesitationCount: telemetry.hesitations.length,
         pauseCount: telemetry.pauses,
         stumbles: [...telemetry.stutters, ...telemetry.hesitations],
-        feedback: telemetry.stutters.length === 0 && telemetry.hesitations.length === 0
+        feedback: speakingRatePenalty > 0
+          ? 'Tốc độ nói chậm.'
+          : telemetry.stutters.length === 0 && telemetry.hesitations.length === 0
           ? 'Nói trôi chảy tự nhiên, tốc độ đều đặn không bị vấp.'
           : `Ghi nhận ${telemetry.stutters.length} lần lặp từ và ${telemetry.hesitations.length} lần ngập ngừng.`
       },
       feedback_vi: {
-        summary: `Thí sinh trả lời trực tiếp câu hỏi "${questionItem.question}". Ngữ pháp đạt khoảng Band ${baseGRA.toFixed(1)}. Điểm tổng kết: Band ${roundedScore}.`,
+        summary: `Thí sinh trả lời trực tiếp câu hỏi "${questionItem.question}". ${wordCount < 20 ? 'Bài nói quá ngắn.' : ''} Ngữ pháp đạt khoảng Band ${baseGRA.toFixed(1)}. Điểm tổng kết: Band ${roundedScore}.`,
         weaknesses: [
           ...(telemetry.stutters.length > 0 ? [`Độ trôi chảy (Fluency): ${telemetry.stutters.join(', ')}`] : []),
+          ...(wordCount < 20 ? ['Độ trôi chảy (Fluency): Bài nói quá ngắn.'] : []),
+          ...(repeatedKeywordPenalty > 0 ? ['Từ vựng: Lặp từ, thiếu linh hoạt từ vựng.'] : []),
+          ...(speakingRatePenalty > 0 ? ['Độ trôi chảy (Fluency): Tốc độ nói chậm.'] : []),
           ...(severeGrammarCount > 0 ? ['Ngữ pháp (Grammar): Cần tránh các lỗi câu cụt hoặc sai dạng từ.'] : ['Ngữ pháp (Grammar): Khá tự nhiên, nên tiếp tục phát huy câu phức.']),
         ],
         grammar_summary: severeGrammarCount > 0 ? `Ghi nhận ${severeGrammarCount} lỗi ngữ pháp cơ bản.` : 'Ngữ pháp chính xác và tự nhiên.',
@@ -2609,8 +2630,8 @@ export const BattleView: React.FC<Props> = ({
         suggestion: 'Mở rộng câu trả lời với lý do và ví dụ thực tế (phương pháp A.R.E.A).'
       },
       criteria: {
-        fluencyCoherence: { band: floorToHalf(baseFC), feedback: 'Natural conversational pace.' },
-        lexicalResource: { band: floorToHalf(baseLR), feedback: 'Relevant and functional vocabulary.' },
+        fluencyCoherence: { band: floorToHalf(baseFC), feedback: speakingRatePenalty > 0 ? 'Speaking rate is slow.' : 'Natural conversational pace.' },
+        lexicalResource: { band: floorToHalf(baseLR), feedback: repeatedKeywordPenalty > 0 ? 'Keyword repetition reduces lexical flexibility.' : 'Relevant and functional vocabulary.' },
         grammaticalRange: { band: floorToHalf(baseGRA), feedback: 'Accurate and natural sentence structures.' },
         pronunciation: { band: floorToHalf(basePR), feedback: 'Clear phonetic articulation.' },
       },
@@ -2648,7 +2669,7 @@ export const BattleView: React.FC<Props> = ({
 
     const questionResults = currentQuizSet.map((_, idx) => {
       const res = ieltsResultsMap[idx];
-      if (res) return Boolean(res.passed || (res.overall_score !== undefined && res.overall_score >= 5.5));
+      if (res) return Boolean(res.overall_score !== undefined && res.overall_score >= requiredSpeakingBand);
       return Boolean(pvpQuizAnswersRef.current[idx] ?? answeredState[idx]);
     });
     const finalResults = mapQuizAnswersToStarmons(questionResults);
@@ -2767,7 +2788,7 @@ export const BattleView: React.FC<Props> = ({
       setTurnStatusType('enemy');
       setTurnAnnouncement('ENEMY TURN: Opponent is preparing their move...');
       setTimeout(() => {
-        executeEnemyTurn();
+        startEnemyTurn();
       }, 700);
     }
   };
@@ -5689,6 +5710,64 @@ export const BattleView: React.FC<Props> = ({
     setEnemyTeam(currentEnemies => {
       const allEnemiesDefeated = currentEnemies.every(e => e.currentHp <= 0);
       if (allEnemiesDefeated) {
+        if (!isPvP) {
+          if (pveLevelTransitioningRef.current) return currentEnemies;
+          pveLevelTransitioningRef.current = true;
+          const nextLevel = pveLevel + 1;
+          const levelGrowth = nextLevel - 1;
+          const nextEnemyTeam = pveBaseEnemyTeamRef.current.map(base => {
+            const hpScale = 1 + levelGrowth * 0.08;
+            const attackScale = 1 + levelGrowth * 0.04;
+            const defenseScale = 1 + levelGrowth * 0.03;
+            const maxHp = Math.round(base.maxHp * hpScale);
+            return {
+              ...base,
+              level: nextLevel,
+              maxHp,
+              currentHp: maxHp,
+              baseAtk: Math.round(base.baseAtk * attackScale),
+              def: Math.round(base.def * defenseScale),
+              currentMana: Math.min(200, base.currentMana + levelGrowth * 4),
+            };
+          });
+          setPveLevel(nextLevel);
+          setTurnAnnouncement(`LEVEL ${pveLevel} CLEARED! Bot Starmons level up to ${nextLevel}.`);
+          sound.playRewardFanfare();
+          setTimeout(() => {
+            setEnemyTeam(nextEnemyTeam);
+            setSelectedEnemyIndex(0);
+            setCurrentRoundNumber(1);
+            currentRoundNumberRef.current = 1;
+            logTurnRef.current = 1;
+            setPhase('phase1_quiz');
+            setActiveQuestionIndex(0);
+            setQuestionTimer(QUESTION_TIME_LIMIT);
+            setAnsweredState({});
+            setUnlockedPositions(Array(partySize).fill(false));
+            setIeltsAiResult(null);
+            setIeltsResultsMap({});
+            setEvaluatingMap({});
+            setQuestionTranscripts({});
+            setShowAllQuestionsReport(false);
+            setSpokenTranscript('');
+            setRecordingErrorNotice('');
+            setEnemyFrostbiteTurns({});
+            setEnemySilenceTurns({});
+            setEnemyPoisonTurns({});
+            setEnemyDefDebuffs({});
+            setStunnedEnemyIndices([]);
+            setPlayerTeam(team => team.map(mon => ({
+              ...mon,
+              currentHp: Math.min(mon.maxHp, mon.currentHp + Math.round(mon.maxHp * 0.2)),
+              currentMana: Math.min(mon.maxMana, mon.currentMana + 20),
+            })));
+            setCurrentQuizSet(getRandomQuizSet(partySize, soloQuizMode));
+            setTurnAnnouncement(`PvE LEVEL ${nextLevel} · Cần đạt Band ${Math.min(7.5, 5 + Math.floor(nextLevel / 10) * 0.5).toFixed(1)} để mở lượt tấn công.`);
+            pveLevelTransitioningRef.current = false;
+          }, 1200);
+          return currentEnemies;
+        }
+
         setPhase('victory');
         setChestOpened(false);
         setChestRewards(null);
@@ -5765,13 +5844,28 @@ export const BattleView: React.FC<Props> = ({
     return bestMove;
   };
 
+  const startEnemyTurn = () => {
+    if (isPvP) return;
+    enemyAttackerQueueRef.current = enemyTeam
+      .map((enemy, index) => ({ enemy, index }))
+      .filter(({ enemy }) => enemy.currentHp > 0)
+      .sort(() => Math.random() - 0.5)
+      .slice(0, 2)
+      .map(({ index }) => index);
+    executeEnemyTurn();
+  };
+
   const executeEnemyTurn = () => {
     if (isPvP) return; // ZERO BOT IN PVP MODE!
     const livingEnemies = enemyTeam.filter(e => e.currentHp > 0);
     if (livingEnemies.length === 0) return;
 
-    // Pick active enemy unit
-    const attacker = livingEnemies[Math.floor(Math.random() * livingEnemies.length)];
+    // Each bot turn uses up to two distinct, randomly selected living Starmons.
+    const queuedAttackerIdx = enemyAttackerQueueRef.current.shift();
+    const queuedAttacker = queuedAttackerIdx === undefined ? undefined : enemyTeam[queuedAttackerIdx];
+    const attacker = queuedAttacker?.currentHp > 0
+      ? queuedAttacker
+      : livingEnemies[Math.floor(Math.random() * livingEnemies.length)];
     const attackerIdx = enemyTeam.findIndex(e => e.id === attacker.id);
     setActiveEnemyAttackerIndex(attackerIdx);
 
@@ -6391,6 +6485,10 @@ export const BattleView: React.FC<Props> = ({
 
   const finishEnemyTurn = (updatedPlayers: Starmon[]) => {
     if (isPvP) return; // ZERO BOT IN PVP MODE!
+    if (enemyAttackerQueueRef.current.length > 0) {
+      setTimeout(() => executeEnemyTurn(), 500);
+      return;
+    }
     setActiveEnemyAttackerIndex(null);
     setAiHighlightedTiles(null);
 
@@ -6601,7 +6699,7 @@ export const BattleView: React.FC<Props> = ({
       setIeltsAiResult(null);
       setSpokenTranscript('');
       setRecordingErrorNotice('');
-      setCurrentQuizSet(getRandomQuizSet(partySize, questionMode));
+      setCurrentQuizSet(getRandomQuizSet(partySize, soloQuizMode));
       sound.playSwoosh();
     }, 1300);
   };
@@ -6696,8 +6794,8 @@ export const BattleView: React.FC<Props> = ({
                 : `PHASE ${pvpFlowPhaseString} (Action)`
             ) : (
               phase === 'phase1_quiz'
-                ? `PHASE 1: ANSWER STAGE (ROUND ${currentRoundNumber})`
-                : `PHASE 2: MATCH-3 COMBAT ARENA`
+                ? `${isPvP ? '' : `PVE LEVEL ${pveLevel} · `}PHASE 1: ANSWER STAGE (ROUND ${currentRoundNumber})`
+                : `${isPvP ? '' : `PVE LEVEL ${pveLevel} · `}PHASE 2: MATCH-3 COMBAT ARENA`
             )}
           </span>
         </div>
@@ -6834,7 +6932,7 @@ export const BattleView: React.FC<Props> = ({
                       sound.playClick();
                       onChangeQuestionMode?.(mode);
                       if (phase === 'phase1_quiz') {
-                        setCurrentQuizSet(getRandomQuizSet(partySize, mode));
+                        setCurrentQuizSet(getRandomQuizSet(partySize, mode === 'random' || mode === 'part1_preference' ? 'speaking_only' : mode));
                         setActiveQuestionIndex(0);
                         setAnsweredState({});
                         pvpQuizAnswersRef.current = [];
@@ -7157,7 +7255,7 @@ export const BattleView: React.FC<Props> = ({
               )}
 
               <span className="text-[10px] text-slate-400 mt-1">
-                Passing requirement: Overall Band ≥ 5.5 unlocks Starmons for combat
+                Passing requirement: Overall Band ≥ {requiredSpeakingBand.toFixed(1)} unlocks Starmons for combat
               </span>
             </div>
           )}
@@ -7191,10 +7289,10 @@ export const BattleView: React.FC<Props> = ({
               {(() => {
                 const scores = currentQuizSet.map((_, i) => ieltsResultsMap[i]?.overall_score ?? ieltsResultsMap[i]?.overallBand).filter((s): s is number => typeof s === 'number');
                 const avgScore = scores.length > 0 ? Math.floor((scores.reduce((a, b) => a + b, 0) / scores.length) * 2) / 2 : 0;
-                const allPassed = scores.length === currentQuizSet.length && scores.every(s => s >= 5.5);
+                const allPassed = scores.length === currentQuizSet.length && scores.every(s => s >= requiredSpeakingBand);
                 return (
                   <div className={`px-3 py-1 rounded-xl border text-center font-black ${
-                    allPassed || avgScore >= 5.5
+                    allPassed || avgScore >= requiredSpeakingBand
                       ? 'bg-emerald-950 border-emerald-500 text-emerald-300'
                       : 'bg-rose-950 border-rose-500 text-rose-300'
                   }`}>
@@ -7212,7 +7310,7 @@ export const BattleView: React.FC<Props> = ({
                 const isEvaluating = evaluatingMap[idx];
                 const res = ieltsResultsMap[idx];
                 const score = res?.overall_score ?? res?.overallBand;
-                const isPassed = res?.passed || (score !== undefined && score >= 5.5);
+                const isPassed = score !== undefined && score >= requiredSpeakingBand;
 
                 return (
                   <button
@@ -7287,7 +7385,7 @@ export const BattleView: React.FC<Props> = ({
               const grammarErrors = activeRes.grammar_errors || [];
               const pronunciationErrors = activeRes.pronunciation_errors || [];
               const score = activeRes.overall_score ?? activeRes.overallBand;
-              const isPassed = activeRes.passed || score >= 5.5;
+              const isPassed = score >= requiredSpeakingBand;
 
               return (
                 <div className="space-y-3 animate-in fade-in duration-200">
@@ -7299,10 +7397,10 @@ export const BattleView: React.FC<Props> = ({
                   }`}>
                     <span>
                       {isPassed
-                        ? `🎉 CÂU ${selectedReportTab + 1} ĐẠT BAND ${score} (≥ 5.5) — STARMON #${(activeQ?.assignedStarmonIndex ?? selectedReportTab) + 1} SẴN SÀNG!`
-                        : `⚠️ CÂU ${selectedReportTab + 1} ĐẠT BAND ${score} (< 5.5) — Cần cải thiện thêm`}
+                        ? `🎉 CÂU ${selectedReportTab + 1} ĐẠT BAND ${score} (≥ ${requiredSpeakingBand.toFixed(1)}) — STARMON #${(activeQ?.assignedStarmonIndex ?? selectedReportTab) + 1} SẴN SÀNG!`
+                        : `⚠️ CÂU ${selectedReportTab + 1} ĐẠT BAND ${score} (< ${requiredSpeakingBand.toFixed(1)}) — Cần cải thiện thêm`}
                     </span>
-                    <span className="text-[10px] font-mono opacity-80">Mục tiêu: Band 5.5</span>
+                    <span className="text-[10px] font-mono opacity-80">Mục tiêu: Band {requiredSpeakingBand.toFixed(1)}</span>
                   </div>
 
                   {/* Question & Transcript Box */}
