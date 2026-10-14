@@ -145,6 +145,29 @@ function getSpeakingRatePenalty(wordCount: number, durationSeconds: number): num
   return wordsPerMinute < 60 ? 2 : wordsPerMinute < 70 ? 1.5 : wordsPerMinute < 80 ? 1 : wordsPerMinute < 90 ? 0.5 : 0;
 }
 
+function normalizeRecognizedSpeech(text: string): string {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  const normalized = (word: string) => word.toLowerCase().replace(/[^a-z0-9']/g, '');
+
+  // Some tablet speech engines return the just-finalized phrase twice. Remove
+  // identical adjacent phrase copies while keeping short natural repetitions.
+  let changed = true;
+  while (changed && words.length >= 6) {
+    changed = false;
+    for (let size = Math.floor(words.length / 2); size >= 3; size--) {
+      const leftStart = words.length - size * 2;
+      const left = words.slice(leftStart, leftStart + size).map(normalized);
+      const right = words.slice(leftStart + size).map(normalized);
+      if (left.every((word, index) => word && word === right[index])) {
+        words.splice(leftStart + size, size);
+        changed = true;
+        break;
+      }
+    }
+  }
+  return words.join(' ');
+}
+
 export function deserializeBoard(snapshot: any): OrbTile[][] | null {
   if (!snapshot) return null;
   let rawGrid: any = null;
@@ -2241,7 +2264,7 @@ export const BattleView: React.FC<Props> = ({
       }
       recordingSessionRef.current += 1;
 
-      const textToAnalyze = spokenTranscript.trim() || (tutorialStage === 1 ? (currentQ.speakingPrompt || currentIeltsMetadata.sampleAnswer || 'Yes, I really enjoy reading books. It is a wonderful way to relax, broaden my horizons, and acquire useful knowledge in my daily life.') : '');
+      const textToAnalyze = normalizeRecognizedSpeech(spokenTranscript).trim() || (tutorialStage === 1 ? (currentQ.speakingPrompt || currentIeltsMetadata.sampleAnswer || 'Yes, I really enjoy reading books. It is a wonderful way to relax, broaden my horizons, and acquire useful knowledge in my daily life.') : '');
       if (!textToAnalyze) {
         setRecordingErrorNotice('No speech detected. Please click the green button to speak again, or use the model answer button.');
         sound.playWrong();
@@ -2276,17 +2299,30 @@ export const BattleView: React.FC<Props> = ({
         speechRecognitionRef.current = recognition;
 
         recognition.onresult = (event: any) => {
+          if (recordingSessionRef.current !== recordingSession) return;
           const now = Date.now();
           if (lastSpeechTimeRef.current && (now - lastSpeechTimeRef.current > 1800)) {
             speechPausesCountRef.current++;
           }
           lastSpeechTimeRef.current = now;
 
-          let currentSpoken = '';
+          const finalSegments: string[] = [];
+          const interimSegments: string[] = [];
           for (let i = 0; i < event.results.length; i++) {
-            currentSpoken += event.results[i][0].transcript + ' ';
+            const segment = String(event.results[i]?.[0]?.transcript || '').trim();
+            if (!segment) continue;
+            if (event.results[i].isFinal) {
+              const previousSegment = finalSegments[finalSegments.length - 1];
+              const normalizeSegment = (value: string) => value.toLowerCase().replace(/[^a-z0-9']/g, ' ').replace(/\s+/g, ' ').trim();
+              if (!previousSegment || normalizeSegment(previousSegment) !== normalizeSegment(segment)) {
+                finalSegments.push(segment);
+              }
+            } else {
+              interimSegments.push(segment);
+            }
           }
-          setSpokenTranscript(currentSpoken.trim());
+          const currentSpoken = [...finalSegments, ...interimSegments].join(' ');
+          setSpokenTranscript(normalizeRecognizedSpeech(currentSpoken));
         };
 
         recognition.onerror = (e: any) => {
@@ -2336,7 +2372,10 @@ export const BattleView: React.FC<Props> = ({
   };
 
   // Submit candidate response, trigger background AI analysis, and IMMEDIATELY advance to next question
-  const submitSpeakingResponseAndAdvance = (textToAnalyze: string, responseSource: 'spoken' | 'sample' = 'spoken') => {
+  const submitSpeakingResponseAndAdvance = (transcriptInput: string, responseSource: 'spoken' | 'sample' = 'spoken') => {
+    const textToAnalyze = responseSource === 'spoken'
+      ? normalizeRecognizedSpeech(transcriptInput)
+      : transcriptInput.trim();
     const targetIndex = activeQuestionIndex;
     const targetQuestion = currentQ;
 
