@@ -56,6 +56,30 @@ export function isSupabaseConnected(): boolean {
   return isConnected;
 }
 
+async function sendBroadcastViaRest(topic: string, event: string, payload: unknown): Promise<void> {
+  // channel() reuses a channel with the same topic. Do not remove it afterward
+  // when another part of the app is actively listening on that room.
+  const existingChannel = supabase.getChannels().find(channel => channel.topic === `realtime:${topic}`);
+  const channel = existingChannel ?? supabase.channel(topic);
+  try {
+    // These notifications do not need a subscribed WebSocket channel.
+    const result = await channel.httpSend(event, payload);
+    if (!result.success) {
+      console.warn(`Supabase REST broadcast "${event}" was rejected:`, result);
+    }
+  } catch (error) {
+    console.warn(`Supabase REST broadcast "${event}" failed:`, error);
+  } finally {
+    if (!existingChannel) {
+      try {
+        await supabase.removeChannel(channel);
+      } catch (error) {
+        console.warn(`Could not remove Supabase channel "${topic}":`, error);
+      }
+    }
+  }
+}
+
 export function sanitizeDocId(key: string): string {
   return (key || 'player')
     .trim()
@@ -289,13 +313,8 @@ export async function savePvpRoomToSupabase(room: PvpRoom): Promise<boolean> {
     const { error } = await supabase.from('pvp_rooms').upsert(row, { onConflict: 'room_code' });
     if (error) throw error;
 
-    // Broadcast update via Supabase Realtime Channel
-    const channel = supabase.channel(`pvp_room_${cleanCode}`);
-    channel.send({
-      type: 'broadcast',
-      event: 'room_state',
-      payload: room,
-    }).catch(() => {});
+    // Send through Realtime's REST endpoint without opening an unused socket.
+    void sendBroadcastViaRest(`pvp_room_${cleanCode}`, 'room_state', room);
 
     return true;
   } catch (err) {
@@ -467,12 +486,7 @@ export async function deletePvpRoomInSupabase(roomCode: string): Promise<boolean
 
   try {
     await supabase.from('pvp_rooms').delete().eq('room_code', cleanCode);
-    const channel = supabase.channel(`pvp_room_${cleanCode}`);
-    channel.send({
-      type: 'broadcast',
-      event: 'room_deleted',
-      payload: { roomCode: cleanCode },
-    }).catch(() => {});
+    void sendBroadcastViaRest(`pvp_room_${cleanCode}`, 'room_deleted', { roomCode: cleanCode });
     return true;
   } catch {
     return true;
@@ -614,7 +628,7 @@ export async function submitSpeakingToSupabase(
   const room = await getPvpRoomFromSupabase(cleanCode);
   if (!room) return;
 
-  const currentTurn = submission.turn || room.matchState?.turn || room.matchState?.roundNumber || 1;
+  const currentTurn = submission.turn ?? room.matchState?.turn ?? room.matchState?.roundNumber ?? 1;
   const existingMatch: PvpMatchState = room.matchState || {
     roomCode: cleanCode,
     turn: currentTurn,
@@ -624,7 +638,8 @@ export async function submitSpeakingToSupabase(
     speakingSubmissions: {},
   };
 
-  const existingSubs = (existingMatch.turn === currentTurn && existingMatch.speakingSubmissions)
+  const existingTurn = existingMatch.turn ?? existingMatch.roundNumber;
+  const existingSubs = (existingTurn === currentTurn && existingMatch.speakingSubmissions)
     ? existingMatch.speakingSubmissions
     : {};
 

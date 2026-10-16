@@ -305,7 +305,7 @@ export const BattleView: React.FC<Props> = ({
   const [pvpTurnNumber, setPvpTurnNumber] = useState<number>(1);
   const pvpTurnNumberRef = useRef<number>(1);
   pvpTurnNumberRef.current = pvpTurnNumber;
-  const lastGeneratedQuizTurnRef = useRef<number>(1);
+  const lastGeneratedQuizKeyRef = useRef<string>(`${pvpRoomInfo?.code || ''}:1`);
 
   const [pvpSubPhase, setPvpSubPhase] = useState<1 | 2 | 3>(1);
   const pvpSubPhaseRef = useRef<1 | 2 | 3>(1);
@@ -1263,22 +1263,7 @@ export const BattleView: React.FC<Props> = ({
               setPvpWaitingForOpponentSpeaking(false);
               setPvpActionMenu(null);
               setPhase('phase1_quiz');
-              if (turnNum > lastGeneratedQuizTurnRef.current) {
-                lastGeneratedQuizTurnRef.current = turnNum;
-                const generatedQuiz = getRandomQuizSet(3, questionMode === 'mcq_only' ? 'mcq_only' : 'speaking_only');
-                const quizWithAssigned = generatedQuiz.map((q, qIdx) => ({
-                  ...q,
-                  assignedStarmonIndex: qIdx,
-                }));
-                setCurrentQuizSet(quizWithAssigned);
-                setActiveQuestionIndex(0);
-                setAnsweredState({});
-                pvpQuizAnswersRef.current = [];
-                setQuestionTimer(msg.time_limit || QUESTION_TIME_LIMIT);
-                setIeltsAiResult(null);
-                setSpokenTranscript('');
-                setRecordingErrorNotice('');
-              }
+              preparePvpQuizForTurn(turnNum, msg.time_limit);
             } else if (sub === 2 || sub === 3) {
               setIsActionPendingServer(false);
               setPvpWaitingForOpponentSpeaking(false);
@@ -1332,22 +1317,7 @@ export const BattleView: React.FC<Props> = ({
                 setPvpWaitingForOpponentSpeaking(false);
                 setPvpActionMenu(null);
                 setPhase('phase1_quiz');
-                if (tNum > lastGeneratedQuizTurnRef.current) {
-                  lastGeneratedQuizTurnRef.current = tNum;
-                  const generatedQuiz = getRandomQuizSet(3, questionMode === 'mcq_only' ? 'mcq_only' : 'speaking_only');
-                  const quizWithAssigned = generatedQuiz.map((q, qIdx) => ({
-                    ...q,
-                    assignedStarmonIndex: qIdx,
-                  }));
-                  setCurrentQuizSet(quizWithAssigned);
-                  setActiveQuestionIndex(0);
-                  setAnsweredState({});
-                  pvpQuizAnswersRef.current = [];
-                  setQuestionTimer(msg.time_limit || QUESTION_TIME_LIMIT);
-                  setIeltsAiResult(null);
-                  setSpokenTranscript('');
-                  setRecordingErrorNotice('');
-                }
+                preparePvpQuizForTurn(tNum, msg.time_limit);
               } else if (sPhase === 2 || sPhase === 3) {
                 setIsActionPendingServer(false);
                 setPvpWaitingForOpponentSpeaking(false);
@@ -1411,21 +1381,7 @@ export const BattleView: React.FC<Props> = ({
               setPvpWaitingForOpponentSpeaking(false);
               setPvpActionMenu(null);
               setPhase('phase1_quiz');
-              if (turnNum > lastGeneratedQuizTurnRef.current) {
-                lastGeneratedQuizTurnRef.current = turnNum;
-                const generatedQuiz = getRandomQuizSet(3, questionMode === 'mcq_only' ? 'mcq_only' : 'speaking_only');
-                const quizWithAssigned = generatedQuiz.map((q, qIdx) => ({
-                  ...q,
-                  assignedStarmonIndex: qIdx,
-                }));
-                setCurrentQuizSet(quizWithAssigned);
-                setActiveQuestionIndex(0);
-                setAnsweredState({});
-                pvpQuizAnswersRef.current = [];
-                setQuestionTimer(msg.time_limit || QUESTION_TIME_LIMIT);
-                setIeltsAiResult(null);
-                setSpokenTranscript('');
-                setRecordingErrorNotice('');
+              if (preparePvpQuizForTurn(turnNum, msg.time_limit)) {
                 setPvpTurnBanner(`Phase 1: Bạn có tổng cộng 2 phút để trả lời 3 câu hỏi. Nếu hết giờ, những câu chưa được trả lời sẽ bị tính là 0 điểm`);
                 setTimeout(() => setPvpTurnBanner(null), 4000);
                 sound.playSwoosh();
@@ -1533,7 +1489,7 @@ export const BattleView: React.FC<Props> = ({
             setPvpWaitingForOpponentSpeaking(false);
             setPvpActionMenu(null);
             const nextRound = msg.turn || msg.round_number || pvpTurnNumberRef.current || currentRoundNumberRef.current;
-            const isNewRound = nextRound > lastGeneratedQuizTurnRef.current;
+            preparePvpQuizForTurn(nextRound, msg.time_limit);
             setCurrentRoundNumber(nextRound);
             currentRoundNumberRef.current = nextRound;
             setPvpTurnNumber(nextRound);
@@ -1562,22 +1518,6 @@ export const BattleView: React.FC<Props> = ({
               }
             }
 
-            if (isNewRound) {
-              lastGeneratedQuizTurnRef.current = nextRound;
-              const generatedQuiz = getRandomQuizSet(3, questionMode === 'mcq_only' ? 'mcq_only' : 'speaking_only');
-              const quizWithAssigned = generatedQuiz.map((q, qIdx) => ({
-                ...q,
-                assignedStarmonIndex: qIdx,
-              }));
-              setCurrentQuizSet(quizWithAssigned);
-              setActiveQuestionIndex(0);
-              setAnsweredState({});
-              pvpQuizAnswersRef.current = [];
-              setQuestionTimer(msg.time_limit || QUESTION_TIME_LIMIT);
-              setIeltsAiResult(null);
-              setSpokenTranscript('');
-              setRecordingErrorNotice('');
-            }
             setPvpTurnBanner(`Phase 1: Bạn có tổng cộng 2 phút để trả lời 3 câu hỏi. Nếu hết giờ, những câu chưa được trả lời sẽ bị tính là 0 điểm`);
             setTimeout(() => setPvpTurnBanner(null), 4000);
             sound.playSwoosh();
@@ -1830,6 +1770,7 @@ export const BattleView: React.FC<Props> = ({
     // Mirror to Supabase for cross-network reliability
     submitSpeakingToSupabase(pvpRoomInfo.code, {
       slot: mySlot,
+      turn: currentRoundNumberRef.current,
       playerId: myId,
       playerName: myName,
       completionTime: timeTaken,
@@ -1882,6 +1823,34 @@ export const BattleView: React.FC<Props> = ({
       ? []
     : getRandomQuizSet(3, isPvP ? (questionMode === 'mcq_only' ? 'mcq_only' : 'speaking_only') : soloQuizMode)
   );
+
+  // Phase messages can arrive more than once, and a room can start a fresh
+  // match whose turn counter goes back to 1. Identify a quiz by room + turn.
+  function preparePvpQuizForTurn(turn: number, timeLimit?: number): boolean {
+    const normalizedTurn = Number.isFinite(turn) && turn > 0 ? turn : 1;
+    const quizKey = `${pvpRoomInfo?.code || ''}:${normalizedTurn}`;
+    if (lastGeneratedQuizKeyRef.current === quizKey) return false;
+
+    lastGeneratedQuizKeyRef.current = quizKey;
+    const generatedQuiz = getRandomQuizSet(3, questionMode === 'mcq_only' ? 'mcq_only' : 'speaking_only');
+    setCurrentQuizSet(generatedQuiz.map((q, qIdx) => ({ ...q, assignedStarmonIndex: qIdx })));
+    setActiveQuestionIndex(0);
+    setAnsweredState({});
+    pvpQuizAnswersRef.current = [];
+    setUnlockedPositions(Array(partySize).fill(false));
+    setQuestionTimer(timeLimit || QUESTION_TIME_LIMIT);
+    setIeltsAiResult(null);
+    setIeltsResultsMap({});
+    setEvaluatingMap({});
+    setQuestionTranscripts({});
+    setShowAllQuestionsReport(false);
+    setSelectedReportTab(0);
+    setSpokenTranscript('');
+    setRecordingErrorNotice('');
+    setBackgroundNotice('');
+    setIsAiEvaluating(false);
+    return true;
+  }
 
   const currentQ = currentQuizSet[activeQuestionIndex] || currentQuizSet[0] || {
     id: 'placeholder_q',
