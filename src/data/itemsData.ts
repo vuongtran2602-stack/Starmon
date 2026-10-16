@@ -26,6 +26,11 @@ import whiteFeatherImg from '../assets/images/white_feather.png';
 import skullMaskImg from '../assets/images/skull_mask.png';
 import medievalCoifImg from '../assets/images/medieval_coif.jpeg';
 import seashellShieldImg from '../assets/images/seashell_shield.png';
+import royalTokensIcon from '../assets/images/rewards/royal_tokens.png';
+import gemIcon from '../assets/images/rewards/gem.png';
+import goldCoinIcon from '../assets/images/rewards/gold_coin.png';
+import commonItemPackIcon from '../assets/images/rewards/common_item_pack.jpeg';
+import omniCardIcon from '../assets/images/rewards/omni_card.png';
 
 export function toDirectDropboxUrl(url: string): string {
   if (!url) return '';
@@ -45,9 +50,11 @@ export const STAR_SHARD_IMAGE = toDirectDropboxUrl(
   'https://www.dropbox.com/scl/fi/2p76tf6dvki6j2baz1ksp/Star_Shard-removebg.png?rlkey=t778famb7l7dp7ok3alzkz82w&st=612rc8xh&dl=0'
 );
 
-export const ROYAL_TOKENS_IMAGE = toDirectDropboxUrl(
-  'https://www.dropbox.com/scl/fi/eq4l3dfm7ye5315fctcul/Royal_Tokens-removebg.png?rlkey=2p8n3fw31mzwmiklcux98pm94&st=dmjvfetl&dl=0'
-);
+export const ROYAL_TOKENS_IMAGE = royalTokensIcon;
+export const GEM_IMAGE = gemIcon;
+export const GOLD_IMAGE = goldCoinIcon;
+export const COMMON_ITEM_PACK_IMAGE = commonItemPackIcon;
+export const OMNI_CARD_IMAGE = omniCardIcon;
 
 export const GOLDEN_ANVIL_IMAGE = toDirectDropboxUrl(
   'https://www.dropbox.com/scl/fi/osxxt4jpd9x19ulpyr2s3/Golden_Anvil-removebg.png?rlkey=w5b8e7dolmjejl352aalzxoqj&st=28ukah6o&dl=0'

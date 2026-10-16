@@ -10,6 +10,10 @@ import {
   ENERGY_BATTERY_100_IMAGE,
   ENERGY_BATTERY_200_IMAGE,
   ROYAL_TOKENS_IMAGE,
+  GEM_IMAGE,
+  GOLD_IMAGE,
+  COMMON_ITEM_PACK_IMAGE,
+  OMNI_CARD_IMAGE,
 } from '../data/itemsData';
 import {
   X,
@@ -42,6 +46,7 @@ interface Props {
   onOpenElementalPack?: (element: ElementType) => void;
   onSelectStarmonTab?: () => void;
   onUseBatteries?: (tier: 50 | 100 | 200, count: number) => void;
+  onOpenCommonItemPack?: () => string;
 }
 
 export const InventoryModal: React.FC<Props> = ({
@@ -52,6 +57,7 @@ export const InventoryModal: React.FC<Props> = ({
   onOpenElementalPack,
   onSelectStarmonTab,
   onUseBatteries,
+  onOpenCommonItemPack,
 }) => {
   const [activeTab, setActiveTab] = useState<InventoryCategory>('consumables');
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
@@ -91,6 +97,13 @@ export const InventoryModal: React.FC<Props> = ({
       subType: 'pack',
     });
   }
+
+  if ((player.commonItemPacks || 0) > 0) consumablePacks.push({
+    id: 'inv_common_item_pack', name: 'Common Item Pack', category: 'consumables',
+    description: '20% chance to receive 30 Star Shards, or 80% chance to receive one random Common equipment item.',
+    quantity: player.commonItemPacks || 0, rarity: 'common', icon: '📦', image: COMMON_ITEM_PACK_IMAGE,
+    actionLabel: 'OPEN PACK', subType: 'pack',
+  });
 
   const elementalDefs: { el: ElementType; name: string; img: string; icon: string }[] = [
     { el: 'Wind', name: 'Starmon Wind Pack', img: packWindImg, icon: '💨' },
@@ -176,6 +189,12 @@ export const InventoryModal: React.FC<Props> = ({
     actionLabel: s.unlocked ? 'XEM MON' : 'CHƯA MỞ',
     starmonId: s.id,
   }));
+  shardsCategoryList.push({
+    id: 'omni_starmon_cards', name: 'Omni-Starmon Cards', category: 'shards',
+    description: 'Convert these universal cards into cards for any unlocked Starmon.',
+    quantity: player.omniStarmonCards || 0, rarity: 'legendary', icon: '✚', image: OMNI_CARD_IMAGE,
+    actionLabel: (player.omniStarmonCards || 0) > 0 ? 'USE ON A STARMON' : 'NO CARDS',
+  });
 
   // 4. RESOURCES & EQUIPMENT
   const materialsCategoryList: InventoryItem[] = [
@@ -207,6 +226,7 @@ export const InventoryModal: React.FC<Props> = ({
       quantity: player.gems,
       rarity: 'rare',
       icon: '💎',
+      image: GEM_IMAGE,
     },
     {
       id: 'res_gold',
@@ -216,6 +236,7 @@ export const InventoryModal: React.FC<Props> = ({
       quantity: player.gold,
       rarity: 'common',
       icon: '🪙',
+      image: GOLD_IMAGE,
     },
     {
       id: 'res_royal_tokens',
@@ -264,7 +285,17 @@ export const InventoryModal: React.FC<Props> = ({
   // Handle action button click
   const handleAction = (item: InventoryItem) => {
     sound.playClick();
-    if (item.id === 'inv_starter_pack') {
+    if (item.id === 'inv_common_item_pack') {
+      const message = onOpenCommonItemPack?.();
+      setSelectedItem(null);
+      setToastNotice(message || 'Common Item Pack opened.');
+      setTimeout(() => setToastNotice(null), 3500);
+    } else if (item.id === 'omni_starmon_cards') {
+      if (onSelectStarmonTab) {
+        onClose();
+        onSelectStarmonTab();
+      }
+    } else if (item.id === 'inv_starter_pack') {
       if (player.starterPacksCount > 0) {
         onClose();
         onOpenStarterPack();
@@ -637,9 +668,9 @@ export const InventoryModal: React.FC<Props> = ({
         {/* Footer */}
         <div className="flex items-center justify-between border-t border-slate-800 pt-3 mt-3 shrink-0">
           <span className="text-[11px] text-slate-400 flex items-center gap-2">
-            <span>Gold: {player.gold.toLocaleString()} G</span>
+            <span className="inline-flex items-center gap-1"><img src={GOLD_IMAGE} alt="Gold" className="h-4 w-4 object-contain" />{player.gold.toLocaleString()}</span>
             <span>·</span>
-            <span>Gems: {player.gems.toLocaleString()} 💎</span>
+            <span className="inline-flex items-center gap-1"><img src={GEM_IMAGE} alt="Gems" className="h-4 w-4 object-contain" />{player.gems.toLocaleString()}</span>
             <span>·</span>
             <span className="text-amber-300 font-bold">Energy: {player.energy}/100 🗲</span>
           </span>

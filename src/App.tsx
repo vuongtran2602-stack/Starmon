@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { PlayerProfile, Starmon, QuestItem, ChatMessage, ChatChannel, ElementType, ResearchJob, SpeakingLogEntry } from './types';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { PlayerProfile, Starmon, QuestItem, ChatMessage, ChatChannel, ElementType, ResearchJob, SpeakingLogEntry, MysteryReward } from './types';
 import { STARMON_ROSTER } from './data/starmons';
 import { getStarmonClass, getStatsForLevel, calculateCP } from './data/starmonStats';
 import { INITIAL_QUESTS } from './data/questsData';
@@ -23,6 +23,8 @@ import { OnboardingSpotlight } from './components/OnboardingSpotlight';
 import { sound } from './services/sound';
 import { getEquipmentUpgradeCost, getItemLevelStats, ITEM_CRAFT_COST } from './data/itemStats';
 import { EQUIPMENT_ITEMS_CATALOG } from './data/itemsData';
+import { EventsModal } from './components/EventsModal';
+import { getDailyRewardStatus } from './data/dailyRewards';
 import { testFirestoreConnection, resetAccountInFirestore } from './services/firebase';
 import { getResearchLevel, getUnlockedItemSlots, RESEARCH_NODES, ResearchNodeId, isResearchNodeUnlocked, getResearchStatBonuses } from './data/techResearch';
 
@@ -73,6 +75,8 @@ export default function App() {
           googleId: parsed.googleId || savedGoogleId,
           googleEmail: parsed.googleEmail || '',
           royalTokens: parsed.royalTokens || 0,
+          omniStarmonCards: parsed.omniStarmonCards || 0,
+          commonItemPacks: parsed.commonItemPacks || 0,
           energy: parsed.energy !== undefined ? parsed.energy : 100,
           maxEnergy: 100,
           lastEnergyRegenTime: parsed.lastEnergyRegenTime || Date.now(),
@@ -105,6 +109,8 @@ export default function App() {
       gold: 0,       // Starts strictly at 0 Gold
       gems: 0,       // Starts strictly at 0 Gems
       royalTokens: 0,
+      omniStarmonCards: 0,
+      commonItemPacks: 0,
       energy: 100,   // Base energy 100/100, regens 1 per 10 mins, stops at 100
       maxEnergy: 100,
       lastEnergyRegenTime: Date.now(),
@@ -252,6 +258,8 @@ export default function App() {
   const [showMailModal, setShowMailModal] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showQuestModal, setShowQuestModal] = useState(false);
+  const [showEventsModal, setShowEventsModal] = useState(false);
+  const dailyRewardClaimsInFlight = useRef(new Set<string>());
   const [showInventoryModal, setShowInventoryModal] = useState(false);
   const [showEnergyBatteryModal, setShowEnergyBatteryModal] = useState(false);
   const [openingElementalPack, setOpeningElementalPack] = useState<ElementType | null>(null);
@@ -482,6 +490,67 @@ export default function App() {
         return prev;
       });
     }
+  };
+
+  const handleClaimDailyReward = (day: number, mysteryReward?: MysteryReward) => {
+    const status = getDailyRewardStatus(player.dailyRewardProgress, new Date());
+    if (day !== status.day || !status.canClaimToday) return { success: false, message: 'This reward is not available today.' };
+    const claimKey = `${player.username || player.name}:${status.cycleStartedOn}:${day}`;
+    if (dailyRewardClaimsInFlight.current.has(claimKey)) return { success: false, message: 'This daily reward has already been claimed.' };
+    const owned = starmons.filter(mon => mon.unlocked);
+    if (day === 3 && owned.length === 0) return { success: false, message: 'Unlock a Starmon before claiming Day 3.' };
+    if (day === 7 && !mysteryReward) return { success: false, message: 'Spin the chest to claim Day 7.' };
+    dailyRewardClaimsInFlight.current.add(claimKey);
+    const cardTarget = day === 3 ? owned[Math.floor(Math.random() * owned.length)] : undefined;
+    const rewardText = day === 3 ? `20 ${cardTarget?.name} Cards` : day === 7 ? 'Mystery Chest reward claimed!' : 'Daily reward claimed!';
+    setPlayer(prev => {
+      const current = getDailyRewardStatus(prev.dailyRewardProgress, new Date());
+      if (day !== current.day || !current.canClaimToday) return prev;
+      const next: PlayerProfile = {
+        ...prev,
+        dailyRewardProgress: {
+          cycleStartedOn: current.cycleStartedOn,
+          claimedDays: [...current.claimedDays, day],
+          lastClaimedOn: current.today,
+          ...(cardTarget ? { cardRewardStarmonId: cardTarget.id } : {}),
+        },
+      };
+      if (day === 1) next.gold += 500;
+      if (day === 2) next.gems += 20;
+      if (day === 4) next.gold += 800;
+      if (day === 5) next.omniStarmonCards = (prev.omniStarmonCards || 0) + 10;
+      if (day === 6) next.gems += 40;
+      if (mysteryReward) {
+        if (mysteryReward.type === 'elementalPack') next.elementalPacks = { ...prev.elementalPacks, [mysteryReward.element]: (prev.elementalPacks?.[mysteryReward.element] || 0) + 1 };
+        if (mysteryReward.type === 'gems') next.gems += mysteryReward.amount;
+        if (mysteryReward.type === 'gold') next.gold += mysteryReward.amount;
+        if (mysteryReward.type === 'goldenAnvil') next.specialItems = { ...(prev.specialItems || { starShard: 0, goldenAnvil: 0 }), goldenAnvil: (prev.specialItems?.goldenAnvil || 0) + 1 };
+        if (mysteryReward.type === 'commonItemPack') next.commonItemPacks = (prev.commonItemPacks || 0) + 1;
+        if (mysteryReward.type === 'starShard') next.specialItems = { ...(prev.specialItems || { starShard: 0, goldenAnvil: 0 }), starShard: (prev.specialItems?.starShard || 0) + mysteryReward.amount };
+        if (mysteryReward.type === 'omniCards') next.omniStarmonCards = (prev.omniStarmonCards || 0) + mysteryReward.amount;
+      }
+      return next;
+    });
+    if (cardTarget) setStarmons(prev => prev.map(mon => mon.id === cardTarget.id ? { ...mon, cards: mon.cards + 20 } : mon));
+    return { success: true, message: rewardText };
+  };
+
+  const handleConvertOmniCards = (starmonId: string, count: number) => {
+    const amount = Math.floor(count);
+    if (amount < 1 || amount > (player.omniStarmonCards || 0) || !starmons.some(mon => mon.id === starmonId && mon.unlocked)) return;
+    setPlayer(prev => ({ ...prev, omniStarmonCards: Math.max(0, (prev.omniStarmonCards || 0) - amount) }));
+    setStarmons(prev => prev.map(mon => mon.id === starmonId ? { ...mon, cards: mon.cards + amount } : mon));
+  };
+
+  const handleOpenCommonItemPack = () => {
+    if ((player.commonItemPacks || 0) < 1) return 'No Common Item Packs available.';
+    const commonItems = Object.values(EQUIPMENT_ITEMS_CATALOG).filter(item => item.rarity === 'common' && item.slotType !== 'special');
+    const givesShards = Math.random() < 0.2 || commonItems.length === 0;
+    setPlayer(prev => ({ ...prev, commonItemPacks: Math.max(0, (prev.commonItemPacks || 0) - 1), ...(givesShards ? { specialItems: { ...(prev.specialItems || { starShard: 0, goldenAnvil: 0 }), starShard: (prev.specialItems?.starShard || 0) + 30 } } : {}) }));
+    if (givesShards) return 'Common Item Pack opened: 30 Star Shards!';
+    const item = commonItems[Math.floor(Math.random() * commonItems.length)];
+    setPlayer(prev => ({ ...prev, equipmentInventory: [...(prev.equipmentInventory || []), { itemId: item.id, count: 1, level: 1 }] }));
+    return `Common Item Pack opened: ${item.name}!`;
   };
 
   const handleSendChatMessage = (channel: ChatChannel, text: string) => {
@@ -1223,6 +1292,8 @@ export default function App() {
       name: uname,
       username: uname,
       royalTokens: loadedPlayer.royalTokens || 0,
+      omniStarmonCards: loadedPlayer.omniStarmonCards || 0,
+      commonItemPacks: loadedPlayer.commonItemPacks || 0,
       techResearchLevels: loadedPlayer.techResearchLevels || {},
       researchJobs: loadedPlayer.researchJobs || [],
       energy: loadedPlayer.energy !== undefined ? loadedPlayer.energy : 100,
@@ -1305,6 +1376,8 @@ export default function App() {
         gold: 0,
         gems: 0,
         royalTokens: 0,
+        omniStarmonCards: 0,
+        commonItemPacks: 0,
         energy: 100,
         maxEnergy: 100,
         lastEnergyRegenTime: Date.now(),
@@ -1605,6 +1678,7 @@ export default function App() {
           unlockedStarmonCount={unlockedCount}
           isFullscreen={isFullscreen}
           unclaimedQuestsCount={quests.filter(q => !q.claimed && q.currentProgress >= q.maxProgress).length}
+          unclaimedEventsCount={(() => { const reward = getDailyRewardStatus(player.dailyRewardProgress, new Date()); return reward.canClaimToday ? 1 : 0; })()}
           unreadChatCount={0}
           onToggleFullscreen={toggleFullscreen}
           onOpenSettings={() => setShowSettingsModal(true)}
@@ -1623,6 +1697,7 @@ export default function App() {
           }}
           onOpenStarterPack={() => setShowPackModal(true)}
           onOpenQuests={() => setShowQuestModal(true)}
+          onOpenEvents={() => setShowEventsModal(true)}
           onOpenChat={() => setShowChatModal(true)}
           onStartBattle={handleStartBattle}
           onCraftItem={handleCraftItem}
@@ -1658,6 +1733,7 @@ export default function App() {
         !showShopModal &&
         !showMailModal &&
         !showQuestModal &&
+        !showEventsModal &&
         !showInventoryModal &&
         !showChatModal &&
         !showTutorialModal &&
@@ -1680,9 +1756,11 @@ export default function App() {
           unitTestExpiry={player.unitTestExpiry}
           equipmentInventory={player.equipmentInventory}
           specialItems={player.specialItems}
+          omniStarmonCards={player.omniStarmonCards || 0}
           techResearchLevels={player.techResearchLevels}
           onClose={() => setActiveScreen('hub')}
           onLevelUp={handleLevelUp}
+          onConvertOmniCards={handleConvertOmniCards}
           onSetActiveCompanion={handleSetActiveCompanion}
           onAwakenStarmon={handleAwakenStarmon}
           onUpdateBattleParty={handleUpdateBattleParty}
@@ -1851,6 +1929,15 @@ export default function App() {
         />
       )}
 
+      {showEventsModal && (
+        <EventsModal
+          player={player}
+          ownedStarmons={starmons.filter(mon => mon.unlocked)}
+          onClose={() => setShowEventsModal(false)}
+          onClaimDailyReward={handleClaimDailyReward}
+        />
+      )}
+
       {/* MODAL: TRAINER INVENTORY & VAULT */}
       {showInventoryModal && (
         <InventoryModal
@@ -1870,6 +1957,7 @@ export default function App() {
             setActiveScreen('inventory');
           }}
           onUseBatteries={handleUseBatteries}
+          onOpenCommonItemPack={handleOpenCommonItemPack}
         />
       )}
 

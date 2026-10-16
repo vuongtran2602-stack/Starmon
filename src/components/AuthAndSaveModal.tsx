@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { PlayerProfile, Starmon, StarmonSaveFile, UserAccount, QuestItem } from '../types';
+import { GOLD_IMAGE, GEM_IMAGE } from '../data/itemsData';
 import { INITIAL_QUESTS } from '../data/questsData';
 import { sound } from '../services/sound';
 import {
@@ -192,7 +193,7 @@ export const AuthAndSaveModal: React.FC<Props> = ({
     let ws: WebSocket | null = null;
     try {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      ws = new WebSocket(`${protocol}//${window.location.host}`);
+      ws = new WebSocket((import.meta as any).env?.VITE_WS_URL || `${protocol}//${window.location.host}`);
       ws.onopen = () => {
         ws?.send(JSON.stringify({ type: 'GET_ACCOUNTS' }));
       };
@@ -796,7 +797,7 @@ export const AuthAndSaveModal: React.FC<Props> = ({
                     </span>
                   </div>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    EXP: {player.exp} / {player.nextExp} · Gold: {player.gold.toLocaleString()} G
+                    EXP: {player.exp} / {player.nextExp} · <img src={GOLD_IMAGE} alt="Gold" className="inline h-3.5 w-3.5 object-contain align-text-bottom" /> {player.gold.toLocaleString()}
                   </p>
                 </div>
               </div>
@@ -1262,7 +1263,7 @@ export const AuthAndSaveModal: React.FC<Props> = ({
               </div>
               <div className="flex justify-between text-slate-300">
                 <span className="text-slate-500">Gold & Gems:</span>
-                <span className="font-bold text-emerald-400">{player.gold} G · {player.gems} Gems</span>
+                <span className="inline-flex items-center gap-1 font-bold text-emerald-400"><img src={GOLD_IMAGE} alt="Gold" className="h-4 w-4 object-contain" />{player.gold}<span className="mx-1">·</span><img src={GEM_IMAGE} alt="Gems" className="h-4 w-4 object-contain" />{player.gems}</span>
               </div>
             </div>
 

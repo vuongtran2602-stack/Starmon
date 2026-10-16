@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { sound } from '../services/sound';
+import { GOLD_IMAGE } from '../data/itemsData';
 import {
   X,
   ChevronRight,
@@ -89,7 +90,7 @@ export const TutorialModal: React.FC<Props> = ({ onClose, onStartTutorialMatch, 
           {/* Reward Status Banner */}
           <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-amber-400/40 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
-              <span className="text-2xl">🪙</span>
+              <img src={GOLD_IMAGE} alt="Gold" className="h-7 w-7 object-contain" />
               <div>
                 <div className="text-xs font-black font-game text-amber-300">Phần Thưởng Hoàn Thành: 1,000 Vàng</div>
                 <div className="text-[11px] text-slate-400">

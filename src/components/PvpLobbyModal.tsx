@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Starmon, PvpRoom, PlayerInRoom } from '../types';
 import { STARMON_ROSTER } from '../data/starmons';
 import { StarmonAsset } from './StarmonAsset';
+import { ARENA_MAPS, getArenaMap } from '../data/arenaMaps';
 import { sound } from '../services/sound';
 import {
   savePvpRoomToFirestore,
@@ -84,7 +85,7 @@ export const PvpLobbyModal: React.FC<Props> = ({
   // Active Room state (when user has created or joined a room)
   const [currentRoom, setCurrentRoom] = useState<PvpRoom | null>(null);
   const [customRoomCodeInput, setCustomRoomCodeInput] = useState('');
-  const [selectedArena, setSelectedArena] = useState('Celestial Sanctuary');
+  const [selectedArena, setSelectedArena] = useState(ARENA_MAPS[0].name);
   const [hasCopiedCode, setHasCopiedCode] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
@@ -262,7 +263,7 @@ export const PvpLobbyModal: React.FC<Props> = ({
     // 2. WebSocket listener for room state updates
     try {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}`;
+      const wsUrl = (import.meta as any).env?.VITE_WS_URL || `${protocol}//${window.location.host}`;
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
@@ -902,7 +903,7 @@ export const PvpLobbyModal: React.FC<Props> = ({
                     MULTIPLAYER WAITING LOBBY
                   </h2>
                   <p className="text-xs text-slate-400">
-                    Đấu trường: <strong className="text-amber-200">{currentRoom.arena}</strong>
+                    Đấu trường: <strong className="text-amber-200">{getArenaMap(currentRoom.arena).name}</strong>
                   </p>
                 </div>
               </div>
@@ -1309,7 +1310,7 @@ export const PvpLobbyModal: React.FC<Props> = ({
                               </span>
                             </div>
                             <p className="text-[10px] text-slate-400 mt-1">
-                              Đấu trường: <strong className="text-slate-300">{room.arena}</strong>
+                              Đấu trường: <strong className="text-slate-300">{getArenaMap(room.arena).name}</strong>
                             </p>
                           </div>
 
@@ -1333,26 +1334,24 @@ export const PvpLobbyModal: React.FC<Props> = ({
               <div className="flex flex-col gap-3">
                 <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 flex flex-col gap-2">
                   <label className="text-xs font-bold text-slate-300">Chọn Đấu trường PvP:</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {[
-                      { name: 'Celestial Sanctuary', desc: 'Thánh địa bầu trời & tinh thể' },
-                      { name: 'Abyssal Trench', desc: 'Lãnh địa đại dương sâu thẳm' },
-                      { name: 'Dragon Peak', desc: 'Đỉnh núi dung nham & rồng lửa' },
-                      { name: 'Thunder Labyrinth', desc: 'Mê cung sấm sét cuồng nộ' },
-                    ].map(a => (
+                  <div className="max-h-56 overflow-y-auto pr-1">
+                    <div className="grid grid-cols-2 gap-2">
+                    {ARENA_MAPS.map(a => (
                       <button
                         key={a.name}
                         onClick={() => setSelectedArena(a.name)}
-                        className={`p-2 rounded-xl border text-left transition-all cursor-pointer ${
+                        style={{ backgroundImage: `linear-gradient(90deg, rgba(2,6,23,.88), rgba(2,6,23,.48)), url("${a.preview}")`, backgroundSize: 'cover', backgroundPosition: 'center' }}
+                        className={`relative h-14 overflow-hidden p-2 rounded-xl border text-left transition-all cursor-pointer ${
                           selectedArena === a.name
                             ? 'bg-amber-400/10 border-amber-400 text-white shadow-sm'
                             : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
                         }`}
                       >
-                        <p className="text-xs font-bold truncate">{a.name}</p>
-                        <p className="text-[9px] text-slate-500">{a.desc}</p>
+                        <p className="relative z-10 text-xs font-bold truncate text-white drop-shadow">{a.name}</p>
+                        <p className="relative z-10 text-[9px] text-slate-200/80 truncate drop-shadow">{a.description}</p>
                       </button>
                     ))}
+                    </div>
                   </div>
                 </div>
 

@@ -21,7 +21,7 @@ import packElectricImg from '../assets/images/pack_electric.png';
 import packEarthImg from '../assets/images/pack_earth.png';
 import aquanymphDpImg from '../assets/images/aquanymph_dp.png';
 
-import { AQUANYMPH_DA_PHUC_IMAGE, DA_PHUC_UNIFORM_IMAGE } from '../data/itemsData';
+import { AQUANYMPH_DA_PHUC_IMAGE, DA_PHUC_UNIFORM_IMAGE, GEM_IMAGE } from '../data/itemsData';
 
 interface Props {
   playerGems: number;
@@ -256,7 +256,7 @@ export const ShopModal: React.FC<Props> = ({
           <div className="flex items-center gap-2 sm:gap-3">
             {/* Player Gems Display */}
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-slate-900/90 border border-indigo-400/40 shadow-inner">
-              <span className="text-base sm:text-lg">💎</span>
+              <img src={GEM_IMAGE} alt="Gems" className="h-6 w-6 object-contain" />
               <div className="flex flex-col">
                 <span className="text-[9px] text-indigo-300 uppercase font-black leading-none">
                   Gems
@@ -365,9 +365,9 @@ export const ShopModal: React.FC<Props> = ({
               {/* Right Action Button */}
               <div className="flex flex-col items-center md:items-end gap-2 shrink-0 w-full md:w-auto">
                 <div className="flex items-baseline gap-2">
-                  <span className="line-through text-slate-500 font-mono text-xs">999 💎</span>
+                  <span className="line-through text-slate-500 font-mono text-xs inline-flex items-center gap-1">999 <img src={GEM_IMAGE} alt="Gems" className="h-4 w-4 object-contain" /></span>
                   <span className={`text-xl sm:text-2xl font-black font-mono drop-shadow ${isDaPhucClaimed ? 'text-slate-400' : 'text-emerald-300'}`}>
-                    {isDaPhucClaimed ? 'CLAIMED' : '0 💎 (FREE)'}
+                    {isDaPhucClaimed ? 'CLAIMED' : <>0 <img src={GEM_IMAGE} alt="Gems" className="inline h-5 w-5 object-contain" /> (FREE)</>}
                   </span>
                 </div>
 
@@ -467,10 +467,10 @@ export const ShopModal: React.FC<Props> = ({
                       </span>
                       <div className="flex items-baseline gap-1.5">
                         <span className="line-through text-slate-500 font-mono text-xs sm:text-sm font-bold">
-                          500 💎
+                          500 <img src={GEM_IMAGE} alt="Gems" className="inline h-4 w-4 object-contain" />
                         </span>
                         <span className="text-base sm:text-lg font-black font-mono text-amber-300 drop-shadow">
-                          359 💎
+                          359 <img src={GEM_IMAGE} alt="Gems" className="inline h-5 w-5 object-contain" />
                         </span>
                       </div>
                     </div>

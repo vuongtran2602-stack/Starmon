@@ -14,7 +14,7 @@ import starterPackImg from '../assets/images/starter_pack.png';
 import hatcheryImg from '../assets/images/hatchery.png';
 import blacksmithImg from '../assets/images/blacksmith.png';
 import shroomlabImg from '../assets/images/shroomlab.png';
-import { HATCHERY_IMAGE, BLACKSMITH_IMAGE, SHROOMLAB_IMAGE, getEnergyBarImage } from '../data/itemsData';
+import { HATCHERY_IMAGE, BLACKSMITH_IMAGE, SHROOMLAB_IMAGE, getEnergyBarImage, GOLD_IMAGE, GEM_IMAGE } from '../data/itemsData';
 
 // High-resolution custom icon assets
 import questIconImg from '../assets/icons/quest_icon.png';
@@ -24,6 +24,7 @@ import shopIconImg from '../assets/icons/shop_icon.png';
 import starmonIconImg from '../assets/icons/starmon_icon.png';
 import chatIconImg from '../assets/icons/chat_icon.png';
 import battleIconImg from '../assets/icons/battle_icon.png';
+import eventsIconImg from '../assets/images/rewards/events_icon.png';
 
 interface Props {
   player: PlayerProfile;
@@ -33,6 +34,7 @@ interface Props {
   unlockedStarmonCount: number;
   isFullscreen: boolean;
   unclaimedQuestsCount?: number;
+  unclaimedEventsCount?: number;
   unreadChatCount?: number;
   onToggleFullscreen: () => void;
   onOpenSettings: () => void;
@@ -43,6 +45,7 @@ interface Props {
   onOpenAuth: () => void;
   onOpenStarterPack: () => void;
   onOpenQuests: () => void;
+  onOpenEvents: () => void;
   onOpenChat: () => void;
   onOpenTutorial?: () => void;
   onOpenEnergyBattery?: () => void;
@@ -72,6 +75,7 @@ export const MainHub: React.FC<Props> = ({
   unlockedStarmonCount,
   isFullscreen,
   unclaimedQuestsCount = 0,
+  unclaimedEventsCount = 0,
   unreadChatCount = 0,
   onToggleFullscreen,
   onOpenSettings,
@@ -82,6 +86,7 @@ export const MainHub: React.FC<Props> = ({
   onOpenAuth,
   onOpenStarterPack,
   onOpenQuests,
+  onOpenEvents,
   onOpenChat,
   onOpenTutorial,
   onOpenEnergyBattery,
@@ -232,9 +237,7 @@ export const MainHub: React.FC<Props> = ({
 
           {/* Gold Coin Pill */}
           <div className="flex items-center gap-2 px-3.5 py-1.5 bg-slate-900/85 border border-slate-700/80 rounded-full shadow-md backdrop-blur-sm">
-            <div className="w-5 h-5 rounded-full bg-gradient-to-b from-amber-300 to-amber-500 border border-amber-200 flex items-center justify-center text-[10px] font-black text-amber-950 shadow-sm">
-              G
-            </div>
+            <img src={GOLD_IMAGE} alt="Gold" className="h-6 w-6 object-contain drop-shadow" />
             <span className="font-bold text-white font-game text-xs md:text-sm font-mono tracking-wide">
               {player.gold.toLocaleString()}
             </span>
@@ -242,9 +245,7 @@ export const MainHub: React.FC<Props> = ({
 
           {/* Diamond Gems Pill */}
           <div className="flex items-center gap-2 px-3.5 py-1.5 bg-slate-900/85 border border-slate-700/80 rounded-full shadow-md backdrop-blur-sm">
-            <div className="w-5 h-5 flex items-center justify-center text-sm">
-              💎
-            </div>
+            <img src={GEM_IMAGE} alt="Gems" className="h-6 w-6 scale-[1.575] object-contain drop-shadow" />
             <span className="font-bold text-white font-game text-xs md:text-sm font-mono tracking-wide">
               {player.gems.toLocaleString()}
             </span>
@@ -298,6 +299,22 @@ export const MainHub: React.FC<Props> = ({
       {/* RIGHT SIDEBAR: Quests & Chat (Shrunk by 50%) */}
       {/* ======================================================== */}
       <div className="absolute top-16 md:top-20 right-2 md:right-4 z-30 flex flex-col items-center gap-2 pointer-events-auto">
+        {/* Events Button */}
+        <button
+          onClick={() => {
+            sound.playClick();
+            onOpenEvents();
+          }}
+          className="group relative flex flex-col items-center cursor-pointer transition-transform hover:scale-105 active:scale-95"
+          title="Ongoing Events, Upcoming Events & Daily Rewards"
+        >
+          <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl bg-gradient-to-b from-sky-300 via-cyan-500 to-blue-600 p-0.5 border border-white shadow-lg shadow-cyan-500/30 flex items-center justify-center backdrop-blur-sm group-hover:-rotate-3 transition-transform">
+            <img src={eventsIconImg} alt="Events" className="h-full w-full rounded-[10px] object-contain drop-shadow" />
+          </div>
+          <span className="text-[9px] md:text-[10px] font-black font-game text-cyan-100 mt-0.5 drop-shadow bg-slate-950/85 px-1.5 py-0.2 rounded-full border border-cyan-300/30">Events</span>
+          {unclaimedEventsCount > 0 && <span className="absolute -top-1 -right-1 px-1.5 py-0.2 rounded-full bg-rose-600 text-white font-black text-[9px] font-mono border border-white animate-bounce shadow-md">{unclaimedEventsCount}</span>}
+        </button>
+
         {/* 1. Quest System Button (50% smaller) */}
         <button
           onClick={() => {

@@ -3,6 +3,7 @@ import { QuestCategory, QuestItem } from '../types';
 import { sound } from '../services/sound';
 import { X, CheckCircle2, Sparkles, Award, Calendar, Clock, Crown, Gift, ArrowUp, ArrowDown } from 'lucide-react';
 import questIconImg from '../assets/icons/quest_icon.png';
+import { GEM_IMAGE, GOLD_IMAGE } from '../data/itemsData';
 
 interface Props {
   quests: QuestItem[];
@@ -200,7 +201,7 @@ export const QuestModal: React.FC<Props> = ({ quests, onClose, onClaimReward }) 
                         Reward
                       </span>
                       <span className="text-xs font-black font-game text-amber-300 flex items-center gap-1 sm:justify-end">
-                        <Gift className="w-3.5 h-3.5 text-amber-400" />
+                        {quest.rewardType === 'gold' ? <img src={GOLD_IMAGE} alt="Gold" className="h-4 w-4 object-contain" /> : quest.rewardType === 'gems' ? <img src={GEM_IMAGE} alt="Gems" className="h-4 w-4 object-contain" /> : <Gift className="w-3.5 h-3.5 text-amber-400" />}
                         {quest.rewardLabel}
                       </span>
                     </div>

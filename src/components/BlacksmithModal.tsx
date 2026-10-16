@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowLeft, ArrowRight, Clock3, Gem, Lock, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Clock3, Lock, X } from 'lucide-react';
 import { CraftingJob, Starmon } from '../types';
 import { StarmonAsset } from './StarmonAsset';
-import { EQUIPMENT_ITEMS_CATALOG, OLD_PICKAXE_IMAGE, STAR_SHARD_IMAGE } from '../data/itemsData';
+import { EQUIPMENT_ITEMS_CATALOG, GOLD_IMAGE, GEM_IMAGE, OLD_PICKAXE_IMAGE, STAR_SHARD_IMAGE } from '../data/itemsData';
 import { BLACKSMITH_OPTION_IMAGES, getEquipmentUpgradeCost, getItemLevelStats, ITEM_CRAFT_COST } from '../data/itemStats';
 
 type Mode = 'menu' | 'upgrade' | 'craft' | 'forge';
@@ -115,7 +115,7 @@ export const BlacksmithModal: React.FC<Props> = ({
         {mode === 'upgrade' && (
           <div className="p-4 md:p-6">
             <div className="mb-4 flex flex-wrap items-center gap-4 rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm font-bold">
-              <span>Gold: <b className="text-amber-300">{gold.toLocaleString()}</b></span>
+              <span className="inline-flex items-center gap-1"><img src={GOLD_IMAGE} alt="Gold" className="h-5 w-5 object-contain" /><b className="text-amber-300">{gold.toLocaleString()}</b></span>
               <span className="flex items-center gap-1.5"><img src={STAR_SHARD_IMAGE} alt="" className="h-6 w-6 object-contain" /> <b className="text-cyan-300">{starShards.toLocaleString()}</b></span>
               <span>Enhance: <b className="text-slate-400">LOCKED</b></span>
             </div>
@@ -162,8 +162,8 @@ export const BlacksmithModal: React.FC<Props> = ({
         {mode === 'craft' && (
           <div className="p-4 md:p-6">
             <div className="mb-4 flex flex-wrap gap-4 rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm font-bold">
-              <span>Gold: <b className="text-amber-300">{gold.toLocaleString()}</b></span>
-              <span className="flex items-center gap-1.5"><Gem className="h-4 w-4 text-fuchsia-300" />Gems: <b className="text-fuchsia-300">{gems.toLocaleString()}</b></span>
+              <span className="inline-flex items-center gap-1"><img src={GOLD_IMAGE} alt="Gold" className="h-5 w-5 object-contain" /><b className="text-amber-300">{gold.toLocaleString()}</b></span>
+              <span className="flex items-center gap-1.5"><img src={GEM_IMAGE} alt="Gems" className="h-5 w-5 object-contain" /><b className="text-fuchsia-300">{gems.toLocaleString()}</b></span>
               <span>Energy: <b className="text-yellow-300">{energy}</b></span>
               <span className="flex items-center gap-1.5"><img src={STAR_SHARD_IMAGE} alt="" className="h-6 w-6 object-contain" /> <b className="text-cyan-300">{starShards}</b></span>
             </div>
@@ -181,7 +181,7 @@ export const BlacksmithModal: React.FC<Props> = ({
                       <div className="flex items-center gap-1 text-sm text-cyan-200"><Clock3 className="h-4 w-4" />{ready ? 'READY' : formatTime(job.completesAt - now)}</div>
                       {!ready && (() => {
                         const gemCost = Math.ceil(Math.max(0, job.completesAt - now) / 60000);
-                        return <button onClick={() => onFastForward(slot)} disabled={gems < gemCost} title={`Finish now · ${gemCost} Gems`} aria-label={`Finish crafting now for ${gemCost} Gems`} className="inline-flex items-center gap-1 rounded-lg border border-fuchsia-300/60 bg-fuchsia-500/15 px-2 py-1 text-xs font-bold text-fuchsia-200 hover:bg-fuchsia-500/30 disabled:cursor-not-allowed disabled:opacity-40"><ArrowRight className="h-3.5 w-3.5" /><Gem className="h-3.5 w-3.5" />{gemCost}</button>;
+                        return <button onClick={() => onFastForward(slot)} disabled={gems < gemCost} title={`Finish now · ${gemCost} Gems`} aria-label={`Finish crafting now for ${gemCost} Gems`} className="inline-flex items-center gap-1 rounded-lg border border-fuchsia-300/60 bg-fuchsia-500/15 px-2 py-1 text-xs font-bold text-fuchsia-200 hover:bg-fuchsia-500/30 disabled:cursor-not-allowed disabled:opacity-40"><ArrowRight className="h-3.5 w-3.5" /><img src={GEM_IMAGE} alt="Gems" className="h-4 w-4 object-contain" />{gemCost}</button>;
                       })()}
                     </div>
                     <button disabled={!ready} onClick={() => onClaimCraft(slot)} className="mt-auto w-full rounded-xl bg-emerald-500 px-3 py-2 font-game font-black text-slate-950 disabled:opacity-40">CLAIM</button>

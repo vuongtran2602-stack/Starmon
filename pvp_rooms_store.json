@@ -1,1 +1,238 @@
-[]
+[
+  {
+    "room_code": "931534",
+    "code": "931534",
+    "host_id": "google_freyw2e",
+    "hostName": "Tài khoản Google A",
+    "hostLevel": 1,
+    "arena": "Celestial Sanctuary",
+    "status": "IN_GAME",
+    "players": [
+      {
+        "id": "google_freyw2e",
+        "name": "Tài khoản Google A",
+        "level": 1,
+        "isHost": true,
+        "isReady": true,
+        "starmons": [
+          {
+            "id": "pyrokit",
+            "name": "Pyrokit",
+            "element": "Fire",
+            "level": 1,
+            "maxHp": 420,
+            "baseAtk": 72,
+            "def": 24,
+            "avatarSeed": "pyrokit",
+            "skill1": {
+              "id": "flame_burst",
+              "name": "Flame Burst",
+              "description": "Hurls an explosive fireball dealing 200% Fire DMG. Deals 350% DMG if target is Burned!",
+              "manaCost": 40,
+              "damageMultiplier": 2,
+              "targetType": "single",
+              "statusEffect": "Burn Bonus"
+            },
+            "skill2": {
+              "id": "inferno_eruption",
+              "name": "Inferno Eruption",
+              "description": "Summons a raging vortex of foxfire hitting ALL enemies for 180% AoE Fire DMG.",
+              "manaCost": 60,
+              "damageMultiplier": 1.8,
+              "targetType": "aoe",
+              "statusEffect": "AoE Burn"
+            },
+            "passive": {
+              "name": "Wildfire",
+              "description": "Attacks have a 35% chance to ignite enemies with Burn, dealing damage each round.",
+              "tag": "Burn DoT"
+            }
+          },
+          {
+            "id": "trojan_flare",
+            "name": "Trojan Flare",
+            "element": "Fire",
+            "level": 1,
+            "maxHp": 500,
+            "baseAtk": 66,
+            "def": 28,
+            "avatarSeed": "trojan_flare",
+            "skill1": {
+              "id": "siege_charge",
+              "name": "Siege Charge",
+              "description": "Gain Clarity (Immune to stun, froze bite, burn, poison) and Resonance effect for 1 turn (Resonance is applied in the next turn, not this).",
+              "manaCost": 0,
+              "cooldownTurns": 3,
+              "damageMultiplier": 1,
+              "targetType": "self",
+              "statusEffect": "Clarity & Next Turn Resonance",
+              "effectDetail": "Grants the Starmon an immediate continuation of action. Using an active ability does not consume the current turn's orb-switches, allowing the Starmon to continue moving orbs as if no skill was used in this step."
+            },
+            "skill2": {
+              "id": "tactical_decoy",
+              "name": "Tactical Decoy",
+              "description": "Gain a shield equal to 220% of its current ATK (This shield does not expire and can only be broken via taking DMG).",
+              "manaCost": 70,
+              "damageMultiplier": 0,
+              "targetType": "self",
+              "statusEffect": "Permanent 220% ATK Shield"
+            },
+            "passive": {
+              "name": "Infiltration Strike",
+              "description": "Trojan Flare gains an additional 10% ATK (calculated from its base ATK) and Piercing whenever a Shield is currently active on it. This attack bonus immediately disappears when the shield expires or is broken.",
+              "tag": "Shield ATK & Piercing"
+            }
+          },
+          {
+            "id": "coralus",
+            "name": "Coralus",
+            "element": "Water",
+            "level": 1,
+            "maxHp": 590,
+            "baseAtk": 42,
+            "def": 40,
+            "avatarSeed": "coralus",
+            "skill1": {
+              "id": "aqua_pincer",
+              "name": "Aqua Pincer",
+              "description": "Crushes target with twin water-infused claws dealing 180% DMG and reducing enemy DEF by 25% for 2 turns.",
+              "manaCost": 40,
+              "damageMultiplier": 1.8,
+              "targetType": "single",
+              "statusEffect": "DEF -25% (2 turns)"
+            },
+            "skill2": {
+              "id": "bubble_fortress",
+              "name": "Bubble Fortress",
+              "description": "Creates a durable water barrier absorbing damage for the entire party lasting for 3 turns.",
+              "manaCost": 70,
+              "damageMultiplier": 0.5,
+              "targetType": "aoe",
+              "statusEffect": "Team Shield (3 turns)",
+              "cooldownTurns": 3
+            },
+            "passive": {
+              "name": "Carapace Wall",
+              "description": "When Coralus's HP is above 50%, reduces all incoming damage by 15% for itself and all allies.",
+              "tag": "Shield Guard"
+            }
+          }
+        ]
+      },
+      {
+        "id": "google_mte0k4p",
+        "name": "Tài khoản Google A",
+        "level": 1,
+        "isHost": false,
+        "isReady": true,
+        "starmons": [
+          {
+            "id": "glidron",
+            "name": "Glidron",
+            "element": "Electric",
+            "level": 1,
+            "maxHp": 420,
+            "baseAtk": 72,
+            "def": 24,
+            "avatarSeed": "glidron",
+            "skill1": {
+              "id": "plasma_ray",
+              "name": "Plasma Ray",
+              "description": "Fires a concentrated beam of static electricity for 180% DMG and applies Silence.",
+              "manaCost": 55,
+              "damageMultiplier": 1.8,
+              "targetType": "single",
+              "statusEffect": "Silence"
+            },
+            "skill2": {
+              "id": "gigawatt_explosion",
+              "name": "Giga-Watt Explosion",
+              "description": "Unleashes an overwhelming storm shockwave dealing 320% AoE Electric DMG with 1-turn Stun, sacrificing 30% of Glidron’s current HP.",
+              "manaCost": 125,
+              "damageMultiplier": 3.2,
+              "targetType": "aoe",
+              "statusEffect": "Stun"
+            },
+            "passive": {
+              "name": "Wind Battery",
+              "description": "Gain 2 mana for every Wind or Electric orb consumed by either side.",
+              "tag": "Wind & Thunder Battery"
+            }
+          },
+          {
+            "id": "bubbleboon",
+            "name": "Bubbleboon",
+            "element": "Water",
+            "level": 1,
+            "maxHp": 500,
+            "baseAtk": 66,
+            "def": 28,
+            "avatarSeed": "bubbleboon",
+            "skill1": {
+              "id": "double_jet_punch",
+              "name": "Double Jet Punch",
+              "description": "Gain Double Strike for 1 turn. Bubbleboon performs consecutive orb switches instead of 1.",
+              "manaCost": 55,
+              "damageMultiplier": 1.5,
+              "targetType": "single",
+              "statusEffect": "Double Strike (1 turn)"
+            },
+            "skill2": {
+              "id": "bubble_bomb",
+              "name": "Bubble Bomb",
+              "description": "Deals 180% Water Physical DMG to the target and converts 3 random non-water orbs into Water Orbs. If this conversion inadvertently triggers a chain of 3 or more connected Water orbs, it inflicts an additional burst of DMG equal to 100% Atk.",
+              "manaCost": 65,
+              "damageMultiplier": 1.8,
+              "targetType": "single",
+              "statusEffect": "Water Bomb & Orb Convert"
+            },
+            "passive": {
+              "name": "Tidal Momentum",
+              "description": "Gain a permanent Resonance effect. Bubbleboon doesn't lose a turn when using its abilities.",
+              "tag": "Resonance",
+              "effectDetail": "Grants the Starmon an immediate continuation of action. Using an active ability does not consume the current turn's orb-switches, allowing the Starmon to continue moving orbs as if no skill was used in this step."
+            }
+          },
+          {
+            "id": "coralus",
+            "name": "Coralus",
+            "element": "Water",
+            "level": 1,
+            "maxHp": 590,
+            "baseAtk": 42,
+            "def": 40,
+            "avatarSeed": "coralus",
+            "skill1": {
+              "id": "aqua_pincer",
+              "name": "Aqua Pincer",
+              "description": "Crushes target with twin water-infused claws dealing 180% DMG and reducing enemy DEF by 25% for 2 turns.",
+              "manaCost": 40,
+              "damageMultiplier": 1.8,
+              "targetType": "single",
+              "statusEffect": "DEF -25% (2 turns)"
+            },
+            "skill2": {
+              "id": "bubble_fortress",
+              "name": "Bubble Fortress",
+              "description": "Creates a durable water barrier absorbing damage for the entire party lasting for 3 turns.",
+              "manaCost": 70,
+              "damageMultiplier": 0.5,
+              "targetType": "aoe",
+              "statusEffect": "Team Shield (3 turns)",
+              "cooldownTurns": 3
+            },
+            "passive": {
+              "name": "Carapace Wall",
+              "description": "When Coralus's HP is above 50%, reduces all incoming damage by 15% for itself and all allies.",
+              "tag": "Shield Guard"
+            }
+          }
+        ]
+      }
+    ],
+    "createdAt": 1792122323362,
+    "updatedAt": 1792122328416,
+    "guestName": "Tài khoản Google A",
+    "guestLevel": 1
+  }
+]

@@ -5,7 +5,7 @@ import { getCardsNeededForLevel, getGoldNeededForLevel, ELEMENT_COLORS, getEleme
 import { getStarmonClass, getLevelUpStatGain, calculateCP } from '../data/starmonStats';
 import { getEquipmentUpgradeCost, getItemLevelStats } from '../data/itemStats';
 import { getUnlockedItemSlots } from '../data/techResearch';
-import { EQUIPMENT_ITEMS_CATALOG } from '../data/itemsData';
+import { EQUIPMENT_ITEMS_CATALOG, OMNI_CARD_IMAGE, GOLD_IMAGE } from '../data/itemsData';
 import { sound } from '../services/sound';
 import {
   Shield,
@@ -38,6 +38,7 @@ const getEquippedItemBonuses = (starmon: Starmon) =>
 interface Props {
   starmons: Starmon[];
   playerGold: number;
+  omniStarmonCards?: number;
   activeCompanionId: string;
   battleParty?: string[];
   unitTestExpiry?: number;
@@ -46,6 +47,7 @@ interface Props {
   techResearchLevels?: ResearchTechLevels;
   onClose: () => void;
   onLevelUp: (starmonId: string, cardsCost: number, goldCost: number) => void;
+  onConvertOmniCards?: (starmonId: string, count: number) => void;
   onSetActiveCompanion: (starmonId: string) => void;
   onAwakenStarmon?: (starmonId: string, cardsCost: number) => void;
   onUpdateBattleParty?: (partyIds: string[]) => void;
@@ -57,6 +59,7 @@ interface Props {
 export const StarmonManagement: React.FC<Props> = ({
   starmons,
   playerGold,
+  omniStarmonCards = 0,
   activeCompanionId,
   battleParty,
   unitTestExpiry,
@@ -65,6 +68,7 @@ export const StarmonManagement: React.FC<Props> = ({
   techResearchLevels,
   onClose,
   onLevelUp,
+  onConvertOmniCards,
   onSetActiveCompanion,
   onAwakenStarmon,
   onUpdateBattleParty,
@@ -79,6 +83,8 @@ export const StarmonManagement: React.FC<Props> = ({
   const [inspectSlotIndex, setInspectSlotIndex] = useState<number | null>(null);
   const [itemToast, setItemToast] = useState<string | null>(null);
   const [showEquipLimits, setShowEquipLimits] = useState(false);
+  const [showOmniModal, setShowOmniModal] = useState(false);
+  const [omniAmount, setOmniAmount] = useState(1);
 
   // UnitTest 0-cost mode check (valid for 5 days)
   const isUnitTestActive = !!(unitTestExpiry && unitTestExpiry > Date.now());
@@ -246,8 +252,7 @@ export const StarmonManagement: React.FC<Props> = ({
 
         {/* Currency summary */}
         <div className="flex items-center gap-2 px-3 py-1 bg-slate-950 border border-amber-500/30 rounded-xl">
-          <span className="text-sm">🪙</span>
-          <span className="font-bold text-amber-300 text-xs font-mono">{playerGold.toLocaleString()} G</span>
+          <span className="font-bold text-amber-300 text-xs font-mono flex items-center gap-1"><img src={GOLD_IMAGE} alt="Gold" className="h-4 w-4 object-contain" />{playerGold.toLocaleString()}</span>
         </div>
       </header>
 
@@ -823,18 +828,17 @@ export const StarmonManagement: React.FC<Props> = ({
                   )}
                 </div>
 
-                <button
-                  onClick={handleLevelUpClick}
-                  disabled={!canLevelUp}
-                  className={`w-full sm:w-auto px-6 py-2.5 rounded-xl font-black font-game text-xs md:text-sm flex items-center justify-center gap-1.5 transition-all shadow-md cursor-pointer ${
-                    canLevelUp
-                      ? 'bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-400 text-slate-950 active:scale-95'
-                      : 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-50'
-                  }`}
-                >
-                  <ArrowUpCircle className="w-4 h-4" />
-                  {isUnitTestActive ? `LEVEL UP (0 COST - UnitTest)` : `LEVEL UP (Lv. ${selectedStarmon.level + 1})`}
-                </button>
+                <div className="flex w-full items-center gap-2 sm:w-auto">
+                  <button type="button" title="Convert Omni-Starmon Cards" aria-label="Convert Omni-Starmon Cards" onClick={() => { setOmniAmount(Math.max(1, Math.min(omniStarmonCards, 1))); setShowOmniModal(true); }} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border-2 border-amber-400 bg-black text-amber-300 shadow-lg transition hover:bg-slate-900"><Plus className="h-6 w-6" /></button>
+                  <button
+                    onClick={handleLevelUpClick}
+                    disabled={!canLevelUp}
+                    className={`flex w-full items-center justify-center gap-1.5 rounded-xl px-6 py-2.5 font-game text-xs font-black shadow-md transition-all cursor-pointer md:text-sm sm:w-auto ${canLevelUp ? 'bg-gradient-to-r from-emerald-500 to-green-600 text-slate-950 hover:from-emerald-400 active:scale-95' : 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-50'}`}
+                  >
+                    <ArrowUpCircle className="w-4 h-4" />
+                    {isUnitTestActive ? `LEVEL UP (0 COST - UnitTest)` : `LEVEL UP (Lv. ${selectedStarmon.level + 1})`}
+                  </button>
+                </div>
               </>
             ) : (
               <>
@@ -1122,6 +1126,17 @@ export const StarmonManagement: React.FC<Props> = ({
           </div>
         </div>
       )}
+      {showOmniModal && <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm">
+        <section className="w-full max-w-md rounded-2xl border-2 border-amber-400/70 bg-gradient-to-br from-slate-900 to-indigo-950 p-5 text-white shadow-2xl">
+          <div className="mb-4 flex items-center justify-between"><h3 className="font-game text-lg font-black text-amber-200">CONVERT OMNI CARDS</h3><button onClick={() => setShowOmniModal(false)} aria-label="Close" className="rounded-lg bg-slate-800 p-2"><X className="h-4 w-4" /></button></div>
+          <div className="mb-4 flex items-center gap-3 rounded-xl border border-white/10 bg-black/30 p-3"><img src={OMNI_CARD_IMAGE} alt="Omni-Starmon Card" className="h-14 w-14 object-contain" /><div><b className="block">{selectedStarmon.name} Cards</b><span className="text-xs text-slate-300">Omni Cards available: <strong className="text-amber-200">{omniStarmonCards}</strong></span></div></div>
+          <label className="mb-2 flex items-center justify-between text-xs font-bold"><span>Cards to convert</span><span className="text-amber-200">Max {omniStarmonCards}</span></label>
+          <input type="range" min={omniStarmonCards > 0 ? 1 : 0} max={Math.max(1, omniStarmonCards)} value={Math.min(omniAmount, Math.max(1, omniStarmonCards))} onChange={event => setOmniAmount(Number(event.target.value))} disabled={omniStarmonCards < 1} className="mb-3 w-full accent-amber-400" />
+          <input type="number" min={1} max={omniStarmonCards} value={omniStarmonCards > 0 ? Math.min(omniAmount, omniStarmonCards) : 0} onChange={event => setOmniAmount(Math.max(1, Math.min(omniStarmonCards, Number(event.target.value) || 1)))} disabled={omniStarmonCards < 1} className="mb-4 w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-center font-mono text-lg" />
+          {omniStarmonCards < 1 && <p className="mb-3 text-center text-xs text-slate-400">You do not have any Omni-Starmon Cards yet.</p>}
+          <button disabled={omniStarmonCards < 1 || !onConvertOmniCards} onClick={() => { onConvertOmniCards?.(selectedStarmon.id, Math.min(omniAmount, omniStarmonCards)); setShowOmniModal(false); }} className="w-full rounded-xl bg-gradient-to-r from-amber-300 to-yellow-500 px-4 py-3 font-game text-sm font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-40">CONVERT TO {selectedStarmon.name.toUpperCase()} CARDS</button>
+        </section>
+      </div>}
     </div>
   );
 };

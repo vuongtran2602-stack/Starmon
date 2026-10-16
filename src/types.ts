@@ -120,6 +120,9 @@ export interface PlayerProfile {
   gold: number;
   gems: number;
   royalTokens?: number;
+  omniStarmonCards?: number;
+  commonItemPacks?: number;
+  dailyRewardProgress?: DailyRewardProgress;
   energy: number; // Current Energy (base 100/100, free regen caps at 100, batteries can exceed 100)
   maxEnergy: number; // Maximum natural energy capacity (100)
   lastEnergyRegenTime?: number; // Timestamp of last regen cycle (1 energy per 10 minutes)
@@ -155,6 +158,22 @@ export interface PlayerProfile {
   speakingLog?: SpeakingLogEntry[];
   graphicsQuality: 'High' | 'Medium';
 }
+
+export interface DailyRewardProgress {
+  cycleStartedOn: string;
+  claimedDays: number[];
+  lastClaimedOn?: string;
+  cardRewardStarmonId?: string;
+}
+
+export type MysteryReward =
+  | { type: 'elementalPack'; element: ElementType }
+  | { type: 'gems'; amount: number }
+  | { type: 'gold'; amount: number }
+  | { type: 'goldenAnvil'; amount: 1 }
+  | { type: 'commonItemPack'; amount: 1 }
+  | { type: 'starShard'; amount: number }
+  | { type: 'omniCards'; amount: number };
 
 export interface BattleLogEntry {
   id: string;

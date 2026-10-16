@@ -51,6 +51,8 @@ import {
   Home
 } from 'lucide-react';
 import phase1Bg from '../assets/images/phase1_bg.png';
+import { getArenaMap } from '../data/arenaMaps';
+import { GOLD_IMAGE } from '../data/itemsData';
 import { getVietnameseAnalysisForQuestion } from '../data/vietnameseSuggestions';
 import { BattleLogEntry } from '../types';
 
@@ -289,6 +291,7 @@ export const BattleView: React.FC<Props> = ({
     pvpRoomInfo.code !== 'PVE_BOT' &&
     pvpRoomInfo.code !== 'RANKED-PVP'
   );
+  const currentArenaMap = getArenaMap(pvpRoomInfo?.arena);
   const requiredSpeakingBand = isPvP ? 5.0 : Math.min(7.5, 5 + Math.floor(pveLevel / 10) * 0.5);
   const pvpWsRef = useRef<WebSocket | null>(null);
   const currentRoundNumberRef = useRef(currentRoundNumber);
@@ -1190,7 +1193,7 @@ export const BattleView: React.FC<Props> = ({
     if (!isPvP || !pvpRoomInfo?.code) return;
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}`;
+    const wsUrl = (import.meta as any).env?.VITE_WS_URL || `${protocol}//${window.location.host}`;
     const ws = new WebSocket(wsUrl);
     pvpWsRef.current = ws;
 
@@ -7694,7 +7697,14 @@ export const BattleView: React.FC<Props> = ({
       )}
 
       {phase === 'phase2_combat' && (
-        <div className="flex-1 flex flex-col justify-between p-2 md:p-3 relative overflow-hidden bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950">
+        <div
+          className="flex-1 flex flex-col justify-between p-2 md:p-3 relative overflow-hidden bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950"
+          style={{
+            backgroundImage: `linear-gradient(180deg, rgba(2,6,23,.82), rgba(15,23,42,.72), rgba(2,6,23,.84)), url("${currentArenaMap.background}")`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          }}
+        >
           {/* Top Announcement Bar */}
           <div className={`w-full px-4 py-1.5 border rounded-xl flex items-center justify-between shadow ${
             isPvP
@@ -9007,7 +9017,7 @@ export const BattleView: React.FC<Props> = ({
                   {/* 1000 Gold Reward Display Box */}
                   <div className="w-full max-w-sm bg-gradient-to-b from-amber-950/70 via-slate-900 to-slate-950 border-2 border-amber-400 rounded-3xl p-5 shadow-2xl flex flex-col items-center my-2 relative overflow-hidden">
                     <div className="w-20 h-20 rounded-full bg-amber-500/20 border-2 border-amber-400/60 flex items-center justify-center text-5xl mb-2 animate-pulse shadow-lg shadow-amber-500/20">
-                      🪙
+                      <img src={GOLD_IMAGE} alt="Gold" className="h-12 w-12 object-contain" />
                     </div>
                     <span className="text-[11px] font-black text-amber-300 uppercase tracking-widest">
                       Phần thưởng hoàn thành Hướng dẫn 1
@@ -9141,7 +9151,7 @@ export const BattleView: React.FC<Props> = ({
                     {/* Reward 1: Gold (100 to 500) */}
                     <div className="flex flex-col items-center bg-slate-950/80 border-2 border-amber-400/70 rounded-2xl p-3 shadow-lg">
                       <div className="w-12 h-12 rounded-full bg-amber-500/20 border border-amber-400/40 flex items-center justify-center mb-1 text-2xl">
-                        🪙
+                        <img src={GOLD_IMAGE} alt="Gold" className="h-8 w-8 object-contain" />
                       </div>
                       <span className="text-[10px] text-slate-400 font-bold">Gold Loot</span>
                       <span className="text-lg font-black text-amber-300 font-mono">
@@ -9662,7 +9672,7 @@ export const BattleView: React.FC<Props> = ({
 
             {/* Reward Box */}
             <div className="w-full bg-gradient-to-b from-amber-950/60 to-slate-950/80 border border-amber-400/60 rounded-2xl p-3.5 mb-5 flex items-center justify-center gap-3 shadow-inner">
-              <span className="text-3xl">🪙</span>
+              <img src={GOLD_IMAGE} alt="Gold" className="h-8 w-8 object-contain" />
               <div className="text-left">
                 <div className="text-[10px] font-black uppercase text-amber-300 tracking-wider">Phần thưởng hoàn thành</div>
                 <div className="text-2xl font-black font-game font-mono text-amber-300">

@@ -21,12 +21,14 @@ create table if not exists public.pvp_rooms (
   host_level integer not null default 1,
   guest_name text not null default '',
   guest_level integer not null default 1,
-  arena text not null default 'Celestial Sanctuary',
+  arena text not null default 'Sunken Sands',
   status text not null default 'WAITING',
   players jsonb not null default '[]'::jsonb,
   match_state jsonb,
   created_at bigint not null default 0,
   updated_at bigint not null default 0
 );
+
+alter table public.pvp_rooms alter column arena set default 'Sunken Sands';
 
 create index if not exists pvp_rooms_status_idx on public.pvp_rooms (status);

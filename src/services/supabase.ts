@@ -271,7 +271,7 @@ export async function savePvpRoomToSupabase(room: PvpRoom): Promise<boolean> {
       host_level: room.hostLevel || 1,
       guest_name: room.guestName || '',
       guest_level: room.guestLevel || 1,
-      arena: room.arena || 'Celestial Sanctuary',
+      arena: room.arena || 'Sunken Sands',
       status: room.status || 'WAITING',
       players: room.players || [],
       match_state: room.matchState || null,

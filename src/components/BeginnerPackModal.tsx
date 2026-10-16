@@ -6,6 +6,7 @@ import { StarmonAsset } from './StarmonAsset';
 import { sound } from '../services/sound';
 import { Coins, Sparkles, X, ChevronRight, Layers, Eye, Clock } from 'lucide-react';
 import starterPackImg from '../assets/images/starter_pack.png';
+import { GOLD_IMAGE } from '../data/itemsData';
 
 interface Props {
   starterPacksAvailable: number;
@@ -193,7 +194,7 @@ export const BeginnerPackModal: React.FC<Props> = ({
               {/* Card 1: Shiny Coins */}
               <div className="flex flex-col items-center bg-gradient-to-b from-slate-900/90 to-indigo-950/90 border-2 border-amber-400/70 rounded-2xl p-3 md:p-4 shadow-xl">
                 <div className="w-18 h-18 md:w-22 md:h-22 rounded-full bg-amber-500/20 border border-amber-400/40 flex items-center justify-center mb-2 text-4xl">
-                  🪙
+                  <img src={GOLD_IMAGE} alt="Gold" className="h-10 w-10 object-contain" />
                 </div>
                 <h3 className="text-sm md:text-base font-black font-game text-amber-300">Starter Gold</h3>
                 <span className="text-lg md:text-xl font-black text-white mt-0.5">+500 Gold</span>
