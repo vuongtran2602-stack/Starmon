@@ -45,9 +45,25 @@ if (!serverSupabase) {
 
 function syncAccountsToSupabase(accounts: Record<string, ServerUserAccount>) {
   if (!serverSupabase) return;
-  const unique = getUniqueAccountsList(accounts);
-  const rows = unique.map(account => ({
-    username: account.username,
+  // getUniqueAccountsList deduplicates by Google ID/email, but separate
+  // identities can still share a username. Postgres rejects an upsert batch
+  // that contains the same ON CONFLICT key more than once.
+  const uniqueByUsername = new Map<string, ServerUserAccount>();
+  for (const account of getUniqueAccountsList(accounts)) {
+    const username = account.username?.trim();
+    if (!username) continue;
+
+    const key = username.toLowerCase();
+    const current = uniqueByUsername.get(key);
+    const accountTime = Date.parse(account.lastPlayedAt || account.createdAt || '') || 0;
+    const currentTime = current
+      ? Date.parse(current.lastPlayedAt || current.createdAt || '') || 0
+      : -1;
+    if (!current || accountTime >= currentTime) uniqueByUsername.set(key, account);
+  }
+
+  const rows = Array.from(uniqueByUsername.values()).map(account => ({
+    username: account.username.trim(),
     account_id: (account.googleId || account.email || account.username).trim().toLowerCase().replace(/[^a-z0-9_.:-]/g, '_').slice(0, 100),
     pin: account.pin || '',
     google_id: account.googleId || '',
