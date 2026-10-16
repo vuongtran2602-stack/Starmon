@@ -22,6 +22,11 @@ export default defineConfig(() => {
           target: process.env.STARMON_BACKEND_URL || 'http://127.0.0.1:3100',
           changeOrigin: true,
         },
+        '/ws': {
+          target: process.env.STARMON_BACKEND_URL || 'http://127.0.0.1:3100',
+          changeOrigin: true,
+          ws: true,
+        },
       },
     },
   };

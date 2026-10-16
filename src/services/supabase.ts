@@ -279,8 +279,10 @@ export async function savePvpRoomToSupabase(room: PvpRoom): Promise<boolean> {
       updated_at: Date.now(),
     };
 
-    // Upsert into Supabase table if it exists
-    supabase.from('pvp_rooms').upsert(row, { onConflict: 'room_code' }).then();
+    // Persist the shared room state before reporting success. Detached writes
+    // used to hide insert/update failures and let a second client see no room.
+    const { error } = await supabase.from('pvp_rooms').upsert(row, { onConflict: 'room_code' });
+    if (error) throw error;
 
     // Broadcast update via Supabase Realtime Channel
     const channel = supabase.channel(`pvp_room_${cleanCode}`);
@@ -293,7 +295,7 @@ export async function savePvpRoomToSupabase(room: PvpRoom): Promise<boolean> {
     return true;
   } catch (err) {
     console.warn('Supabase save PvP room notice:', err);
-    return true;
+    return false;
   }
 }
 

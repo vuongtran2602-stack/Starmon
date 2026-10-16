@@ -15,7 +15,7 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = http.createServer(app);
-const PORT = Number.parseInt(process.env.PORT || '3000', 10);
+const PORT = Number.parseInt(process.env.PORT || '3100', 10);
 
 app.use(express.json());
 
@@ -84,13 +84,40 @@ function syncRoomsToSupabase(rooms: PvpRoom[]) {
       const { error } = await serverSupabase.from('pvp_rooms').upsert(rows, { onConflict: 'room_code' });
       if (error) console.error('Supabase room persistence failed:', error.message);
     }
-    const keepCodes = rows.map(row => row.room_code).filter(Boolean);
-    const deletion = keepCodes.length
-      ? serverSupabase.from('pvp_rooms').delete().not('room_code', 'in', `(${keepCodes.join(',')})`)
-      : serverSupabase.from('pvp_rooms').delete().neq('room_code', '');
-    const { error } = await deletion;
-    if (error) console.error('Supabase room cleanup failed:', error.message);
   })();
+}
+
+async function deleteRoomFromSupabase(roomCode: string): Promise<void> {
+  if (!serverSupabase) return;
+  const normalizedCode = normalizeRoomCode(roomCode);
+  if (!normalizedCode) return;
+  try {
+    const { error } = await serverSupabase.from('pvp_rooms').delete().eq('room_code', normalizedCode);
+    if (error) console.error('Supabase room deletion failed:', error.message);
+  } catch (error) {
+    console.error('Supabase room deletion failed:', error);
+  }
+}
+
+async function persistRoomToSupabase(room: PvpRoom): Promise<void> {
+  if (!serverSupabase) return;
+  const roomCode = normalizeRoomCode(room.room_code || room.code);
+  const { error } = await serverSupabase.from('pvp_rooms').upsert({
+    room_code: roomCode,
+    code: roomCode,
+    host_id: room.host_id,
+    host_name: room.hostName,
+    host_level: room.hostLevel || 1,
+    guest_name: room.guestName || '',
+    guest_level: room.guestLevel || 1,
+    arena: room.arena || 'Sunken Sands',
+    status: room.status || 'WAITING',
+    players: room.players || [],
+    match_state: (room as any).matchState || null,
+    created_at: room.createdAt,
+    updated_at: room.updatedAt || Date.now(),
+  }, { onConflict: 'room_code' });
+  if (error) console.error('Supabase room persistence failed:', error.message);
 }
 
 export interface ServerUserAccount {
@@ -396,6 +423,18 @@ export function normalizeRoomCode(code: string): string {
   return (code || '').toString().trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
+function normalizeRoomPlayers(players: PlayerInRoom[] | undefined, hostId: string, hostFallback: PlayerInRoom): PlayerInRoom[] {
+  const normalized = (Array.isArray(players) ? players : []).slice(0, 2).map(player => ({
+    ...player,
+    isHost: player.id === hostId || player.isHost === true,
+    isReady: player.isReady ?? true,
+  }));
+  const hostIndex = normalized.findIndex(player => player.isHost);
+  if (hostIndex > 0) normalized.unshift(...normalized.splice(hostIndex, 1));
+  if (!normalized.length) normalized.push(hostFallback);
+  return normalized.slice(0, 2).map((player, index) => ({ ...player, isHost: index === 0 }));
+}
+
 function loadRooms(): PvpRoom[] {
   try {
     if (fs.existsSync(ROOMS_STORE_FILE)) {
@@ -408,16 +447,14 @@ function loadRooms(): PvpRoom[] {
           code: r.code || r.room_code || '100000',
           host_id: r.host_id || 'host_default',
           status: (r.status === 'in_battle' ? 'IN_GAME' : r.status === 'waiting' ? 'WAITING' : r.status) || 'WAITING',
-          players: Array.isArray(r.players) && r.players.length > 0 ? r.players : [
-            {
+          players: normalizeRoomPlayers(r.players, r.host_id || 'host_default', {
               id: r.host_id || 'host_default',
               name: r.hostName || 'Player',
               level: r.hostLevel || 1,
               isHost: true,
               isReady: true,
               starmons: [],
-            }
-          ],
+            }),
         }));
       }
     }
@@ -1975,6 +2012,7 @@ wss.on('connection', (ws) => {
               room.status = 'FINISHED';
               activeRooms = activeRooms.filter(r => normalizeRoomCode(r.room_code || r.code) !== targetCode);
               saveRooms(activeRooms);
+              deleteRoomFromSupabase(targetCode);
               broadcastToRoom(targetCode, { type: 'ROOM_CLOSED', room_code: targetCode });
             } else {
               room.players = room.players.filter(p => p.id !== uid);
@@ -2582,7 +2620,7 @@ app.get('/api/rooms/:code', (req, res) => {
 });
 
 // API: Create new PvP Room (generates 6-digit code or supports custom code)
-app.post('/api/rooms/create', (req, res) => {
+app.post('/api/rooms/create', async (req, res) => {
   const {
     host_id,
     host_name,
@@ -2607,9 +2645,21 @@ app.post('/api/rooms/create', (req, res) => {
   }
 
   activeRooms = loadRooms();
-  // Remove any stale room with the identical normalized code
   const normNewCode = normalizeRoomCode(code);
-  activeRooms = activeRooms.filter(r => normalizeRoomCode(r.room_code || r.code) !== normNewCode);
+  let existingRoom = activeRooms.find(r => normalizeRoomCode(r.room_code || r.code) === normNewCode);
+  if (!existingRoom && serverSupabase) {
+    try {
+      const { data, error } = await serverSupabase.from('pvp_rooms').select('room_code')
+        .eq('room_code', normNewCode).maybeSingle();
+      if (error) console.error('Supabase duplicate room lookup failed:', error.message);
+      if (data) existingRoom = { room_code: normNewCode } as PvpRoom;
+    } catch (error) {
+      console.error('Supabase duplicate room lookup failed:', error);
+    }
+  }
+  if (existingRoom) {
+    return res.status(409).json({ error: `Mã phòng ${code} đang được sử dụng. Hãy chọn mã khác.` });
+  }
   // Clear any existing match state for this room code
   activeMatchStates.delete(normNewCode);
 
@@ -2645,12 +2695,13 @@ app.post('/api/rooms/create', (req, res) => {
 
   activeRooms.unshift(newRoom);
   saveRooms(activeRooms);
+  await persistRoomToSupabase(newRoom);
   broadcastRoomList();
   res.json(newRoom);
 });
 
 // API: Join PvP Room by code (strict check: exists, WAITING status, not full)
-app.post('/api/rooms/join', (req, res) => {
+app.post('/api/rooms/join', async (req, res) => {
   const {
     room_code,
     code,
@@ -2672,6 +2723,42 @@ app.post('/api/rooms/join', (req, res) => {
   // Always load latest rooms from disk
   activeRooms = loadRooms();
   let room = activeRooms.find(r => normalizeRoomCode(r.room_code || r.code) === normalizedInput);
+
+  // A room may have been created on another app server. Resolve it from the
+  // shared Supabase store before treating a valid code as missing.
+  if (!room && serverSupabase) {
+    try {
+      const { data, error } = await serverSupabase.from('pvp_rooms').select('*')
+        .eq('room_code', normalizedInput).maybeSingle();
+      if (error) console.error('Supabase room lookup failed:', error.message);
+      if (data) {
+        room = {
+          room_code: data.room_code || normalizedInput,
+          code: data.room_code || normalizedInput,
+          host_id: data.host_id || 'host_default',
+          hostName: data.host_name || data.hostName || 'Player',
+          hostLevel: data.host_level || data.hostLevel || 1,
+          guestName: data.guest_name || data.guestName,
+          guestLevel: data.guest_level || data.guestLevel || 1,
+          arena: data.arena || 'Sunken Sands',
+          status: data.status || 'WAITING',
+          players: normalizeRoomPlayers(data.players, data.host_id || 'host_default', {
+                id: data.host_id || 'host_default',
+                name: data.host_name || data.hostName || 'Player',
+                level: data.host_level || data.hostLevel || 1,
+                isHost: true,
+                isReady: true,
+                starmons: [],
+              }),
+          createdAt: data.created_at || data.createdAt || Date.now(),
+          updatedAt: data.updated_at || data.updatedAt || Date.now(),
+        } as PvpRoom;
+        activeRooms.unshift(room);
+      }
+    } catch (error) {
+      console.error('Could not resolve PvP room from Supabase:', error);
+    }
+  }
 
   if (!room) {
     // If joining the preset room STARMON-CC9C2 and it hasn't been created yet, auto-provision it as WAITING
@@ -2710,9 +2797,10 @@ app.post('/api/rooms/join', (req, res) => {
   // CRITICAL FIX: If joining user has identical ID to host (e.g. 2 tabs in same browser or default ID),
   // assign distinct guest ID and guest name so they don't collide and can battle!
   if (finalUserId === room.host_id) {
-    finalUserId = `${finalUserId}_guest_${Date.now().toString().slice(-4)}`;
+    const existingGuest = room.players.find(player => !player.isHost && player.id.startsWith(`${room.host_id}_guest`));
+    finalUserId = existingGuest?.id || `${finalUserId}_guest_${Date.now().toString().slice(-4)}`;
     if (finalUserName === room.hostName) {
-      finalUserName = 'Tài khoản Google B';
+      finalUserName = existingGuest?.name || 'Tài khoản Google B';
     }
   }
 
@@ -2755,6 +2843,7 @@ app.post('/api/rooms/join', (req, res) => {
   room.updatedAt = Date.now();
 
   saveRooms(activeRooms);
+  await persistRoomToSupabase(room);
   const normCode = normalizeRoomCode(room.room_code || room.code);
   const isNewMatch = !activeMatchStates.has(normCode);
   const match = isNewMatch ? initializeMatchForRoom(room) : activeMatchStates.get(normCode)!;
@@ -2820,7 +2909,7 @@ app.post('/api/rooms/start', (req, res) => {
 });
 
 // API: Leave / Close Room
-app.post('/api/rooms/leave', (req, res) => {
+app.post('/api/rooms/leave', async (req, res) => {
   const { room_code, code, user_id } = req.body;
   const rawInput = (room_code || code || '').toString().trim();
   const normalizedInput = normalizeRoomCode(rawInput);
@@ -2835,6 +2924,7 @@ app.post('/api/rooms/leave', (req, res) => {
       activeRooms = activeRooms.filter(r => normalizeRoomCode(r.room_code || r.code) !== normalizedInput);
       activeMatchStates.delete(normalizedInput);
       saveRooms(activeRooms);
+      await deleteRoomFromSupabase(normalizedInput);
       broadcastToRoom(room.room_code, { type: 'ROOM_CLOSED', room_code: room.room_code });
     } else {
       // Guest leaves
@@ -2843,6 +2933,7 @@ app.post('/api/rooms/leave', (req, res) => {
       room.status = 'WAITING';
       room.updatedAt = Date.now();
       saveRooms(activeRooms);
+      await persistRoomToSupabase(room);
       broadcastToRoom(room.room_code, { type: 'ROOM_STATE_UPDATED', room });
     }
     broadcastRoomList();

@@ -193,7 +193,7 @@ export const AuthAndSaveModal: React.FC<Props> = ({
     let ws: WebSocket | null = null;
     try {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      ws = new WebSocket((import.meta as any).env?.VITE_WS_URL || `${protocol}//${window.location.host}`);
+      ws = new WebSocket((import.meta as any).env?.VITE_WS_URL || `${protocol}//${window.location.host}/ws`);
       ws.onopen = () => {
         ws?.send(JSON.stringify({ type: 'GET_ACCOUNTS' }));
       };

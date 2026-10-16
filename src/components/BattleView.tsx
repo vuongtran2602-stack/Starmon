@@ -1193,7 +1193,7 @@ export const BattleView: React.FC<Props> = ({
     if (!isPvP || !pvpRoomInfo?.code) return;
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = (import.meta as any).env?.VITE_WS_URL || `${protocol}//${window.location.host}`;
+    const wsUrl = (import.meta as any).env?.VITE_WS_URL || `${protocol}//${window.location.host}/ws`;
     const ws = new WebSocket(wsUrl);
     pvpWsRef.current = ws;
 

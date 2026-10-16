@@ -6,15 +6,13 @@ import { ARENA_MAPS, getArenaMap } from '../data/arenaMaps';
 import { sound } from '../services/sound';
 import {
   savePvpRoomToFirestore,
-  getPvpRoomFromFirestore,
-  joinPvpRoomInFirestore,
   updatePvpRoomStatusInFirestore,
   deletePvpRoomInFirestore,
   subscribeToPvpRoom,
   subscribeToActivePvpRooms,
   sanitizeRoomCode,
-  FIREBASE_PROJECT_ID,
-} from '../services/firebase';
+  SUPABASE_PROJECT_ID,
+} from '../services/supabase';
 import {
   Swords,
   Plus,
@@ -263,7 +261,7 @@ export const PvpLobbyModal: React.FC<Props> = ({
     // 2. WebSocket listener for room state updates
     try {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = (import.meta as any).env?.VITE_WS_URL || `${protocol}//${window.location.host}`;
+      const wsUrl = (import.meta as any).env?.VITE_WS_URL || `${protocol}//${window.location.host}/ws`;
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
@@ -561,102 +559,56 @@ export const PvpLobbyModal: React.FC<Props> = ({
     setIsProcessing(true);
     setJoinError('');
 
-    const challengerPlayer: PlayerInRoom = {
-      id: activeGoogleId,
-      name: activeGoogleName,
-      level: playerLevel || 1,
-      isHost: false,
-      isReady: true,
-      starmons: myPartyStarmons,
-    };
-
     try {
-      // 1. Try joining via Firestore (global real-time source of truth)
-      let fsResult: any = { success: false };
-      try {
-        fsResult = await joinPvpRoomInFirestore(cleanCode, challengerPlayer);
-      } catch (err) {
-        console.warn('Firestore join attempt notice:', err);
+      // The PvP server owns player-slot assignment and match state. Resolve the
+      // join there first so clients cannot launch from a stale cloud copy.
+      const res = await fetch('/api/rooms/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          room_code: cleanCode,
+          user_id: activeGoogleId,
+          user_name: activeGoogleName,
+          user_level: playerLevel || 1,
+          starmons: myPartyStarmons,
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.room) {
+        throw new Error(data?.error || 'Không thể kết nối tới máy chủ PvP.');
       }
 
-      // 2. Also notify server via REST
-      let sRoom: PvpRoom | null = null;
-      let effectiveId = fsResult?.joinedAsId || activeGoogleId;
-      let effectiveName = fsResult?.joinedAsName || activeGoogleName;
-      let serverError = '';
-
+      const resolved = { ...data.room, matchState: data.matchState || data.room.matchState } as PvpRoom;
+      const effectiveId = data.joinedAsId || activeGoogleId;
+      const effectiveName = data.joinedAsName || activeGoogleName;
+      // Keep the Supabase room mirror aligned with the server-assigned Player 2.
+      void savePvpRoomToFirestore(resolved);
+      sound.playRewardFanfare();
+      setActiveGoogleId(effectiveId);
+      setActiveGoogleName(effectiveName);
       try {
-        const res = await fetch('/api/rooms/join', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            room_code: cleanCode,
-            user_id: activeGoogleId,
-            user_name: activeGoogleName,
-            user_level: playerLevel || 1,
-            starmons: myPartyStarmons,
-          }),
-        });
+        sessionStorage.setItem('starmon_pvp_session_uid', effectiveId);
+        sessionStorage.setItem('starmon_pvp_session_name', effectiveName);
+      } catch {}
 
-        if (res.ok) {
-          const data = await res.json();
-          if (data && data.room) {
-            sRoom = data.room;
-            if (data.joinedAsId) effectiveId = data.joinedAsId;
-            if (data.joinedAsName) effectiveName = data.joinedAsName;
-          }
-        } else {
-          const errData = await res.json().catch(() => null);
-          if (errData?.error) {
-            serverError = errData.error;
-          }
-        }
-      } catch (err) {
-        console.warn('Server join room notice:', err);
+      setCurrentRoom(resolved);
+      if (resolved.status === 'IN_GAME' || (resolved.players && resolved.players.length >= 2)) {
+        setStatusMessage('⚔️ Cả 2 người chơi đã vào phòng! Đang chuyển đến Phase 1.1...');
+        setTimeout(() => handleMatchLaunch({ ...resolved, status: 'IN_GAME' }, effectiveId), 600);
       }
 
-      const resolved = fsResult?.room || sRoom;
-      if (resolved) {
-        sound.playRewardFanfare();
-        setActiveGoogleId(effectiveId);
-        setActiveGoogleName(effectiveName);
-        try {
-          sessionStorage.setItem('starmon_pvp_session_uid', effectiveId);
-          sessionStorage.setItem('starmon_pvp_session_name', effectiveName);
-        } catch {}
-
-        setCurrentRoom(resolved);
-
-        if (resolved.status === 'IN_GAME' || (resolved.players && resolved.players.length >= 2)) {
-          sound.playRewardFanfare();
-          setStatusMessage('⚔️ Cả 2 người chơi đã vào phòng! Đang chuyển đến Phase 1.1...');
-          setTimeout(() => {
-            handleMatchLaunch(
-              {
-                ...resolved,
-                status: 'IN_GAME',
-              },
-              effectiveId
-            );
-          }, 600);
-        }
-
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify({
-            type: 'JOIN_ROOM',
-            room_code: resolved.room_code || resolved.code,
-            user_id: effectiveId,
-            user_name: effectiveName,
-          }));
-        }
-      } else {
-        sound.playWrong();
-        setJoinError(serverError || fsResult?.error || `Phòng "${cleanCode}" không tồn tại hoặc đã bắt đầu.`);
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({
+          type: 'JOIN_ROOM',
+          room_code: resolved.room_code || resolved.code,
+          user_id: effectiveId,
+          user_name: effectiveName,
+        }));
       }
     } catch (err: any) {
       console.error('Error joining room:', err);
       sound.playWrong();
-      setJoinError('Có lỗi khi tham gia phòng. Vui lòng kiểm tra lại mã!');
+      setJoinError(err instanceof Error ? err.message : 'Có lỗi khi tham gia phòng. Vui lòng kiểm tra lại mã!');
     } finally {
       setIsProcessing(false);
     }
@@ -1095,11 +1047,11 @@ export const PvpLobbyModal: React.FC<Props> = ({
                   </h2>
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-950 border border-amber-500/60 text-amber-300 font-mono font-bold flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-                    Firebase: {FIREBASE_PROJECT_ID}
+                    Supabase: {SUPABASE_PROJECT_ID}
                   </span>
                 </div>
                 <p className="text-xs text-slate-400">
-                  Đồng bộ phòng thời gian thực qua Firebase Cloud Firestore ({FIREBASE_PROJECT_ID})
+                  Đồng bộ phòng thời gian thực qua Supabase ({SUPABASE_PROJECT_ID})
                 </p>
               </div>
             </div>
