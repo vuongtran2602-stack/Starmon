@@ -5,7 +5,7 @@ import { StarmonAsset } from './StarmonAsset';
 import { EQUIPMENT_ITEMS_CATALOG, GOLD_IMAGE, GEM_IMAGE, OLD_PICKAXE_IMAGE, STAR_SHARD_IMAGE } from '../data/itemsData';
 import { BLACKSMITH_OPTION_IMAGES, getEquipmentUpgradeCost, getItemLevelStats, ITEM_CRAFT_COST } from '../data/itemStats';
 
-type Mode = 'menu' | 'upgrade' | 'craft' | 'forge';
+type Mode = 'menu' | 'upgrade' | 'craft' | 'mining' | 'forge';
 
 interface Props {
   gold: number;
@@ -26,6 +26,7 @@ interface Props {
 const optionCards = [
   { key: 'upgrade' as const, title: 'UPGRADE ITEMS', image: BLACKSMITH_OPTION_IMAGES.upgrade, locked: false },
   { key: 'craft' as const, title: 'CRAFT ITEMS', image: BLACKSMITH_OPTION_IMAGES.craft, locked: false },
+  { key: 'mining' as const, title: 'MINING EXPEDITION', image: BLACKSMITH_OPTION_IMAGES.miningExpedition, locked: true },
   { key: 'forge' as const, title: 'MAGICAL FORGE', image: BLACKSMITH_OPTION_IMAGES.forge, locked: true },
 ];
 
@@ -98,7 +99,7 @@ export const BlacksmithModal: React.FC<Props> = ({
         </header>
 
         {mode === 'menu' && (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-4 md:p-6">
+          <div className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2 md:p-6 lg:grid-cols-4">
             {optionCards.map(card => (
               <article key={card.key} className="relative aspect-[0.72] min-h-[340px] overflow-hidden rounded-2xl border border-amber-300/40 bg-slate-900 bg-cover bg-center shadow-xl" style={{ backgroundImage: `url("${card.image}")` }}>
                 <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/5 to-black/10" />
@@ -235,6 +236,7 @@ export const BlacksmithModal: React.FC<Props> = ({
         )}
 
         {mode === 'forge' && <div className="p-10 text-center"><Lock className="mx-auto h-12 w-12 text-amber-300" /><h3 className="mt-3 font-game text-xl font-black">MAGICAL FORGE</h3><p className="mt-1 text-sm text-slate-400">Locked</p></div>}
+        {mode === 'mining' && <div className="p-10 text-center"><Lock className="mx-auto h-12 w-12 text-amber-300" /><h3 className="mt-3 font-game text-xl font-black">MINING EXPEDITION</h3><p className="mt-1 text-sm text-slate-400">Locked</p></div>}
       </section>
     </div>
   );

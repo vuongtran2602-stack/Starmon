@@ -1,5 +1,6 @@
 import { EquipmentItem } from '../types';
 import { EQUIPMENT_ITEMS_CATALOG } from './itemsData';
+import miningExpeditionImage from '../assets/images/mining_expedition.jpg';
 
 export type EquipmentStage = 'early' | 'mid1' | 'mid2' | 'mid3' | 'late';
 
@@ -117,6 +118,7 @@ export function getItemLevelStats(itemId: string, level: number): { hp: number; 
 export const BLACKSMITH_OPTION_IMAGES = {
   upgrade: 'https://www.dropbox.com/scl/fi/6jfchf1qc9o8kfh69qvis/Upgrade-Item.png?rlkey=5rs8dmw51xyoycaq7qtfl67av&st=dqir6qlk&raw=1',
   craft: 'https://www.dropbox.com/scl/fi/lp83r1q4trltwbu8xe2bn/Craft-Item.png?rlkey=zu72h4hdeqlcaewjo5p2036oq&st=0ywrhdrt&raw=1',
+  miningExpedition: miningExpeditionImage,
   forge: 'https://www.dropbox.com/scl/fi/mm2ylb00phhnuknsniigq/Magical-Craft.png?rlkey=qq697rqffs2imp0z47z3aofa1&st=carl77j8&raw=1',
 };
 
