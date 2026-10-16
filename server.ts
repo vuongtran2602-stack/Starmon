@@ -5,6 +5,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { GoogleGenAI } from '@google/genai';
+import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -33,6 +34,64 @@ app.use((req, res, next) => {
 const ROOMS_STORE_FILE = path.resolve(__dirname, 'pvp_rooms_store.json');
 // Persistent User Accounts store file
 const ACCOUNTS_STORE_FILE = path.resolve(__dirname, 'server_accounts_store.json');
+const supabaseUrl = process.env.SUPABASE_URL || 'https://tzrwvvptrranpozeeeci.supabase.co';
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
+const serverSupabase = supabaseServiceKey ? createClient(supabaseUrl, supabaseServiceKey, {
+  auth: { persistSession: false, autoRefreshToken: false },
+}) : null;
+if (!serverSupabase) {
+  console.warn('Supabase server persistence is disabled. Set SUPABASE_SERVICE_ROLE_KEY to enable it.');
+}
+
+function syncAccountsToSupabase(accounts: Record<string, ServerUserAccount>) {
+  if (!serverSupabase) return;
+  const unique = getUniqueAccountsList(accounts);
+  const rows = unique.map(account => ({
+    username: account.username,
+    account_id: (account.googleId || account.email || account.username).trim().toLowerCase().replace(/[^a-z0-9_.:-]/g, '_').slice(0, 100),
+    pin: account.pin || '',
+    google_id: account.googleId || '',
+    email: account.email || '',
+    created_at: account.createdAt,
+    last_played_at: account.lastPlayedAt,
+    player: account.player || {},
+    starmons: account.starmons || [],
+    quests: account.quests || [],
+  }));
+  if (rows.length) void serverSupabase.from('accounts').upsert(rows, { onConflict: 'username' })
+    .then(({ error }) => { if (error) console.error('Supabase account persistence failed:', error.message); });
+}
+
+function syncRoomsToSupabase(rooms: PvpRoom[]) {
+  if (!serverSupabase) return;
+  const rows = rooms.map(room => ({
+    room_code: normalizeRoomCode(room.room_code || room.code),
+    code: normalizeRoomCode(room.room_code || room.code),
+    host_id: room.host_id,
+    host_name: room.hostName,
+    host_level: room.hostLevel || 1,
+    guest_name: room.guestName || '',
+    guest_level: room.guestLevel || 1,
+    arena: room.arena || 'Celestial Sanctuary',
+    status: room.status || 'WAITING',
+    players: room.players || [],
+    match_state: (room as any).matchState || null,
+    created_at: room.createdAt,
+    updated_at: room.updatedAt || Date.now(),
+  }));
+  void (async () => {
+    if (rows.length) {
+      const { error } = await serverSupabase.from('pvp_rooms').upsert(rows, { onConflict: 'room_code' });
+      if (error) console.error('Supabase room persistence failed:', error.message);
+    }
+    const keepCodes = rows.map(row => row.room_code).filter(Boolean);
+    const deletion = keepCodes.length
+      ? serverSupabase.from('pvp_rooms').delete().not('room_code', 'in', `(${keepCodes.join(',')})`)
+      : serverSupabase.from('pvp_rooms').delete().neq('room_code', '');
+    const { error } = await deletion;
+    if (error) console.error('Supabase room cleanup failed:', error.message);
+  })();
+}
 
 export interface ServerUserAccount {
   username: string;
@@ -290,6 +349,7 @@ function saveAccounts(accounts: Record<string, ServerUserAccount>) {
   } catch (err) {
     console.warn('Error writing server_accounts_store.json:', err);
   }
+  syncAccountsToSupabase(accounts);
 }
 
 let serverAccounts: Record<string, ServerUserAccount> = loadAccounts();
@@ -373,9 +433,59 @@ function saveRooms(rooms: PvpRoom[]) {
   } catch (err) {
     console.warn('Error writing pvp_rooms_store.json:', err);
   }
+  syncRoomsToSupabase(rooms);
 }
 
 let activeRooms: PvpRoom[] = loadRooms();
+
+async function hydrateSupabaseStores() {
+  if (!serverSupabase) return;
+  const [{ data: accountRows, error: accountError }, { data: roomRows, error: roomError }] = await Promise.all([
+    serverSupabase.from('accounts').select('*').limit(1000),
+    serverSupabase.from('pvp_rooms').select('*').limit(500),
+  ]);
+  if (accountError) console.error('Could not load Supabase accounts:', accountError.message);
+  else if (accountRows?.length) {
+    for (const row of accountRows) {
+      if (!row.username) continue;
+      const account: ServerUserAccount = {
+        username: row.username,
+        pin: row.pin || '',
+        googleId: row.google_id || '',
+        email: row.email || '',
+        createdAt: row.created_at || new Date().toISOString(),
+        lastPlayedAt: row.last_played_at || new Date().toISOString(),
+        player: row.player || {},
+        starmons: row.starmons || [],
+        quests: row.quests || [],
+      };
+      for (const key of [account.username, account.googleId, account.email]) {
+        if (key) serverAccounts[key.toLowerCase()] = account;
+      }
+    }
+    try { fs.writeFileSync(ACCOUNTS_STORE_FILE, JSON.stringify(serverAccounts, null, 2), 'utf-8'); }
+    catch (err) { console.warn('Could not cache Supabase accounts locally:', err); }
+  }
+  if (roomError) console.error('Could not load Supabase rooms:', roomError.message);
+  else if (roomRows?.length) {
+    const remoteRooms: PvpRoom[] = roomRows.map((row: any) => ({
+      ...row,
+      room_code: row.room_code || row.code,
+      code: row.room_code || row.code,
+      hostName: row.host_name || row.hostName,
+      hostLevel: row.host_level || row.hostLevel || 1,
+      guestName: row.guest_name || '',
+      guestLevel: row.guest_level || 1,
+      matchState: row.match_state || row.matchState,
+      createdAt: row.created_at || row.createdAt,
+      updatedAt: row.updated_at || row.updatedAt,
+    }));
+    activeRooms = remoteRooms;
+    try { fs.writeFileSync(ROOMS_STORE_FILE, JSON.stringify(activeRooms, null, 2), 'utf-8'); }
+    catch (err) { console.warn('Could not cache Supabase rooms locally:', err); }
+    broadcastRoomList();
+  }
+}
 
 // Map of normalized room code to connected WebSocket clients
 const roomClients = new Map<string, Set<WebSocket>>();
@@ -466,6 +576,8 @@ interface PvpMatchState {
   attackQueue: number[]; // legacy compatibility
   phaseStartedAt: number;
   phaseEndsAt: number;
+  phaseTimerGeneration?: number;
+  lastEndedPhase?: string;
   phaseTimerHandle?: NodeJS.Timeout | null;
   timerHandle?: NodeJS.Timeout | null;
   stepTimerHandle?: NodeJS.Timeout | null;
@@ -666,7 +778,7 @@ const activeMatchStates = new Map<string, PvpMatchState>();
 
 function aliveStarmonIndices(player: PlayerSlotState): number[] {
   return player.starmons
-    .filter(s => s.alive && s.hp > 0)
+    .filter(s => s.hp > 0)
     .map(s => s.index);
 }
 
@@ -820,17 +932,44 @@ function schedulePhaseEnd(state: PvpMatchState, roomCode: string) {
     clearTimeout(state.phaseTimerHandle);
     state.phaseTimerHandle = null;
   }
+  const expectedPhase = state.phase;
+  const expectedPhaseEndsAt = state.phaseEndsAt;
+  const generation = (state.phaseTimerGeneration || 0) + 1;
+  state.phaseTimerGeneration = generation;
   const delay = Math.max(0, state.phaseEndsAt - Date.now());
   if (delay <= 0) {
-    handlePhaseEnd(state, roomCode);
+    handlePhaseEnd(state, roomCode, expectedPhase, expectedPhaseEndsAt, generation);
     return;
   }
   state.phaseTimerHandle = setTimeout(() => {
-    handlePhaseEnd(state, roomCode);
+    handlePhaseEnd(state, roomCode, expectedPhase, expectedPhaseEndsAt, generation);
   }, delay);
 }
 
-function handlePhaseEnd(state: PvpMatchState, roomCode: string) {
+function handlePhaseEnd(
+  state: PvpMatchState,
+  roomCode: string,
+  expectedPhase: string,
+  expectedPhaseEndsAt: number,
+  generation: number
+) {
+  // A cleared timer can already be queued in the event loop. Ignore it if a later
+  // phase has replaced it, so an old n.2 timeout cannot consume n.3 (or later rounds).
+  if (
+    state.phase !== expectedPhase ||
+    state.phaseEndsAt !== expectedPhaseEndsAt ||
+    state.phaseTimerGeneration !== generation ||
+    state.lastEndedPhase === expectedPhase
+  ) return;
+
+  // Keep the server clock authoritative if the runtime wakes a timer early.
+  if (Date.now() < expectedPhaseEndsAt) {
+    state.phaseTimerHandle = setTimeout(() => {
+      handlePhaseEnd(state, roomCode, expectedPhase, expectedPhaseEndsAt, generation);
+    }, expectedPhaseEndsAt - Date.now());
+    return;
+  }
+  state.lastEndedPhase = expectedPhase;
   if (state.phaseTimerHandle) {
     clearTimeout(state.phaseTimerHandle);
     state.phaseTimerHandle = null;
@@ -1093,7 +1232,7 @@ function onAnswerSubmit(
 
   // Những câu chưa trả lời (undefined / false) sẽ bị tính là 0 điểm (unlocked = false)
   P.starmons.forEach((s, idx) => {
-    if (s.alive && s.hp > 0) {
+    if (s.hp > 0) {
       const unlocked = Array.isArray(results) && results[idx] !== undefined
         ? Boolean(results[idx])
         : Boolean(P.results[idx]);
@@ -1138,7 +1277,7 @@ function onAnswerSubmit(
 // Step không có timer riêng — chỉ dựa vào phase timer (30s)
 // =========================================================
 function countAlive(starmons: StarmonCombatant[]): number {
-  return starmons.filter(s => s && s.alive && s.hp > 0).length;
+  return starmons.filter(s => s && s.hp > 0).length;
 }
 
 function runStep(state: PvpMatchState, roomCode: string) {
@@ -1163,7 +1302,7 @@ function runStep(state: PvpMatchState, roomCode: string) {
   const snapshot = serializeBoard(state);
 
   // Case A: Starmon chết -> skip, sang step kế
-  if (starmon == null || !starmon.alive || starmon.hp <= 0) {
+  if (starmon == null || starmon.hp <= 0) {
     broadcastToRoom(roomCode, {
       type: 'step_skipped',
       phase: state.phase,
@@ -1315,27 +1454,39 @@ function endStep(state: PvpMatchState, roomCode: string, _skipped: boolean = fal
 }
 
 function onStepTimeout(state: PvpMatchState, roomCode: string, playerSlot: 1 | 2, requestedStarmonIndex: number) {
-  if (Date.now() < state.phaseEndsAt) return;
+  if (state.subPhase !== 2 && state.subPhase !== 3) return;
   const attackerSlot = state.attackerSlot || ((state.subPhase - 1) as 1 | 2);
   if (playerSlot !== attackerSlot || requestedStarmonIndex !== state.step - 1) return;
-  if (state.stepTimerHandle) {
-    clearTimeout(state.stepTimerHandle);
-    state.stepTimerHandle = null;
+
+  // The client countdown and the server deadline can differ by a few milliseconds.
+  // Once the authoritative deadline has passed, advance through the same guarded
+  // phase-end path immediately instead of leaving the client at 0 waiting for the
+  // independent timer callback. The phase/generation checks make this idempotent
+  // if that callback is already queued.
+  if (Date.now() >= state.phaseEndsAt) {
+    const starmonIndex = Math.max(0, Math.min(2, (state.step || 1) - 1));
+    const starmon = state.players[attackerSlot]?.starmons[starmonIndex];
+    broadcastToRoom(roomCode, {
+      type: 'starmon_lost_turn',
+      phase: state.phase,
+      attackerSlot,
+      starmonIndex,
+      starmon_name: starmon?.name,
+      reason: 'timeout',
+    });
+    handlePhaseEnd(
+      state,
+      roomCode,
+      state.phase,
+      state.phaseEndsAt,
+      state.phaseTimerGeneration || 0
+    );
+    return;
   }
-  const starmonIndex = Math.max(0, Math.min(2, (state.step || 1) - 1));
-  const attacker = state.players[attackerSlot];
-  const starmon = attacker?.starmons[starmonIndex];
 
-  broadcastToRoom(roomCode, {
-    type: 'starmon_lost_turn',
-    phase: state.phase,
-    attackerSlot,
-    starmonIndex,
-    starmon_name: starmon?.name,
-    reason: 'timeout',
-  });
-
-  endStep(state, roomCode, true);
+  // The step countdown may reach zero just before the phase deadline. Keep the
+  // server's absolute deadline authoritative, but make sure its timer is armed.
+  if (!state.phaseTimerHandle) schedulePhaseEnd(state, roomCode);
 }
 
 // =========================================================
@@ -1469,7 +1620,7 @@ function onStarmonAction(
   const attacker = state.players[state.attackerSlot];
   const starmon = attacker?.starmons[starmonIndex];
 
-  if (starmon == null || !starmon.alive || starmon.hp <= 0) {
+  if (starmon == null || starmon.hp <= 0) {
     return reject('starmon không hợp lệ');
   }
 
@@ -1539,7 +1690,7 @@ function onStarmonAction(
 
       if (actionType === 'use_ability' && payload.isAoE) {
         target.starmons.forEach(ts => {
-          if (ts != null && ts.alive) {
+          if (ts != null && ts.hp > 0) {
             ts.hp -= damage;
             if (ts.hp <= 0) {
               ts.hp = 0;
@@ -1548,7 +1699,7 @@ function onStarmonAction(
             ts.currentHp = ts.hp;
           }
         });
-      } else if (targetStarmon != null && targetStarmon.alive) {
+      } else if (targetStarmon != null && targetStarmon.hp > 0) {
         targetStarmon.hp -= damage;
         if (targetStarmon.hp <= 0) {
           targetStarmon.hp = 0;
@@ -1617,6 +1768,8 @@ function onStarmonAction(
 }
 
 function endGame(state: PvpMatchState, roomCode: string, result: 'draw' | 'winner', winnerSlot?: 1 | 2) {
+  // Invalidate even an already queued phase callback so a finished match cannot restart.
+  state.phaseTimerGeneration = (state.phaseTimerGeneration || 0) + 1;
   if (state.timerHandle) {
     clearTimeout(state.timerHandle);
     state.timerHandle = null;
@@ -1662,8 +1815,8 @@ function endGame(state: PvpMatchState, roomCode: string, result: 'draw' | 'winne
 
 // Kiểm tra thắng thua cuối turn (sau khi kết thúc Phase n.3)
 function checkWinAndContinue(state: PvpMatchState, roomCode: string) {
-  const p1Alive = state.players[1].starmons.some(s => s.alive && s.hp > 0);
-  const p2Alive = state.players[2].starmons.some(s => s.alive && s.hp > 0);
+  const p1Alive = state.players[1].starmons.some(s => s.hp > 0);
+  const p2Alive = state.players[2].starmons.some(s => s.hp > 0);
 
   if (!p1Alive && !p2Alive) {
     endGame(state, roomCode, 'draw');
@@ -2044,7 +2197,7 @@ wss.on('connection', (ws) => {
           if (P && Array.isArray(msg.results)) {
             msg.results.forEach((val: any, idx: number) => {
               if (val !== undefined && P.starmons[idx]) {
-                const isOk = Boolean(val) && P.starmons[idx].alive && P.starmons[idx].hp > 0;
+                const isOk = Boolean(val) && P.starmons[idx].hp > 0;
                 P.results[idx] = isOk;
                 P.starmons[idx].unlocked = isOk;
               }
@@ -2079,7 +2232,7 @@ wss.on('connection', (ws) => {
           // If Firestore speakingSubmissions were forwarded, populate any missing results before starting Phase 2
           if (Array.isArray(msg.slot1_results)) {
             match.players[1].starmons.forEach((s, idx) => {
-              const ok = Boolean(msg.slot1_results[idx]) && s.alive && s.hp > 0;
+              const ok = Boolean(msg.slot1_results[idx]) && s.hp > 0;
               match!.players[1].results[idx] = ok;
               s.unlocked = ok;
             });
@@ -2087,7 +2240,7 @@ wss.on('connection', (ws) => {
           }
           if (Array.isArray(msg.slot2_results)) {
             match.players[2].starmons.forEach((s, idx) => {
-              const ok = Boolean(msg.slot2_results[idx]) && s.alive && s.hp > 0;
+              const ok = Boolean(msg.slot2_results[idx]) && s.hp > 0;
               match!.players[2].results[idx] = ok;
               s.unlocked = ok;
             });
@@ -2095,7 +2248,7 @@ wss.on('connection', (ws) => {
           }
           if (Array.isArray(msg.results)) {
             match.players[slot].starmons.forEach((s, idx) => {
-              const ok = Boolean(msg.results[idx]) && s.alive && s.hp > 0;
+              const ok = Boolean(msg.results[idx]) && s.hp > 0;
               match!.players[slot].results[idx] = ok;
               s.unlocked = ok;
             });
@@ -2312,6 +2465,29 @@ wss.on('connection', (ws) => {
                 sender_id: msg.player_id,
               }, ws);
             }
+          }
+          break;
+        }
+
+        case 'PVP_PHASE_TIMEOUT': {
+          const targetCode = normalizeRoomCode(msg.room_code || currentRoomCode || '');
+          const match = activeMatchStates.get(targetCode);
+          if (!match || (match.subPhase !== 2 && match.subPhase !== 3)) break;
+
+          // Accept only a timeout for the phase the server is currently running.
+          // Both clients can report zero; handlePhaseEnd's phase/generation guard
+          // makes duplicate reports safe.
+          if (msg.phase && msg.phase !== match.phase) break;
+          if (Date.now() >= match.phaseEndsAt) {
+            handlePhaseEnd(
+              match,
+              targetCode,
+              match.phase,
+              match.phaseEndsAt,
+              match.phaseTimerGeneration || 0
+            );
+          } else if (!match.phaseTimerHandle) {
+            schedulePhaseEnd(match, targetCode);
           }
           break;
         }
@@ -3281,7 +3457,6 @@ Output STRICTLY a valid JSON object without markdown fences, conforming to this 
 
     // Compute criteria bands and enforce strict floor-to-half rounding
     const modelFc = Number(result.criteria?.fluencyCoherence?.band) || 6.5;
-    const wordCount = trimmedTranscript.split(/\s+/).length;
     const shortAnswerPenalty = wordCount < 10 ? 3 : wordCount < 12 ? 2 : wordCount < 15 ? 1 : wordCount < 20 ? 0.5 : 0;
     const speakingRatePenalty = getSpeakingRatePenalty(wordCount, Number(durationSeconds));
     const fc = Math.min(modelFc, Math.max(1, 8 - shortAnswerPenalty - speakingRatePenalty));
@@ -3520,6 +3695,7 @@ Rules:
 
 // Setup Vite middleware in dev or static files in production
 async function startServer() {
+  await hydrateSupabaseStores().catch(err => console.error('Supabase startup sync failed:', err));
   const isProd = process.env.NODE_ENV === 'production';
 
   if (isProd) {

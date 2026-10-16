@@ -2,14 +2,16 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { UserAccount, PvpRoom, PlayerInRoom, PvpSpeakingSubmission, PvpMatchState } from '../types';
 
 export const SUPABASE_URL =
-  (import.meta as any).env?.VITE_SUPABASE_URL || 'https://ypdbvvvkenpjugohvcdb.supabase.co';
+  (import.meta as any).env?.VITE_SUPABASE_URL || 'https://tzrwvvptrranpozeeeci.supabase.co';
 
 export const SUPABASE_ANON_KEY =
   (import.meta as any).env?.VITE_SUPABASE_ANON_KEY ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZGJ2dnZrZW5wanVnb2h2Y2RiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE4MTU3MTIsImV4cCI6MjEwNzM5MTcxMn0.Nqst8pdyzonpwRoZmRH4CDHr2w3pl9LKKreIPrkN5QI';
+  (import.meta as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  'missing-public-supabase-key';
 
-export const SUPABASE_PROJECT_ID = 'ypdbvvvkenpjugohvcdb';
-export const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_DdDBCSaIbr8f6SK1cdlBbQ_j6RY12G2';
+export const SUPABASE_PROJECT_ID = 'tzrwvvptrranpozeeeci';
+export const SUPABASE_PUBLISHABLE_KEY =
+  (import.meta as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY || SUPABASE_ANON_KEY;
 
 // Initialize Supabase Client
 export const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {

@@ -704,6 +704,12 @@ export const BattleView: React.FC<Props> = ({
   useEffect(() => {
     if (!isPvP || phase !== 'phase2_combat' || pvpTurnTimer === null) return;
     if (pvpTurnTimer <= 0) {
+      sendPvpMessage({
+        type: 'PVP_PHASE_TIMEOUT',
+        room_code: pvpRoomInfo?.code,
+        player_id: pvpRoomInfo?.myPlayerId,
+        phase: pvpFlowPhaseRef.current,
+      });
       if (pvpAttackerSlotRef.current === pvpMySlotRef.current && pvpActionMenu !== null) {
         sound.playWrong();
         setPvpActionMenu(null);
