@@ -25,7 +25,7 @@ import { getEquipmentUpgradeCost, getItemLevelStats, ITEM_CRAFT_COST } from './d
 import { EQUIPMENT_ITEMS_CATALOG } from './data/itemsData';
 import { EventsModal } from './components/EventsModal';
 import { getDailyRewardStatus } from './data/dailyRewards';
-import { testSupabaseConnection, resetAccountInSupabase } from './services/supabase';
+import { testSupabaseConnection } from './services/supabase';
 import { getResearchLevel, getUnlockedItemSlots, RESEARCH_NODES, ResearchNodeId, isResearchNodeUnlocked, getResearchStatBonuses } from './data/techResearch';
 
 const STORAGE_KEY = 'starmon_game_save_v4'; // v4: Quests start strictly at 0, chat empty at start, new epic quests, 2 starter packs, 0 Starmon
@@ -1426,15 +1426,7 @@ export default function App() {
         sessionStorage.setItem('starmon_just_reset', 'true');
       } catch {}
 
-      // 1. Reset in the configured Supabase project.
-      try {
-        if (gid) await resetAccountInSupabase(gid, u);
-        if (u) await resetAccountInSupabase(u, u);
-      } catch (e) {
-        console.warn('Supabase reset notice:', e);
-      }
-
-      // 2. Reset on Express server store
+      // Reset through the backend, which uses the project service role.
       try {
         await fetch('/api/accounts/reset', {
           method: 'POST',
@@ -1445,7 +1437,7 @@ export default function App() {
         console.warn('Server account reset notice:', e);
       }
 
-      // 3. Clear all localStorage keys
+      // Clear all localStorage keys
       try {
         localStorage.clear();
       } catch {}

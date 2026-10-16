@@ -34,7 +34,7 @@ app.use((req, res, next) => {
 const ROOMS_STORE_FILE = path.resolve(__dirname, 'pvp_rooms_store.json');
 // Persistent User Accounts store file
 const ACCOUNTS_STORE_FILE = path.resolve(__dirname, 'server_accounts_store.json');
-const supabaseUrl = process.env.SUPABASE_URL || 'https://tzrwvvptrranpozeeeci.supabase.co';
+const supabaseUrl = process.env.SUPABASE_URL || 'https://jymjumdypgunipgjkjak.supabase.co';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
 const serverSupabase = supabaseServiceKey ? createClient(supabaseUrl, supabaseServiceKey, {
   auth: { persistSession: false, autoRefreshToken: false },
@@ -58,7 +58,7 @@ function syncAccountsToSupabase(accounts: Record<string, ServerUserAccount>) {
     starmons: account.starmons || [],
     quests: account.quests || [],
   }));
-  if (rows.length) void serverSupabase.from('accounts').upsert(rows, { onConflict: 'username' })
+  if (rows.length) void serverSupabase.from('starmon_accounts').upsert(rows, { onConflict: 'username' })
     .then(({ error }) => { if (error) console.error('Supabase account persistence failed:', error.message); });
 }
 
@@ -478,7 +478,7 @@ let activeRooms: PvpRoom[] = loadRooms();
 async function hydrateSupabaseStores() {
   if (!serverSupabase) return;
   const [{ data: accountRows, error: accountError }, { data: roomRows, error: roomError }] = await Promise.all([
-    serverSupabase.from('accounts').select('*').limit(1000),
+    serverSupabase.from('starmon_accounts').select('*').limit(1000),
     serverSupabase.from('pvp_rooms').select('*').limit(500),
   ]);
   if (accountError) console.error('Could not load Supabase accounts:', accountError.message);

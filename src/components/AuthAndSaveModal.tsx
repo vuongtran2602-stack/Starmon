@@ -4,8 +4,6 @@ import { GOLD_IMAGE, GEM_IMAGE } from '../data/itemsData';
 import { INITIAL_QUESTS } from '../data/questsData';
 import { sound } from '../services/sound';
 import {
-  saveAccountToSupabase,
-  loadAccountsFromSupabase,
   SUPABASE_PROJECT_ID,
 } from '../services/supabase';
 import {
@@ -79,10 +77,7 @@ export function saveAccount(account: UserAccount) {
     }
     localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(accounts));
 
-    // Centrally synchronize account to the configured Supabase project.
-    saveAccountToSupabase(account).catch(e => console.warn('Supabase account sync notice:', e));
-
-    // Also synchronize account to backend Express store
+    // Sync private game-account data through the backend service role.
     fetch('/api/accounts/sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -98,22 +93,7 @@ export async function syncAccountsFromServer(): Promise<Record<string, UserAccou
     const local = getAllAccounts();
     const merged = { ...local };
 
-    // 1. Fetch from the configured Supabase project.
-    try {
-      const supabaseAccounts = await loadAccountsFromSupabase();
-      for (const [key, acc] of Object.entries(supabaseAccounts)) {
-        if (acc && acc.username) {
-          merged[key.toLowerCase()] = acc;
-          if (acc.username) merged[acc.username.toLowerCase()] = acc;
-          if (acc.googleId) merged[acc.googleId.toLowerCase()] = acc;
-          if (acc.email) merged[acc.email.toLowerCase()] = acc;
-        }
-      }
-    } catch (supabaseErr) {
-      console.warn('Supabase load accounts error:', supabaseErr);
-    }
-
-    // 2. Fetch from backend store
+    // Game account records are private and are fetched through the backend.
     const res = await fetch('/api/accounts');
     if (res.ok) {
       const data = await res.json();

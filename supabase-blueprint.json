@@ -134,7 +134,7 @@
   },
   "supabase": {
     "tables": {
-      "accounts": {
+      "starmon_accounts": {
         "schema": "UserAccount",
         "primaryKey": "username",
         "description": "Player game accounts stored in the linked Supabase project"

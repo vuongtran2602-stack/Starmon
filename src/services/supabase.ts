@@ -2,14 +2,14 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { UserAccount, PvpRoom, PlayerInRoom, PvpSpeakingSubmission, PvpMatchState } from '../types';
 
 export const SUPABASE_URL =
-  (import.meta as any).env?.VITE_SUPABASE_URL || 'https://tzrwvvptrranpozeeeci.supabase.co';
+  (import.meta as any).env?.VITE_SUPABASE_URL || 'https://jymjumdypgunipgjkjak.supabase.co';
 
 export const SUPABASE_ANON_KEY =
   (import.meta as any).env?.VITE_SUPABASE_ANON_KEY ||
   (import.meta as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY ||
   'missing-public-supabase-key';
 
-export const SUPABASE_PROJECT_ID = 'tzrwvvptrranpozeeeci';
+export const SUPABASE_PROJECT_ID = 'jymjumdypgunipgjkjak';
 export const SUPABASE_PUBLISHABLE_KEY =
   (import.meta as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY || SUPABASE_ANON_KEY;
 
@@ -33,7 +33,9 @@ let isConnected = false;
  */
 export async function testSupabaseConnection(): Promise<boolean> {
   try {
-    const { error } = await supabase.from('accounts').select('username').limit(1);
+    // The game account table is service-role only; use the public PvP table to
+    // check connectivity without probing private account data.
+    const { error } = await supabase.from('pvp_rooms').select('room_code').limit(1);
     if (error) {
       isConnected = false;
       console.warn('Supabase connection check failed:', error);
@@ -93,9 +95,9 @@ export async function saveAccountToSupabase(account: UserAccount): Promise<boole
       quests: account.quests || [],
     };
 
-    // Attempt upsert into 'accounts' table in Supabase
+    // Keep game accounts separate from the project's auth-linked profile table.
     const { error } = await supabase
-      .from('accounts')
+      .from('starmon_accounts')
       .upsert(row, { onConflict: 'username' });
 
     if (error) {
@@ -117,7 +119,7 @@ export async function saveAccountToSupabase(account: UserAccount): Promise<boole
 export async function loadAccountsFromSupabase(): Promise<Record<string, UserAccount>> {
   try {
     const { data, error } = await supabase
-      .from('accounts')
+      .from('starmon_accounts')
       .select('*')
       .limit(50);
 
@@ -166,7 +168,7 @@ export async function loadAccountFromSupabase(key: string): Promise<UserAccount 
 
   try {
     const { data, error } = await supabase
-      .from('accounts')
+      .from('starmon_accounts')
       .select('*')
       .or(`username.ilike.${clean},google_id.eq.${clean},account_id.eq.${clean}`)
       .limit(1)
@@ -241,7 +243,7 @@ export async function resetAccountInSupabase(key: string, username?: string): Pr
       quests: [],
     };
 
-    await supabase.from('accounts').upsert(cleanPayload, { onConflict: 'username' });
+    await supabase.from('starmon_accounts').upsert(cleanPayload, { onConflict: 'username' });
     return true;
   } catch (err) {
     console.warn('Failed to reset account in Supabase:', err);
