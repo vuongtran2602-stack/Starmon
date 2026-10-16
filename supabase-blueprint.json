@@ -132,18 +132,18 @@
       "required": ["channel", "senderName", "message", "timestamp"]
     }
   },
-  "firestore": {
-    "/accounts/{accountId}": {
-      "schema": "UserAccount",
-      "description": "Player game account documents indexed by account key / username / Google ID"
-    },
-    "/pvp_rooms/{roomCode}": {
-      "schema": "PvpRoom",
-      "description": "PvP multiplayer battle lobby rooms"
-    },
-    "/chat_messages/{messageId}": {
-      "schema": "ChatMessage",
-      "description": "Global multiplayer chat message history"
+  "supabase": {
+    "tables": {
+      "accounts": {
+        "schema": "UserAccount",
+        "primaryKey": "username",
+        "description": "Player game accounts stored in the linked Supabase project"
+      },
+      "pvp_rooms": {
+        "schema": "PvpRoom",
+        "primaryKey": "room_code",
+        "description": "PvP multiplayer battle rooms, synchronized with Supabase Realtime"
+      }
     }
   }
 }

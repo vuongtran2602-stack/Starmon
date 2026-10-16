@@ -5,9 +5,9 @@ import { StarmonAsset } from './StarmonAsset';
 import { ARENA_MAPS, getArenaMap } from '../data/arenaMaps';
 import { sound } from '../services/sound';
 import {
-  savePvpRoomToFirestore,
-  updatePvpRoomStatusInFirestore,
-  deletePvpRoomInFirestore,
+  savePvpRoomToSupabase,
+  updatePvpRoomStatusInSupabase,
+  deletePvpRoomInSupabase,
   subscribeToPvpRoom,
   subscribeToActivePvpRooms,
   sanitizeRoomCode,
@@ -199,7 +199,7 @@ export const PvpLobbyModal: React.FC<Props> = ({
     passive: s.passive,
   }));
 
-  // Fetch and subscribe to active waiting rooms via both Firestore and Server
+  // Fetch and subscribe to active waiting rooms via Supabase and the PvP server
   const fetchRooms = async () => {
     setIsLoadingRooms(true);
     try {
@@ -457,7 +457,7 @@ export const PvpLobbyModal: React.FC<Props> = ({
     return () => clearTimeout(timer);
   }, [currentRoom?.players?.length]);
 
-  // Handle Create Room (Persisted in Firestore & Central Server)
+  // Handle Create Room (persisted in Supabase & central server)
   const handleCreateRoom = async () => {
     sound.playClick();
     isRoomHostRef.current = true;
@@ -517,11 +517,11 @@ export const PvpLobbyModal: React.FC<Props> = ({
       }
       createdRoom = responseBody as PvpRoom;
 
-      // Firestore is a cross-device mirror; the Express server is required for
-      // room creation and remains the authoritative local PvP server.
-      void savePvpRoomToFirestore(createdRoom).then(firestoreSaved => {
-        if (!firestoreSaved) {
-          console.warn('Firestore room mirror failed; room remains available on the game server.');
+      // Supabase is the cross-device room mirror; the Express server remains
+      // authoritative for player slots and match state.
+      void savePvpRoomToSupabase(createdRoom).then(supabaseSaved => {
+        if (!supabaseSaved) {
+          console.warn('Supabase room mirror failed; room remains available on the game server.');
         }
       });
 
@@ -582,7 +582,7 @@ export const PvpLobbyModal: React.FC<Props> = ({
       const effectiveId = data.joinedAsId || activeGoogleId;
       const effectiveName = data.joinedAsName || activeGoogleName;
       // Keep the Supabase room mirror aligned with the server-assigned Player 2.
-      void savePvpRoomToFirestore(resolved);
+      void savePvpRoomToSupabase(resolved);
       sound.playRewardFanfare();
       setActiveGoogleId(effectiveId);
       setActiveGoogleName(effectiveName);
@@ -622,8 +622,8 @@ export const PvpLobbyModal: React.FC<Props> = ({
 
     const roomCode = currentRoom.room_code || currentRoom.code;
 
-    // 1. Update status in Firestore
-    await updatePvpRoomStatusInFirestore(roomCode, 'IN_GAME');
+    // 1. Update status in Supabase
+    await updatePvpRoomStatusInSupabase(roomCode, 'IN_GAME');
 
     // 2. Also notify server
     try {
@@ -650,7 +650,7 @@ export const PvpLobbyModal: React.FC<Props> = ({
     const cleanCode = sanitizeRoomCode(roomCode);
 
     if (isHost) {
-      deletePvpRoomInFirestore(cleanCode).catch(() => {});
+      deletePvpRoomInSupabase(cleanCode).catch(() => {});
     }
 
     try {

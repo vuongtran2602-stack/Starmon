@@ -6,7 +6,7 @@ import { StarmonAsset } from './StarmonAsset';
 import { getRandomQuizSet, IELTS_SPEAKING_POOL, EXTENDED_SPEAKING_BANK } from '../data/quizzes';
 import { ELEMENT_COUNTERS, ELEMENT_COLORS, getBaseMultiplierForOrbs, STARMON_ROSTER } from '../data/starmons';
 import { sound } from '../services/sound';
-import { submitSpeakingToFirestore, advancePvpCombatInFirestore, syncPvpActionToFirestore, subscribeToPvpRoom } from '../services/firebase';
+import { submitSpeakingToSupabase, syncPvpActionToSupabase, subscribeToPvpRoom } from '../services/supabase';
 import { TutorialSpotlight } from './TutorialSpotlight';
 import {
   Mic,
@@ -690,7 +690,7 @@ export const BattleView: React.FC<Props> = ({
         action,
       });
 
-      syncPvpActionToFirestore(pvpRoomInfo.code, {
+      syncPvpActionToSupabase(pvpRoomInfo.code, {
         ...action,
         phase: pvpFlowPhaseRef.current,
         senderId: pvpRoomInfo.myPlayerId,
@@ -699,7 +699,7 @@ export const BattleView: React.FC<Props> = ({
         targetSlot,
         starmonIndex: starmonIdx,
         targetStarmonIndex: targetMonIdx,
-      }).catch(err => console.warn('Firestore sync action err:', err));
+      }).catch(err => console.warn('Supabase sync action err:', err));
     }
   }, [isPvP, pvpRoomInfo, actingStepIndex, selectedEnemyIndex, sendPvpMessage]);
 
@@ -1827,8 +1827,8 @@ export const BattleView: React.FC<Props> = ({
       is_timeout: isTimeout,
     });
 
-    // Mirror to Firestore for cross-network reliability
-    submitSpeakingToFirestore(pvpRoomInfo.code, {
+    // Mirror to Supabase for cross-network reliability
+    submitSpeakingToSupabase(pvpRoomInfo.code, {
       slot: mySlot,
       playerId: myId,
       playerName: myName,
@@ -1836,7 +1836,7 @@ export const BattleView: React.FC<Props> = ({
       unlockedPositions: finalUnlocks,
       submittedAt: Date.now(),
       isTimeout: isTimeout,
-    }).catch(err => console.warn('Firestore speaking submit err:', err));
+    }).catch(err => console.warn('Supabase speaking submit err:', err));
 
     setPvpWaitingForOpponentSpeaking(true);
   };

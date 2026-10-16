@@ -33,17 +33,20 @@ let isConnected = false;
  */
 export async function testSupabaseConnection(): Promise<boolean> {
   try {
-    // Ping Supabase to verify connectivity
     const { error } = await supabase.from('accounts').select('username').limit(1);
-    // If error is table not found or code 42P01, the network connection to Supabase was still successful
+    if (error) {
+      isConnected = false;
+      console.warn('Supabase connection check failed:', error);
+      return false;
+    }
+
     isConnected = true;
     console.info(`⚡ Successfully connected to Supabase (${SUPABASE_PROJECT_ID} / ${SUPABASE_URL})`);
     return true;
   } catch (error) {
     console.warn('Supabase connection check:', error);
-    // Even if initial select query errors, mark connected so app remains functional
-    isConnected = true;
-    return true;
+    isConnected = false;
+    return false;
   }
 }
 
@@ -649,7 +652,6 @@ export async function submitSpeakingToSupabase(
   room.updatedAt = Date.now();
   await savePvpRoomToSupabase(room);
 }
-
 /**
  * Force Advance PvP Room to Combat Phase in Supabase
  */
@@ -732,19 +734,3 @@ export async function syncPvpActionToSupabase(
   room.updatedAt = Date.now();
   await savePvpRoomToSupabase(room);
 }
-
-// Compatibility Aliases for Seamless Drop-in Migration
-export const saveAccountToFirestore = saveAccountToSupabase;
-export const loadAccountsFromFirestore = loadAccountsFromSupabase;
-export const loadAccountFromFirestore = loadAccountFromSupabase;
-export const resetAccountInFirestore = resetAccountInSupabase;
-export const testFirestoreConnection = testSupabaseConnection;
-export const isFirestoreConnected = isSupabaseConnected;
-export const savePvpRoomToFirestore = savePvpRoomToSupabase;
-export const getPvpRoomFromFirestore = getPvpRoomFromSupabase;
-export const joinPvpRoomInFirestore = joinPvpRoomInSupabase;
-export const updatePvpRoomStatusInFirestore = updatePvpRoomStatusInSupabase;
-export const deletePvpRoomInFirestore = deletePvpRoomInSupabase;
-export const submitSpeakingToFirestore = submitSpeakingToSupabase;
-export const advancePvpCombatInFirestore = advancePvpCombatInSupabase;
-export const syncPvpActionToFirestore = syncPvpActionToSupabase;

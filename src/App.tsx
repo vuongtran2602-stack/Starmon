@@ -25,7 +25,7 @@ import { getEquipmentUpgradeCost, getItemLevelStats, ITEM_CRAFT_COST } from './d
 import { EQUIPMENT_ITEMS_CATALOG } from './data/itemsData';
 import { EventsModal } from './components/EventsModal';
 import { getDailyRewardStatus } from './data/dailyRewards';
-import { testFirestoreConnection, resetAccountInFirestore } from './services/firebase';
+import { testSupabaseConnection, resetAccountInSupabase } from './services/supabase';
 import { getResearchLevel, getUnlockedItemSlots, RESEARCH_NODES, ResearchNodeId, isResearchNodeUnlocked, getResearchStatBonuses } from './data/techResearch';
 
 const STORAGE_KEY = 'starmon_game_save_v4'; // v4: Quests start strictly at 0, chat empty at start, new epic quests, 2 starter packs, 0 Starmon
@@ -391,9 +391,9 @@ export default function App() {
     return INITIAL_CHAT_MESSAGES;
   });
 
-  // Central Server & Firebase Cloud Firestore Account Synchronization on mount
+  // Central server and Supabase account synchronization on mount
   useEffect(() => {
-    testFirestoreConnection().catch(() => {});
+    testSupabaseConnection().catch(() => {});
     if (sessionStorage.getItem('starmon_just_reset') === 'true') {
       sessionStorage.removeItem('starmon_just_reset');
       return;
@@ -1426,12 +1426,12 @@ export default function App() {
         sessionStorage.setItem('starmon_just_reset', 'true');
       } catch {}
 
-      // 1. Reset in the configured Firebase Cloud Firestore project.
+      // 1. Reset in the configured Supabase project.
       try {
-        if (gid) await resetAccountInFirestore(gid, u);
-        if (u) await resetAccountInFirestore(u, u);
+        if (gid) await resetAccountInSupabase(gid, u);
+        if (u) await resetAccountInSupabase(u, u);
       } catch (e) {
-        console.warn('Firestore reset notice:', e);
+        console.warn('Supabase reset notice:', e);
       }
 
       // 2. Reset on Express server store

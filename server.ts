@@ -2267,7 +2267,7 @@ wss.on('connection', (ws) => {
           const slot: 1 | 2 = (rawSlot === 2 || rawSlot === '2') ? 2 : 1;
           match.players[slot].socket = ws;
 
-          // If Firestore speakingSubmissions were forwarded, populate any missing results before starting Phase 2
+          // If cloud speaking submissions were forwarded, populate missing results before Phase 2
           if (Array.isArray(msg.slot1_results)) {
             match.players[1].starmons.forEach((s, idx) => {
               const ok = Boolean(msg.slot1_results[idx]) && s.hp > 0;

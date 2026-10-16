@@ -4,12 +4,10 @@ import { GOLD_IMAGE, GEM_IMAGE } from '../data/itemsData';
 import { INITIAL_QUESTS } from '../data/questsData';
 import { sound } from '../services/sound';
 import {
-  saveAccountToFirestore,
-  loadAccountsFromFirestore,
-  isFirestoreConnected,
-  testFirestoreConnection,
-  FIREBASE_PROJECT_ID,
-} from '../services/firebase';
+  saveAccountToSupabase,
+  loadAccountsFromSupabase,
+  SUPABASE_PROJECT_ID,
+} from '../services/supabase';
 import {
   User,
   Download,
@@ -81,8 +79,8 @@ export function saveAccount(account: UserAccount) {
     }
     localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(accounts));
 
-    // Centrally synchronize account to the configured Firebase Cloud Firestore project.
-    saveAccountToFirestore(account).catch(e => console.warn('Firestore account sync notice:', e));
+    // Centrally synchronize account to the configured Supabase project.
+    saveAccountToSupabase(account).catch(e => console.warn('Supabase account sync notice:', e));
 
     // Also synchronize account to backend Express store
     fetch('/api/accounts/sync', {
@@ -100,10 +98,10 @@ export async function syncAccountsFromServer(): Promise<Record<string, UserAccou
     const local = getAllAccounts();
     const merged = { ...local };
 
-    // 1. Fetch from the configured Firebase Cloud Firestore project.
+    // 1. Fetch from the configured Supabase project.
     try {
-      const firestoreAccounts = await loadAccountsFromFirestore();
-      for (const [key, acc] of Object.entries(firestoreAccounts)) {
+      const supabaseAccounts = await loadAccountsFromSupabase();
+      for (const [key, acc] of Object.entries(supabaseAccounts)) {
         if (acc && acc.username) {
           merged[key.toLowerCase()] = acc;
           if (acc.username) merged[acc.username.toLowerCase()] = acc;
@@ -111,8 +109,8 @@ export async function syncAccountsFromServer(): Promise<Record<string, UserAccou
           if (acc.email) merged[acc.email.toLowerCase()] = acc;
         }
       }
-    } catch (fsErr) {
-      console.warn('Firestore load accounts error:', fsErr);
+    } catch (supabaseErr) {
+      console.warn('Supabase load accounts error:', supabaseErr);
     }
 
     // 2. Fetch from backend store
@@ -652,7 +650,7 @@ export const AuthAndSaveModal: React.FC<Props> = ({
                 <span>Account & Cloud Save</span>
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono font-bold flex items-center gap-1">
                   <Cloud className="w-3 h-3 text-amber-400" />
-                  Firebase: {FIREBASE_PROJECT_ID}
+                  Supabase: {SUPABASE_PROJECT_ID}
                 </span>
               </h3>
               <p className="text-[11px] text-slate-400">
