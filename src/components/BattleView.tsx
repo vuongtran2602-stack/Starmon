@@ -758,11 +758,12 @@ export const BattleView: React.FC<Props> = ({
         type: 'PVP_REQUEST_PHASE_SYNC',
         room_code: pvpRoomInfo.code,
         phase: pvpFlowPhaseRef.current,
+        battlePhase: phase,
         step: pvpSyncedStepRef.current,
       });
     }, 2500);
     return () => clearInterval(syncTimer);
-  }, [isPvP, pvpRoomInfo?.code, sendPvpMessage]);
+  }, [isPvP, phase, pvpRoomInfo?.code, sendPvpMessage]);
 
   // Strictly unlocked Starmons can participate in combat (in PvP always ensure 3 Starmons for 3 questions)
   const unlockedOnly = (playerStarmons || []).filter(s => s && s.unlocked);

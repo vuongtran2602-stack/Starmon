@@ -649,10 +649,22 @@ function broadcastToRoom(roomCode: string, payload: any, senderWs?: WebSocket) {
   const normCode = normalizeRoomCode(roomCode);
   const clients = roomClients.get(normCode);
   if (!clients) return;
-  const message = JSON.stringify(payload);
+  let message: string;
+  try {
+    message = JSON.stringify(payload);
+  } catch (error) {
+    console.error(`[PvP] Could not serialize room broadcast (${normCode})`, error);
+    return;
+  }
   for (const client of clients) {
     if (client.readyState === WebSocket.OPEN && client !== senderWs) {
-      client.send(message);
+      try {
+        client.send(message);
+      } catch (error) {
+        // A socket may close between readyState and send(). One broken client
+        // must never abort the authoritative phase transition for the room.
+        console.warn(`[PvP] Could not deliver room broadcast (${normCode})`, error);
+      }
     }
   }
 }
@@ -1159,12 +1171,56 @@ function handlePhaseEnd(
   });
 
   if (state.subPhase === 1) {
-    startPhase(state, roomCode, 2);
+    try {
+      startPhase(state, roomCode, 2);
+    } catch (error) {
+      console.error(`[PvP] Failed to start phase ${state.turn}.2 for room ${roomCode}`, error);
+      retryFailedPhaseTransition(state, roomCode, expectedPhase, expectedPhaseEndsAt, generation);
+    }
   } else if (state.subPhase === 2) {
-    startPhase(state, roomCode, 3);
+    try {
+      startPhase(state, roomCode, 3);
+    } catch (error) {
+      console.error(`[PvP] Failed to start phase ${state.turn}.3 for room ${roomCode}`, error);
+      retryFailedPhaseTransition(state, roomCode, expectedPhase, expectedPhaseEndsAt, generation);
+    }
   } else if (state.subPhase === 3) {
-    checkWinAndContinue(state, roomCode);
+    try {
+      checkWinAndContinue(state, roomCode);
+    } catch (error) {
+      console.error(`[PvP] Failed to continue after phase ${expectedPhase} in room ${roomCode}`, error);
+      retryFailedPhaseTransition(state, roomCode, expectedPhase, expectedPhaseEndsAt, generation);
+    }
   }
+}
+
+function retryFailedPhaseTransition(
+  state: PvpMatchState,
+  roomCode: string,
+  expectedPhase: string,
+  expectedPhaseEndsAt: number,
+  generation: number,
+) {
+  // Retry only if transition setup failed before changing the authoritative
+  // phase. The delay prevents a persistent setup error from recursing inline.
+  if (
+    activeMatchStates.get(normalizeRoomCode(roomCode)) !== state ||
+    state.phase !== expectedPhase ||
+    state.phaseEndsAt !== expectedPhaseEndsAt ||
+    state.phaseTimerGeneration !== generation
+  ) return;
+
+  state.lastEndedPhase = undefined;
+  if (state.phaseTimerHandle) clearTimeout(state.phaseTimerHandle);
+  state.phaseTimerHandle = setTimeout(() => {
+    if (
+      activeMatchStates.get(normalizeRoomCode(roomCode)) !== state ||
+      state.phase !== expectedPhase ||
+      state.phaseEndsAt !== expectedPhaseEndsAt
+    ) return;
+    state.phaseTimerHandle = null;
+    schedulePhaseEnd(state, roomCode);
+  }, 1000);
 }
 
 function advanceIfPhaseExpired(state: PvpMatchState, roomCode: string): boolean {
@@ -2662,6 +2718,8 @@ wss.on('connection', (ws) => {
               }
             } else if (
               msg.phase !== match.phase ||
+              ((msg.battlePhase === 'phase1_quiz' || msg.battlePhase === 'phase2_combat') &&
+                msg.battlePhase !== (match.subPhase === 1 ? 'phase1_quiz' : 'phase2_combat')) ||
               msg.timerExpired === true ||
               msg.step === null ||
               (typeof msg.step === 'number' && msg.step !== match.step)
