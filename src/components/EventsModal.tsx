@@ -5,8 +5,8 @@ import { getDailyRewardStatus } from '../data/dailyRewards';
 import { GEM_IMAGE, GOLD_IMAGE, OMNI_CARD_IMAGE, STAR_SHARD_IMAGE, GOLDEN_ANVIL_IMAGE, COMMON_ITEM_PACK_IMAGE } from '../data/itemsData';
 import dailyRewardsBanner from '../assets/images/rewards/daily_rewards.png';
 import lockedIcon from '../assets/images/rewards/locked_icon.png';
-import chestClosed from '../assets/images/rewards/chest_closed.png';
-import chestOpened from '../assets/images/rewards/chest_opened.png';
+import chestClosed from '../assets/images/rewards/chest_closed.jpg';
+import chestOpened from '../assets/images/rewards/chest_opened.jpg';
 import claimButton from '../assets/images/rewards/claim_button.png';
 import eventsIcon from '../assets/images/rewards/events_icon.png';
 import starmonIcon from '../assets/icons/starmon_icon.png';
@@ -53,13 +53,13 @@ const DAILY_REWARDS: { day: number; title: string; detail: string; image: string
   { day: 7, title: 'Mystery Chest', detail: 'Spin for a random reward', image: chestClosed },
 ];
 const BOARD_SLOTS: Record<number, { left: string; top: string; width: string; height: string }> = {
-  1: { left: '33.8%', top: '43.5%', width: '12.8%', height: '16.3%' },
-  2: { left: '48.6%', top: '43.5%', width: '12.8%', height: '16.3%' },
-  3: { left: '63.3%', top: '43.5%', width: '12.8%', height: '16.3%' },
-  4: { left: '33.8%', top: '70.9%', width: '12.8%', height: '16.3%' },
-  5: { left: '48.6%', top: '70.9%', width: '12.8%', height: '16.3%' },
-  6: { left: '63.3%', top: '70.9%', width: '12.8%', height: '16.3%' },
-  7: { left: '81.8%', top: '56.5%', width: '14.5%', height: '19.5%' },
+  1: { left: '32.7%', top: '42.2%', width: '14%', height: '16.3%' },
+  2: { left: '48.8%', top: '42.2%', width: '14%', height: '16.3%' },
+  3: { left: '65.1%', top: '42.2%', width: '14%', height: '16.3%' },
+  4: { left: '32.7%', top: '71.9%', width: '14%', height: '16.3%' },
+  5: { left: '48.8%', top: '71.9%', width: '14%', height: '16.3%' },
+  6: { left: '65.1%', top: '71.9%', width: '14%', height: '16.3%' },
+  7: { left: '85%', top: '60%', width: '14.5%', height: '19.5%' },
 };
 
 function rollMysteryReward(): { category: PrizeCategory; reward: MysteryReward; midpoint: number } {
@@ -205,7 +205,7 @@ export const EventsModal: React.FC<Props> = ({ player, ownedStarmons, onClose, o
       {view === 'rewards' ? <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
         {notice && <div role="status" className="mx-auto mb-2 max-w-3xl rounded-xl border border-cyan-300/30 bg-cyan-950/80 px-4 py-2 text-center text-xs text-cyan-100">{notice}</div>}
         <div className="mx-auto w-full max-w-[760px]">
-          <div className="relative mx-auto w-full overflow-hidden" style={{ aspectRatio: '560 / 430' }}>
+          <div className="relative mx-auto w-full overflow-hidden" style={{ aspectRatio: '4 / 3' }}>
             <img src={dailyRewardsBanner} alt="Interactive seven-day Daily Rewards board" draggable={false} className="absolute inset-0 h-full w-full select-none object-fill" />
             {DAILY_REWARDS.map(entry => {
               const claimed = progress.claimedDays.includes(entry.day);
