@@ -39,6 +39,7 @@ grant all on public.starmon_accounts to service_role;
 
 alter table public.pvp_rooms enable row level security;
 grant select, insert, update, delete on public.pvp_rooms to anon, authenticated;
+grant all on public.pvp_rooms to service_role;
 drop policy if exists "Public access to PvP rooms" on public.pvp_rooms;
 create policy "Public access to PvP rooms" on public.pvp_rooms
   for all to anon, authenticated using (true) with check (true);

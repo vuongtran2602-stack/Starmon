@@ -2746,7 +2746,26 @@ app.post('/api/rooms/join', async (req, res) => {
     try {
       const { data, error } = await serverSupabase.from('pvp_rooms').select('*')
         .eq('room_code', normalizedInput).maybeSingle();
-      if (error) console.error('Supabase room lookup failed:', error.message);
+      if (error) {
+        console.error('Supabase room lookup failed:', {
+          code: error.code,
+          message: error.message,
+          hint: error.hint,
+        });
+        // A database permission/configuration failure is not the same as an
+        // unknown room code. Return a service error so the client can show
+        // the actual problem instead of asking the player to recheck the code.
+        if (error.code === '42501' || /permission denied|row-level security/i.test(error.message)) {
+          return res.status(503).json({
+            error: 'Backend chưa có quyền đọc bảng pvp_rooms trong Supabase. Hãy áp dụng grant/policy cho bảng và kiểm tra SUPABASE_SERVICE_ROLE_KEY trên Cloud Run.',
+            code: 'PVP_ROOM_STORE_PERMISSION_DENIED',
+          });
+        }
+        return res.status(503).json({
+          error: 'Không thể kiểm tra phòng trong Supabase lúc này. Vui lòng thử lại sau.',
+          code: 'PVP_ROOM_STORE_UNAVAILABLE',
+        });
+      }
       if (data) {
         room = {
           room_code: data.room_code || normalizedInput,
