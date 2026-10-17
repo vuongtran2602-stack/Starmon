@@ -5,9 +5,6 @@ import { StarmonAsset } from './StarmonAsset';
 import { ARENA_MAPS, getArenaMap } from '../data/arenaMaps';
 import { sound } from '../services/sound';
 import {
-  savePvpRoomToSupabase,
-  updatePvpRoomStatusInSupabase,
-  deletePvpRoomInSupabase,
   subscribeToPvpRoom,
   subscribeToActivePvpRooms,
   sanitizeRoomCode,
@@ -632,14 +629,6 @@ export const PvpLobbyModal: React.FC<Props> = ({
       }
       createdRoom = responseBody as PvpRoom;
 
-      // Supabase is the cross-device room mirror; the Express server remains
-      // authoritative for player slots and match state.
-      void savePvpRoomToSupabase(createdRoom).then(supabaseSaved => {
-        if (!supabaseSaved) {
-          console.warn('Supabase room mirror failed; room remains available on the game server.');
-        }
-      });
-
       setCurrentRoom(createdRoom);
       sound.playRewardFanfare();
 
@@ -700,8 +689,6 @@ export const PvpLobbyModal: React.FC<Props> = ({
       const resolved = { ...data.room, matchState: data.matchState || data.room.matchState } as PvpRoom;
       const effectiveId = data.joinedAsId || activeGoogleId;
       const effectiveName = data.joinedAsName || activeGoogleName;
-      // Keep the Supabase room mirror aligned with the server-assigned Player 2.
-      void savePvpRoomToSupabase(resolved);
       sound.playRewardFanfare();
       setActiveGoogleId(effectiveId);
       setActiveGoogleName(effectiveName);
@@ -741,20 +728,25 @@ export const PvpLobbyModal: React.FC<Props> = ({
 
     const roomCode = currentRoom.room_code || currentRoom.code;
 
-    // 1. Update status in Supabase
-    await updatePvpRoomStatusInSupabase(roomCode, 'IN_GAME');
-
-    // 2. Also notify server
+    // The server owns room status and writes it to the shared store.
     try {
-      await fetch('/api/rooms/start', {
+      const response = await fetch('/api/rooms/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           room_code: roomCode,
-          user_id: activeGoogleId,
+          username: pvpAuth?.username,
+          device_id: pvpAuth?.deviceId,
+          auth_token: pvpAuth?.sessionToken,
         }),
       });
-    } catch {}
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.error || 'Không thể bắt đầu trận PvP.');
+    } catch (error: any) {
+      setJoinError(error?.message || 'Không thể bắt đầu trận PvP.');
+      setIsProcessing(false);
+      return;
+    }
 
     handleMatchLaunch({ ...currentRoom, status: 'IN_GAME' });
     setIsProcessing(false);
@@ -767,10 +759,6 @@ export const PvpLobbyModal: React.FC<Props> = ({
 
     const roomCode = currentRoom.room_code || currentRoom.code;
     const cleanCode = sanitizeRoomCode(roomCode);
-
-    if (isHost) {
-      deletePvpRoomInSupabase(cleanCode).catch(() => {});
-    }
 
     try {
       await fetch('/api/rooms/leave', {

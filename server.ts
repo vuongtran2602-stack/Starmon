@@ -139,28 +139,45 @@ function syncRoomsToSupabase(rooms: PvpRoom[]) {
   }));
   void (async () => {
     if (rows.length) {
-      const { error } = await serverSupabase.from('pvp_rooms').upsert(rows, { onConflict: 'room_code' });
-      if (error) console.error('Supabase room persistence failed:', error.message);
+      try {
+        const { error } = await serverSupabase.from('pvp_rooms').upsert(rows, { onConflict: 'room_code' });
+        if (error) console.error('Supabase room persistence failed:', error.message);
+      } catch (error) {
+        console.error('Supabase room persistence failed:', error);
+      }
     }
   })();
 }
 
-async function deleteRoomFromSupabase(roomCode: string): Promise<void> {
-  if (!serverSupabase) return;
+async function deleteRoomFromSupabase(roomCode: string): Promise<{ success: boolean; error?: any }> {
+  if (!serverSupabase) return requiresSharedRoomStore
+    ? { success: false, error: new Error('SUPABASE_SERVICE_ROLE_KEY is not configured') }
+    : { success: true };
   const normalizedCode = normalizeRoomCode(roomCode);
-  if (!normalizedCode) return;
+  if (!normalizedCode) return { success: false, error: new Error('Invalid room code') };
   try {
     const { error } = await serverSupabase.from('pvp_rooms').delete().eq('room_code', normalizedCode);
-    if (error) console.error('Supabase room deletion failed:', error.message);
+    if (error) {
+      console.error('Supabase room deletion failed:', error.message);
+      return { success: false, error };
+    }
+    return { success: true };
   } catch (error) {
     console.error('Supabase room deletion failed:', error);
+    return { success: false, error };
   }
 }
 
-async function persistRoomToSupabase(room: PvpRoom): Promise<void> {
-  if (!serverSupabase) return;
+const requiresSharedRoomStore = process.env.NODE_ENV === 'production' || Boolean(process.env.K_SERVICE);
+
+async function persistRoomToSupabase(room: PvpRoom, insertOnly = false): Promise<{ success: boolean; error?: any }> {
+  if (!serverSupabase) {
+    return requiresSharedRoomStore
+      ? { success: false, error: new Error('SUPABASE_SERVICE_ROLE_KEY is not configured') }
+      : { success: true };
+  }
   const roomCode = normalizeRoomCode(room.room_code || room.code);
-  const { error } = await serverSupabase.from('pvp_rooms').upsert({
+  const row = {
     room_code: roomCode,
     code: roomCode,
     host_id: room.host_id,
@@ -174,8 +191,20 @@ async function persistRoomToSupabase(room: PvpRoom): Promise<void> {
     match_state: (room as any).matchState || null,
     created_at: room.createdAt,
     updated_at: room.updatedAt || Date.now(),
-  }, { onConflict: 'room_code' });
-  if (error) console.error('Supabase room persistence failed:', error.message);
+  };
+  try {
+    const result = insertOnly
+      ? await serverSupabase.from('pvp_rooms').insert(row)
+      : await serverSupabase.from('pvp_rooms').upsert(row, { onConflict: 'room_code' });
+    if (result.error) {
+      console.error('Supabase room persistence failed:', result.error.message);
+      return { success: false, error: result.error };
+    }
+    return { success: true };
+  } catch (error) {
+    console.error('Supabase room persistence failed:', error);
+    return { success: false, error };
+  }
 }
 
 export interface ServerUserAccount {
@@ -491,6 +520,33 @@ function normalizeRoomPlayers(players: PlayerInRoom[] | undefined, hostId: strin
   if (hostIndex > 0) normalized.unshift(...normalized.splice(hostIndex, 1));
   if (!normalized.length) normalized.push(hostFallback);
   return normalized.slice(0, 2).map((player, index) => ({ ...player, isHost: index === 0 }));
+}
+
+function pvpRoomFromSupabaseRow(row: any): PvpRoom {
+  const hostId = String(row.host_id || 'host_default');
+  const hostFallback: PlayerInRoom = {
+    id: hostId,
+    name: row.host_name || row.hostName || 'Player',
+    level: row.host_level || row.hostLevel || 1,
+    isHost: true,
+    isReady: true,
+    starmons: [],
+  };
+  return {
+    room_code: row.room_code || row.code,
+    code: row.room_code || row.code,
+    host_id: hostId,
+    hostName: hostFallback.name,
+    hostLevel: hostFallback.level,
+    guestName: row.guest_name || row.guestName || undefined,
+    guestLevel: row.guest_level || row.guestLevel || 1,
+    arena: row.arena || 'Sunken Sands',
+    status: row.status || 'WAITING',
+    players: normalizeRoomPlayers(row.players, hostId, hostFallback),
+    createdAt: Number(row.created_at || row.createdAt) || Date.now(),
+    updatedAt: Number(row.updated_at || row.updatedAt) || Date.now(),
+    ...(row.match_state ? { matchState: row.match_state } : {}),
+  } as PvpRoom;
 }
 
 function loadRooms(): PvpRoom[] {
@@ -2744,19 +2800,59 @@ app.post('/api/pvp-auth/logout', async (req, res) => {
   }
 });
 
-app.get('/api/rooms', (_req, res) => {
+app.get('/api/rooms', async (_req, res) => {
   activeRooms = loadRooms();
   // Filter out any abandoned rooms older than 24 hours
   const now = Date.now();
   activeRooms = activeRooms.filter(r => (now - (r.createdAt || now)) < 86400000 && r.status === 'WAITING');
+  if (serverSupabase) {
+    try {
+      const { data, error } = await serverSupabase.from('pvp_rooms').select('*')
+        .eq('status', 'WAITING').gte('created_at', now - 86400000).limit(500);
+      if (error) {
+        console.error('Supabase room list lookup failed:', error.message);
+        return res.status(503).json({
+          error: 'Không thể tải danh sách phòng từ kho dùng chung. Kiểm tra quyền SELECT trên public.pvp_rooms.',
+          code: 'PVP_ROOM_STORE_UNAVAILABLE',
+        });
+      }
+      const byCode = new Map<string, PvpRoom>();
+      if (!requiresSharedRoomStore) {
+        activeRooms.forEach(room => byCode.set(normalizeRoomCode(room.room_code || room.code), room));
+      }
+      (data || []).forEach(row => {
+        const room = pvpRoomFromSupabaseRow(row);
+        byCode.set(normalizeRoomCode(room.room_code || room.code), room);
+      });
+      return res.json(Array.from(byCode.values()));
+    } catch (error) {
+      console.error('Supabase room list lookup failed:', error);
+      return res.status(503).json({ error: 'Không thể kết nối kho phòng PvP dùng chung.', code: 'PVP_ROOM_STORE_UNAVAILABLE' });
+    }
+  }
+  if (requiresSharedRoomStore) {
+    return res.status(503).json({ error: 'Máy chủ chưa được cấu hình kho phòng Supabase dùng chung.', code: 'PVP_ROOM_STORE_UNAVAILABLE' });
+  }
   res.json(activeRooms);
 });
 
 // API: Get specific PvP Room by code
-app.get('/api/rooms/:code', (req, res) => {
+app.get('/api/rooms/:code', async (req, res) => {
   const targetCode = normalizeRoomCode(req.params.code || '');
   activeRooms = loadRooms();
-  const room = activeRooms.find(r => normalizeRoomCode(r.room_code || r.code) === targetCode);
+  let room = activeRooms.find(r => normalizeRoomCode(r.room_code || r.code) === targetCode);
+  if (serverSupabase) {
+    try {
+      const { data, error } = await serverSupabase.from('pvp_rooms').select('*').eq('room_code', targetCode).maybeSingle();
+      if (error) return res.status(503).json({ error: 'Không thể tra cứu phòng trong Supabase.', code: 'PVP_ROOM_STORE_UNAVAILABLE' });
+      room = data ? pvpRoomFromSupabaseRow(data) : null;
+    } catch (error) {
+      console.error('Supabase room lookup failed:', error);
+      return res.status(503).json({ error: 'Không thể kết nối kho phòng PvP dùng chung.', code: 'PVP_ROOM_STORE_UNAVAILABLE' });
+    }
+  } else if (requiresSharedRoomStore) {
+    return res.status(503).json({ error: 'Máy chủ chưa được cấu hình kho phòng Supabase dùng chung.', code: 'PVP_ROOM_STORE_UNAVAILABLE' });
+  }
 
   if (room) {
     res.json(room);
@@ -2777,6 +2873,9 @@ app.post('/api/rooms/create', async (req, res) => {
     return res.status(503).json({ error: 'Không thể xác minh đăng nhập PvP lúc này.' });
   }
   if (!authenticatedUsername) return res.status(401).json({ error: 'Vui lòng đăng nhập tài khoản PvP trước khi tạo phòng.' });
+  if (requiresSharedRoomStore && !serverSupabase) {
+    return res.status(503).json({ error: 'Máy chủ PvP chưa có SUPABASE_SERVICE_ROLE_KEY nên không thể lưu phòng dùng chung.', code: 'PVP_ROOM_STORE_UNAVAILABLE' });
+  }
   const {
     host_id,
     host_name,
@@ -2803,14 +2902,18 @@ app.post('/api/rooms/create', async (req, res) => {
   activeRooms = loadRooms();
   const normNewCode = normalizeRoomCode(code);
   let existingRoom = activeRooms.find(r => normalizeRoomCode(r.room_code || r.code) === normNewCode);
-  if (!existingRoom && serverSupabase) {
+  if (serverSupabase) {
     try {
       const { data, error } = await serverSupabase.from('pvp_rooms').select('room_code')
         .eq('room_code', normNewCode).maybeSingle();
-      if (error) console.error('Supabase duplicate room lookup failed:', error.message);
+      if (error) {
+        console.error('Supabase duplicate room lookup failed:', error.message);
+        return res.status(503).json({ error: 'Không thể kiểm tra mã phòng trong Supabase.', code: 'PVP_ROOM_STORE_UNAVAILABLE' });
+      }
       if (data) existingRoom = { room_code: normNewCode } as PvpRoom;
     } catch (error) {
       console.error('Supabase duplicate room lookup failed:', error);
+      return res.status(503).json({ error: 'Không thể kết nối kho phòng PvP dùng chung.', code: 'PVP_ROOM_STORE_UNAVAILABLE' });
     }
   }
   if (existingRoom) {
@@ -2849,9 +2952,18 @@ app.post('/api/rooms/create', async (req, res) => {
     updatedAt: Date.now(),
   };
 
+  const persisted = await persistRoomToSupabase(newRoom, true);
+  if (!persisted.success) {
+    if (persisted.error?.code === '23505') {
+      return res.status(409).json({ error: `Mã phòng ${code} đang được sử dụng. Hãy chọn mã khác.` });
+    }
+    return res.status(503).json({
+      error: 'Không lưu được phòng lên Supabase. Kiểm tra quyền INSERT và UPDATE cho service_role trên public.pvp_rooms.',
+      code: 'PVP_ROOM_STORE_WRITE_FAILED',
+    });
+  }
   activeRooms.unshift(newRoom);
   saveRooms(activeRooms);
-  await persistRoomToSupabase(newRoom);
   broadcastRoomList();
   res.json(newRoom);
 });
@@ -2868,6 +2980,9 @@ app.post('/api/rooms/join', async (req, res) => {
     return res.status(503).json({ error: 'Không thể xác minh đăng nhập PvP lúc này.' });
   }
   if (!authenticatedUsername) return res.status(401).json({ error: 'Vui lòng đăng nhập tài khoản PvP trước khi vào phòng.' });
+  if (requiresSharedRoomStore && !serverSupabase) {
+    return res.status(503).json({ error: 'Máy chủ PvP chưa có SUPABASE_SERVICE_ROLE_KEY nên không thể tra cứu phòng dùng chung.', code: 'PVP_ROOM_STORE_UNAVAILABLE' });
+  }
   const {
     room_code,
     code,
@@ -2890,9 +3005,10 @@ app.post('/api/rooms/join', async (req, res) => {
   activeRooms = loadRooms();
   let room = activeRooms.find(r => normalizeRoomCode(r.room_code || r.code) === normalizedInput);
 
-  // A room may have been created on another app server. Resolve it from the
-  // shared Supabase store before treating a valid code as missing.
-  if (!room && serverSupabase) {
+  // Supabase is authoritative for Cloud Run instances; each instance has its
+  // own local filesystem and can otherwise mistake another instance's room
+  // for a missing code.
+  if (serverSupabase) {
     try {
       const { data, error } = await serverSupabase.from('pvp_rooms').select('*')
         .eq('room_code', normalizedInput).maybeSingle();
@@ -2917,32 +3033,22 @@ app.post('/api/rooms/join', async (req, res) => {
         });
       }
       if (data) {
-        room = {
-          room_code: data.room_code || normalizedInput,
-          code: data.room_code || normalizedInput,
-          host_id: data.host_id || 'host_default',
-          hostName: data.host_name || data.hostName || 'Player',
-          hostLevel: data.host_level || data.hostLevel || 1,
-          guestName: data.guest_name || data.guestName,
-          guestLevel: data.guest_level || data.guestLevel || 1,
-          arena: data.arena || 'Sunken Sands',
-          status: data.status || 'WAITING',
-          players: normalizeRoomPlayers(data.players, data.host_id || 'host_default', {
-                id: data.host_id || 'host_default',
-                name: data.host_name || data.hostName || 'Player',
-                level: data.host_level || data.hostLevel || 1,
-                isHost: true,
-                isReady: true,
-                starmons: [],
-              }),
-          createdAt: data.created_at || data.createdAt || Date.now(),
-          updatedAt: data.updated_at || data.updatedAt || Date.now(),
-        } as PvpRoom;
-        activeRooms.unshift(room);
+        room = pvpRoomFromSupabaseRow(data);
+        const localIndex = activeRooms.findIndex(r => normalizeRoomCode(r.room_code || r.code) === normalizedInput);
+        if (localIndex >= 0) activeRooms[localIndex] = room;
+        else activeRooms.unshift(room);
+      } else if (requiresSharedRoomStore) {
+        room = undefined;
       }
     } catch (error) {
       console.error('Could not resolve PvP room from Supabase:', error);
+      return res.status(503).json({
+        error: 'Không thể kết nối kho phòng PvP dùng chung. Vui lòng thử lại sau.',
+        code: 'PVP_ROOM_STORE_UNAVAILABLE',
+      });
     }
+  } else if (requiresSharedRoomStore) {
+    return res.status(503).json({ error: 'Máy chủ PvP chưa được cấu hình Supabase dùng chung.', code: 'PVP_ROOM_STORE_UNAVAILABLE' });
   }
 
   if (!room) {
@@ -2995,8 +3101,15 @@ app.post('/api/rooms/join', async (req, res) => {
   room.status = 'IN_GAME';
   room.updatedAt = Date.now();
 
+  const persisted = await persistRoomToSupabase(room);
+  if (!persisted.success) {
+    activeRooms = loadRooms();
+    return res.status(503).json({
+      error: 'Không lưu được trạng thái phòng lên Supabase. Kiểm tra quyền INSERT và UPDATE cho service_role trên public.pvp_rooms.',
+      code: 'PVP_ROOM_STORE_WRITE_FAILED',
+    });
+  }
   saveRooms(activeRooms);
-  await persistRoomToSupabase(room);
   const normCode = normalizeRoomCode(room.room_code || room.code);
   const isNewMatch = !activeMatchStates.has(normCode);
   const match = isNewMatch ? initializeMatchForRoom(room) : activeMatchStates.get(normCode)!;
@@ -3029,16 +3142,48 @@ app.post('/api/rooms/join', async (req, res) => {
 });
 
 // API: Start Match (called by Host when challenger is in room)
-app.post('/api/rooms/start', (req, res) => {
-  const { room_code, code, user_id } = req.body;
+app.post('/api/rooms/start', async (req, res) => {
+  let authenticatedUsername: string | null;
+  try {
+    authenticatedUsername = await verifyPvpSession(
+      String(req.body?.username || ''), String(req.body?.device_id || ''), String(req.body?.auth_token || '')
+    );
+  } catch (error) {
+    console.error('PvP match start authentication failed:', error);
+    return res.status(503).json({ error: 'Không thể xác minh đăng nhập PvP lúc này.' });
+  }
+  if (!authenticatedUsername) return res.status(401).json({ error: 'Vui lòng đăng nhập trước khi bắt đầu trận.' });
+  if (requiresSharedRoomStore && !serverSupabase) {
+    return res.status(503).json({ error: 'Máy chủ PvP chưa được cấu hình kho phòng Supabase dùng chung.', code: 'PVP_ROOM_STORE_UNAVAILABLE' });
+  }
+  const { room_code, code } = req.body;
   const rawInput = (room_code || code || '').toString().trim();
   const normalizedInput = normalizeRoomCode(rawInput);
 
   activeRooms = loadRooms();
-  const room = activeRooms.find(r => normalizeRoomCode(r.room_code || r.code) === normalizedInput);
+  let room = activeRooms.find(r => normalizeRoomCode(r.room_code || r.code) === normalizedInput);
+  if (serverSupabase) {
+    try {
+      const { data, error } = await serverSupabase.from('pvp_rooms').select('*').eq('room_code', normalizedInput).maybeSingle();
+      if (error) return res.status(503).json({ error: 'Không thể tải trạng thái phòng từ Supabase.', code: 'PVP_ROOM_STORE_UNAVAILABLE' });
+      if (data) {
+        room = pvpRoomFromSupabaseRow(data);
+        const localIndex = activeRooms.findIndex(r => normalizeRoomCode(r.room_code || r.code) === normalizedInput);
+        if (localIndex >= 0) activeRooms[localIndex] = room;
+        else activeRooms.unshift(room);
+      } else if (requiresSharedRoomStore) room = undefined;
+    } catch (error) {
+      console.error('Could not load room before starting PvP match:', error);
+      return res.status(503).json({ error: 'Không thể kết nối kho phòng PvP dùng chung.', code: 'PVP_ROOM_STORE_UNAVAILABLE' });
+    }
+  }
 
   if (!room) {
     return res.status(404).json({ error: 'Không tìm thấy phòng!' });
+  }
+
+  if (String(room.host_id || '').toLowerCase() !== authenticatedUsername.toLowerCase()) {
+    return res.status(403).json({ error: 'Chỉ chủ phòng mới có thể bắt đầu trận.' });
   }
 
   if (room.players.length < 2) {
@@ -3047,6 +3192,11 @@ app.post('/api/rooms/start', (req, res) => {
 
   room.status = 'IN_GAME';
   room.updatedAt = Date.now();
+
+  const persisted = await persistRoomToSupabase(room);
+  if (!persisted.success) {
+    return res.status(503).json({ error: 'Không lưu được trạng thái phòng lên Supabase.', code: 'PVP_ROOM_STORE_WRITE_FAILED' });
+  }
 
   saveRooms(activeRooms);
   const isNewMatch = !activeMatchStates.has(normalizedInput);
@@ -3074,11 +3224,30 @@ app.post('/api/rooms/leave', async (req, res) => {
     return res.status(503).json({ error: 'Không thể xác minh đăng nhập PvP lúc này.' });
   }
   if (!authenticatedUsername) return res.status(401).json({ error: 'Vui lòng đăng nhập tài khoản PvP trước khi rời phòng.' });
+  if (requiresSharedRoomStore && !serverSupabase) {
+    return res.status(503).json({ error: 'Máy chủ PvP chưa được cấu hình kho phòng Supabase dùng chung.', code: 'PVP_ROOM_STORE_UNAVAILABLE' });
+  }
   const rawInput = (room_code || code || '').toString().trim();
   const normalizedInput = normalizeRoomCode(rawInput);
 
   activeRooms = loadRooms();
-  const room = activeRooms.find(r => normalizeRoomCode(r.room_code || r.code) === normalizedInput);
+  let room = activeRooms.find(r => normalizeRoomCode(r.room_code || r.code) === normalizedInput);
+  if (serverSupabase) {
+    try {
+      const { data, error } = await serverSupabase.from('pvp_rooms').select('*').eq('room_code', normalizedInput).maybeSingle();
+      if (error) return res.status(503).json({ error: 'Không thể tải trạng thái phòng từ Supabase.', code: 'PVP_ROOM_STORE_UNAVAILABLE' });
+      if (!data) room = undefined;
+      else {
+        room = pvpRoomFromSupabaseRow(data);
+        const localIndex = activeRooms.findIndex(r => normalizeRoomCode(r.room_code || r.code) === normalizedInput);
+        if (localIndex >= 0) activeRooms[localIndex] = room;
+        else activeRooms.unshift(room);
+      }
+    } catch (error) {
+      console.error('Could not load room before leaving PvP room:', error);
+      return res.status(503).json({ error: 'Không thể kết nối kho phòng PvP dùng chung.', code: 'PVP_ROOM_STORE_UNAVAILABLE' });
+    }
+  }
 
   if (room) {
     const isHost = authenticatedUsername.toLowerCase() === String(room.host_id || '').toLowerCase();
@@ -3086,11 +3255,12 @@ app.post('/api/rooms/leave', async (req, res) => {
     if (!isRoomMember) return res.status(403).json({ error: 'Tài khoản này không thuộc phòng PvP.' });
     if (isHost) {
       // Host leaves: close room
+      const deleted = await deleteRoomFromSupabase(normalizedInput);
+      if (!deleted.success) return res.status(503).json({ error: 'Không thể xóa phòng khỏi Supabase.', code: 'PVP_ROOM_STORE_WRITE_FAILED' });
       room.status = 'FINISHED';
       activeRooms = activeRooms.filter(r => normalizeRoomCode(r.room_code || r.code) !== normalizedInput);
       activeMatchStates.delete(normalizedInput);
       saveRooms(activeRooms);
-      await deleteRoomFromSupabase(normalizedInput);
       broadcastToRoom(room.room_code, { type: 'ROOM_CLOSED', room_code: room.room_code });
     } else {
       // Guest leaves
@@ -3098,8 +3268,9 @@ app.post('/api/rooms/leave', async (req, res) => {
       room.guestName = undefined;
       room.status = 'WAITING';
       room.updatedAt = Date.now();
+      const persisted = await persistRoomToSupabase(room);
+      if (!persisted.success) return res.status(503).json({ error: 'Không lưu được trạng thái phòng lên Supabase.', code: 'PVP_ROOM_STORE_WRITE_FAILED' });
       saveRooms(activeRooms);
-      await persistRoomToSupabase(room);
       broadcastToRoom(room.room_code, { type: 'ROOM_STATE_UPDATED', room });
     }
     broadcastRoomList();
