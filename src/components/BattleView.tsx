@@ -297,6 +297,7 @@ export const BattleView: React.FC<Props> = ({
   const currentArenaMap = getArenaMap(pvpRoomInfo?.arena);
   const requiredSpeakingBand = isPvP ? 5.0 : Math.min(7.5, 5 + Math.floor(pveLevel / 10) * 0.5);
   const pvpWsRef = useRef<WebSocket | null>(null);
+  const lastPvpSocketAckAtRef = useRef(0);
   const currentRoundNumberRef = useRef(currentRoundNumber);
   currentRoundNumberRef.current = currentRoundNumber;
   const syncBoardRef = useRef<((grid: any) => void) | null>(null);
@@ -754,6 +755,11 @@ export const BattleView: React.FC<Props> = ({
   useEffect(() => {
     if (!isPvP || !pvpRoomInfo?.code) return;
     const syncTimer = setInterval(() => {
+      if (Date.now() - lastPvpSocketAckAtRef.current > 10000) {
+        const socket = pvpWsRef.current;
+        if (socket && socket.readyState === WebSocket.OPEN) socket.close();
+        return;
+      }
       sendPvpMessage({
         type: 'PVP_REQUEST_PHASE_SYNC',
         room_code: pvpRoomInfo.code,
@@ -1223,10 +1229,20 @@ export const BattleView: React.FC<Props> = ({
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = (import.meta as any).env?.VITE_WS_URL || `${protocol}//${window.location.host}/ws`;
-    const ws = new WebSocket(wsUrl);
-    pvpWsRef.current = ws;
+    let activeSocket: WebSocket | null = null;
+    let reconnectTimer: number | null = null;
+    let reconnectAttempt = 0;
+    let disposed = false;
 
-    ws.onopen = () => {
+    const connect = () => {
+      if (disposed) return;
+      const ws = new WebSocket(wsUrl);
+      activeSocket = ws;
+      pvpWsRef.current = ws;
+
+      ws.onopen = () => {
+      if (disposed || activeSocket !== ws) return;
+      lastPvpSocketAckAtRef.current = Date.now();
       setPvpIsConnected(true);
       const initialSlot: 1 | 2 = pvpRoomInfo.isHost ? 1 : 2;
       setPvpMySlot(initialSlot);
@@ -1245,7 +1261,8 @@ export const BattleView: React.FC<Props> = ({
       }));
     };
 
-    ws.onmessage = (event) => {
+      ws.onmessage = (event) => {
+      if (disposed || activeSocket !== ws) return;
       try {
         const msg = JSON.parse(event.data);
         switch (msg.type) {
@@ -1327,6 +1344,8 @@ export const BattleView: React.FC<Props> = ({
           }
 
           case 'PVP_MATCH_STATE_SYNC': {
+            lastPvpSocketAckAtRef.current = Date.now();
+            reconnectAttempt = 0;
             if (typeof msg.slot === 'number') {
               const s: 1 | 2 = msg.slot === 2 ? 2 : 1;
               setPvpMySlot(s);
@@ -1352,6 +1371,7 @@ export const BattleView: React.FC<Props> = ({
                 setPvpActionMenu(null);
                 setPhase('phase1_quiz');
                 preparePvpQuizForTurn(tNum, msg.time_limit);
+                if (typeof msg.time_limit === 'number') setQuestionTimer(msg.time_limit);
               } else if (sPhase === 2 || sPhase === 3) {
                 setIsActionPendingServer(false);
                 setPvpWaitingForOpponentSpeaking(false);
@@ -1422,6 +1442,7 @@ export const BattleView: React.FC<Props> = ({
                 setTimeout(() => setPvpTurnBanner(null), 4000);
                 sound.playSwoosh();
               }
+              if (typeof msg.time_limit === 'number') setQuestionTimer(msg.time_limit);
             } else if (sub === 2 || sub === 3) {
               setIsActionPendingServer(false);
               setPvpWaitingForOpponentSpeaking(false);
@@ -1736,6 +1757,12 @@ export const BattleView: React.FC<Props> = ({
             break;
           }
 
+          case 'PVP_SYNC_ACK': {
+            lastPvpSocketAckAtRef.current = Date.now();
+            reconnectAttempt = 0;
+            break;
+          }
+
           case 'game_over':
           case 'PVP_MATCH_FINISHED': {
             const mySlot = pvpMySlotRef.current;
@@ -1763,15 +1790,35 @@ export const BattleView: React.FC<Props> = ({
       }
     };
 
-    ws.onclose = () => {
-      setPvpIsConnected(false);
+      ws.onerror = () => {
+        // onclose owns the reconnect schedule; close explicitly so browsers
+        // that only emit error still enter that recovery path.
+        if (ws.readyState !== WebSocket.CLOSED) ws.close();
+      };
+
+      ws.onclose = () => {
+        if (activeSocket !== ws) return;
+        activeSocket = null;
+        if (pvpWsRef.current === ws) pvpWsRef.current = null;
+        setPvpIsConnected(false);
+        if (disposed) return;
+        const delayMs = Math.min(1000 * (2 ** reconnectAttempt), 15000);
+        reconnectAttempt += 1;
+        reconnectTimer = window.setTimeout(connect, delayMs);
+      };
     };
 
+    connect();
+
     return () => {
-      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+      disposed = true;
+      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
+      const ws = activeSocket;
+      activeSocket = null;
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
         ws.close();
       }
-      pvpWsRef.current = null;
+      if (pvpWsRef.current === ws) pvpWsRef.current = null;
     };
   }, [isPvP, pvpRoomInfo?.code, pvpRoomInfo?.myPlayerId]);
 
@@ -1990,6 +2037,7 @@ export const BattleView: React.FC<Props> = ({
         room_code: pvpRoomInfo.code,
         slot: pvpMySlotRef.current,
         player_id: pvpRoomInfo.myPlayerId || 'player',
+        round_number: currentRoundNumberRef.current,
         results: [...pvpQuizAnswersRef.current],
       });
     }
@@ -2102,6 +2150,7 @@ export const BattleView: React.FC<Props> = ({
         room_code: pvpRoomInfo.code,
         slot: pvpMySlotRef.current,
         player_id: pvpRoomInfo.myPlayerId || 'player',
+        round_number: currentRoundNumberRef.current,
         results: [...pvpQuizAnswersRef.current],
       });
     }
@@ -2773,6 +2822,7 @@ export const BattleView: React.FC<Props> = ({
           room_code: pvpRoomInfo.code,
           slot: pvpMySlotRef.current,
           player_id: pvpRoomInfo.myPlayerId || 'player',
+          round_number: currentRoundNumberRef.current,
           results: finalResults,
           finished: true,
         });

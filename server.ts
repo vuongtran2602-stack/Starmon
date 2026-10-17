@@ -2376,6 +2376,12 @@ wss.on('connection', (ws) => {
                 attackerSlot,
                 targetSlot,
                 round_number: match.turn,
+                time_limit: match.subPhase === 1
+                  ? Math.max(0, Math.ceil((match.phaseStartedAt + ANSWER_DURATION_MS - Date.now()) / 1000))
+                  : Math.max(0, Math.ceil((match.phaseEndsAt - Date.now()) / 1000)),
+                analysis_buffer: match.subPhase === 1
+                  ? Math.ceil(Math.max(0, match.phaseEndsAt - (match.phaseStartedAt + ANSWER_DURATION_MS)) / 1000)
+                  : 0,
                 state: serializeMatchState(match),
                 matchState: serializeMatchState(match),
                 board: match.board,
@@ -2424,7 +2430,12 @@ wss.on('connection', (ws) => {
           const targetCode = normalizeRoomCode(msg.room_code || currentRoomCode || '');
           const match = activeMatchStates.get(targetCode);
           const socketAuth = pvpBattleSocketAuth.get(ws);
-          if (!match || !targetCode || match.subPhase !== 1 || !socketAuth) break;
+          if (!match || !targetCode || !socketAuth) break;
+          if (match.subPhase !== 1 ||
+              (msg.round_number != null && Number(msg.round_number) !== match.turn)) {
+            sendCurrentCombatPhaseToSocket(match, ws, socketAuth.slot);
+            break;
+          }
 
           // Never let a client-provided slot redirect answer state to the other
           // player. The authenticated room username is the slot authority.
@@ -2538,6 +2549,11 @@ wss.on('connection', (ws) => {
             }
           }
           if (!match) break;
+
+          if (msg.round_number != null && Number(msg.round_number) !== match.turn) {
+            sendCurrentCombatPhaseToSocket(match, ws, socketAuth.slot);
+            break;
+          }
 
           // Use the same username-derived slot as PVP_JOIN_BATTLE, even if a
           // stale client ref still reports the previous slot.
@@ -2736,6 +2752,19 @@ wss.on('connection', (ws) => {
               if (!match.phaseTimerHandle) schedulePhaseEnd(match, targetCode);
               sendCurrentCombatPhaseToSocket(match, ws, auth.slot);
             }
+            try {
+              ws.send(JSON.stringify({
+                type: 'PVP_SYNC_ACK',
+                phase: match.phase,
+                turn: match.turn,
+                subPhase: match.subPhase,
+                step: match.step,
+                phaseEndsAt: match.phaseEndsAt,
+                serverTime: Date.now(),
+              }));
+            } catch (error) {
+              console.warn(`[PvP] Could not acknowledge phase sync (${targetCode})`, error);
+            }
           }
           break;
         }
@@ -2822,6 +2851,9 @@ wss.on('connection', (ws) => {
   ws.on('close', () => {
     const socketAuth = pvpBattleSocketAuth.get(ws);
     if (socketAuth) {
+      const match = currentRoomCode ? activeMatchStates.get(currentRoomCode) : undefined;
+      const player = match?.players[socketAuth.slot];
+      if (player?.socket === ws) player.socket = null;
       const accountSockets = pvpBattleSocketsByUsername.get(socketAuth.username.toLowerCase());
       accountSockets?.delete(ws);
       if (accountSockets?.size === 0) pvpBattleSocketsByUsername.delete(socketAuth.username.toLowerCase());
