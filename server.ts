@@ -647,8 +647,16 @@ const wss = new WebSocketServer({ server });
 
 function broadcastToRoom(roomCode: string, payload: any, senderWs?: WebSocket) {
   const normCode = normalizeRoomCode(roomCode);
-  const clients = roomClients.get(normCode);
-  if (!clients) return;
+  const clients = new Set(roomClients.get(normCode) || []);
+  // Keep the authenticated match sockets as a delivery fallback. A socket can
+  // temporarily be absent from roomClients after reconnect bookkeeping while
+  // still being the current socket recorded for its player slot.
+  const match = activeMatchStates.get(normCode);
+  if (match) {
+    if (match.players[1].socket) clients.add(match.players[1].socket);
+    if (match.players[2].socket) clients.add(match.players[2].socket);
+  }
+  if (clients.size === 0) return;
   let message: string;
   try {
     message = JSON.stringify(payload);
@@ -2415,12 +2423,12 @@ wss.on('connection', (ws) => {
         case 'PVP_ANSWER_PROGRESS': {
           const targetCode = normalizeRoomCode(msg.room_code || currentRoomCode || '');
           const match = activeMatchStates.get(targetCode);
-          if (!match || !targetCode || match.subPhase !== 1) break;
+          const socketAuth = pvpBattleSocketAuth.get(ws);
+          if (!match || !targetCode || match.subPhase !== 1 || !socketAuth) break;
 
-          const rawSlot = msg.slot ?? msg.actor_slot;
-          const slot: 1 | 2 = (rawSlot === 2 || rawSlot === '2')
-            ? 2
-            : (rawSlot === 1 || rawSlot === '1' || rawSlot === 0 ? 1 : (match.players[1].id === msg.player_id ? 1 : 2));
+          // Never let a client-provided slot redirect answer state to the other
+          // player. The authenticated room username is the slot authority.
+          const slot = socketAuth.slot;
           const P = match.players[slot];
           if (P && Array.isArray(msg.results)) {
             msg.results.forEach((val: any, idx: number) => {
@@ -2513,6 +2521,8 @@ wss.on('connection', (ws) => {
         case 'PVP_SPEAKING_FINISH': {
           const targetCode = normalizeRoomCode(msg.room_code || currentRoomCode || '');
           if (!targetCode) break;
+          const socketAuth = pvpBattleSocketAuth.get(ws);
+          if (!socketAuth) break;
           currentRoomCode = targetCode;
           if (!roomClients.has(targetCode)) {
             roomClients.set(targetCode, new Set());
@@ -2529,10 +2539,9 @@ wss.on('connection', (ws) => {
           }
           if (!match) break;
 
-          const rawSlot = msg.slot ?? msg.actor_slot;
-          const slot: 1 | 2 = (rawSlot === 2 || rawSlot === '2')
-            ? 2
-            : (rawSlot === 1 || rawSlot === '1' || rawSlot === 0 ? 1 : (match.players[1].id === msg.player_id ? 1 : 2));
+          // Use the same username-derived slot as PVP_JOIN_BATTLE, even if a
+          // stale client ref still reports the previous slot.
+          const slot = socketAuth.slot;
           match.players[slot].socket = ws;
 
           const results: boolean[] = Array.isArray(msg.results)
