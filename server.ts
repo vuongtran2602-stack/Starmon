@@ -2389,8 +2389,10 @@ wss.on('connection', (ws) => {
                 boardVersion: match.boardVersion,
                 version: match.boardVersion,
                 seed: match.seed,
-                p1_mana: 0,
-                p2_mana: 20,
+                p1_hp: match.players[1].starmons.map(s => s.hp),
+                p2_hp: match.players[2].starmons.map(s => s.hp),
+                p1_mana: match.players[1].starmons.map(s => s.mana),
+                p2_mana: match.players[2].starmons.map(s => s.mana),
               }));
 
               if (match.subPhase === 1) {

@@ -437,9 +437,13 @@ export const BattleView: React.FC<Props> = ({
     p1_hp?: number[],
     p2_hp?: number[],
     p1_mana?: number[],
-    p2_mana?: number[]
+    p2_mana?: number[],
+    incomingVersion?: number
   ) => {
     if (!Array.isArray(p1_hp) || !Array.isArray(p2_hp)) return;
+    // Board versions also version the HP/energy snapshot emitted after each
+    // authoritative PvP action. Do not let a delayed sync restore old bars.
+    if (typeof incomingVersion === 'number' && incomingVersion > 0 && incomingVersion < boardVersionRef.current) return;
     const mySlot = pvpMySlotRef.current;
     if (mySlot === 1) {
       setPlayerTeam(prev => prev.map((s, i) => ({
@@ -463,6 +467,41 @@ export const BattleView: React.FC<Props> = ({
         currentHp: p1_hp[i] !== undefined ? Math.max(0, p1_hp[i]) : s.currentHp,
         currentMana: Array.isArray(p1_mana) && p1_mana[i] !== undefined ? p1_mana[i] : s.currentMana,
       })));
+    }
+  }, []);
+
+  const applyAuthoritativeTeamsFromMatchState = useCallback((matchState: any) => {
+    const players = matchState?.players;
+    const slot1 = players?.[1] || players?.['1'] || matchState?.player1;
+    const slot2 = players?.[2] || players?.['2'] || matchState?.player2;
+    if (!Array.isArray(slot1?.starmons) || !Array.isArray(slot2?.starmons)) return;
+
+    const makeTeam = (serverTeam: any[], currentTeam: Starmon[]) => serverTeam.map((source, index) => {
+      const current = currentTeam[index];
+      const monId = source?.avatarSeed || source?.id || current?.avatarSeed || current?.id;
+      const template = STARMON_ROSTER.find(mon => mon.id === monId || mon.avatarSeed === monId) || current || STARMON_ROSTER[0];
+      const hp = source?.hp ?? source?.currentHp ?? current?.currentHp ?? source?.maxHp ?? template.maxHp;
+      const mana = source?.mana ?? source?.currentMana ?? current?.currentMana ?? 0;
+      return {
+        ...template,
+        ...current,
+        ...source,
+        currentHp: Math.max(0, Number(hp) || 0),
+        maxHp: Number(source?.maxHp) || current?.maxHp || template.maxHp,
+        currentMana: Math.max(0, Number(mana) || 0),
+        maxMana: current?.maxMana || 200,
+        skill1: source?.skill1?.name ? source.skill1 : current?.skill1 || template.skill1,
+        skill2: source?.skill2?.name ? source.skill2 : current?.skill2 || template.skill2,
+        passive: source?.passive?.name ? source.passive : current?.passive || template.passive,
+      } as Starmon;
+    });
+
+    if (pvpMySlotRef.current === 1) {
+      setPlayerTeam(current => makeTeam(slot1.starmons, current));
+      setEnemyTeam(current => makeTeam(slot2.starmons, current));
+    } else {
+      setPlayerTeam(current => makeTeam(slot2.starmons, current));
+      setEnemyTeam(current => makeTeam(slot1.starmons, current));
     }
   }, []);
 
@@ -1338,7 +1377,7 @@ export const BattleView: React.FC<Props> = ({
             }
 
             if (Array.isArray(msg.p1_hp) && Array.isArray(msg.p2_hp)) {
-              updateHpsFromArrays(msg.p1_hp, msg.p2_hp, msg.p1_mana, msg.p2_mana);
+              updateHpsFromArrays(msg.p1_hp, msg.p2_hp, msg.p1_mana, msg.p2_mana, msg.boardVersion ?? msg.version);
             }
             break;
           }
@@ -1389,8 +1428,13 @@ export const BattleView: React.FC<Props> = ({
                 setBoard(generateBoardFromSeed(s));
               }
             }
+            // A reconnect needs the authoritative roster as well as the board:
+            // local opponent data may still be at full HP or in a different order.
+            if (v >= boardVersionRef.current) {
+              applyAuthoritativeTeamsFromMatchState(msg.state || msg.matchState);
+            }
             if (Array.isArray(msg.p1_hp) && Array.isArray(msg.p2_hp)) {
-              updateHpsFromArrays(msg.p1_hp, msg.p2_hp, msg.p1_mana, msg.p2_mana);
+              updateHpsFromArrays(msg.p1_hp, msg.p2_hp, msg.p1_mana, msg.p2_mana, msg.boardVersion ?? msg.version);
             }
             break;
           }
@@ -1428,7 +1472,7 @@ export const BattleView: React.FC<Props> = ({
             }
 
             if (Array.isArray(msg.p1_hp) && Array.isArray(msg.p2_hp)) {
-              updateHpsFromArrays(msg.p1_hp, msg.p2_hp, msg.p1_mana, msg.p2_mana);
+              updateHpsFromArrays(msg.p1_hp, msg.p2_hp, msg.p1_mana, msg.p2_mana, msg.boardVersion ?? msg.version);
             }
 
             if (sub === 1) {
@@ -1492,7 +1536,7 @@ export const BattleView: React.FC<Props> = ({
             }
 
             if (Array.isArray(msg.p1_hp) && Array.isArray(msg.p2_hp)) {
-              updateHpsFromArrays(msg.p1_hp, msg.p2_hp, msg.p1_mana, msg.p2_mana);
+              updateHpsFromArrays(msg.p1_hp, msg.p2_hp, msg.p1_mana, msg.p2_mana, msg.boardVersion ?? msg.version);
             }
 
             const mySlot = pvpMySlotRef.current;
@@ -1536,7 +1580,7 @@ export const BattleView: React.FC<Props> = ({
               }
             }
             if (Array.isArray(msg.p1_hp) && Array.isArray(msg.p2_hp)) {
-              updateHpsFromArrays(msg.p1_hp, msg.p2_hp, msg.p1_mana, msg.p2_mana);
+              updateHpsFromArrays(msg.p1_hp, msg.p2_hp, msg.p1_mana, msg.p2_mana, msg.boardVersion ?? msg.version);
             }
             break;
           }
@@ -1621,7 +1665,7 @@ export const BattleView: React.FC<Props> = ({
             }
 
             if (Array.isArray(msg.p1_hp) && Array.isArray(msg.p2_hp)) {
-              updateHpsFromArrays(msg.p1_hp, msg.p2_hp, msg.p1_mana, msg.p2_mana);
+              updateHpsFromArrays(msg.p1_hp, msg.p2_hp, msg.p1_mana, msg.p2_mana, msg.boardVersion ?? msg.version);
             }
 
             const mySlot = pvpMySlotRef.current;
@@ -1692,7 +1736,7 @@ export const BattleView: React.FC<Props> = ({
               setBoard(deserialized);
             }
             if (Array.isArray(msg.p1_hp) && Array.isArray(msg.p2_hp)) {
-              updateHpsFromArrays(msg.p1_hp, msg.p2_hp, msg.p1_mana, msg.p2_mana);
+              updateHpsFromArrays(msg.p1_hp, msg.p2_hp, msg.p1_mana, msg.p2_mana, msg.boardVersion ?? msg.version);
             }
             break;
           }
