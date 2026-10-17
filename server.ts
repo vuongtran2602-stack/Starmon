@@ -3,7 +3,7 @@ import http from 'http';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'crypto';
+import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { GoogleGenAI } from '@google/genai';
 import { createClient } from '@supabase/supabase-js';
@@ -18,6 +18,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const server = http.createServer(app);
 const PORT = Number.parseInt(process.env.PORT || '3100', 10);
+const PVP_SERVER_INSTANCE_ID = `${process.env.K_REVISION || 'local'}:${process.env.HOSTNAME || 'instance'}:${randomUUID()}`;
 
 app.use(express.json());
 
@@ -134,7 +135,6 @@ function syncRoomsToSupabase(rooms: PvpRoom[]) {
     arena: room.arena || 'Sunken Sands',
     status: room.status || 'WAITING',
     players: room.players || [],
-    match_state: (room as any).matchState || null,
     created_at: room.createdAt,
     updated_at: room.updatedAt || Date.now(),
   }));
@@ -178,7 +178,7 @@ async function persistRoomToSupabase(room: PvpRoom, insertOnly = false): Promise
       : { success: true };
   }
   const roomCode = normalizeRoomCode(room.room_code || room.code);
-  const row = {
+  const row: Record<string, any> = {
     room_code: roomCode,
     code: roomCode,
     host_id: room.host_id,
@@ -189,10 +189,10 @@ async function persistRoomToSupabase(room: PvpRoom, insertOnly = false): Promise
     arena: room.arena || 'Sunken Sands',
     status: room.status || 'WAITING',
     players: room.players || [],
-    match_state: (room as any).matchState || null,
     created_at: room.createdAt,
     updated_at: room.updatedAt || Date.now(),
   };
+  if ((room as any).matchState) row.match_state = (room as any).matchState;
   try {
     const result = insertOnly
       ? await serverSupabase.from('pvp_rooms').insert(row)
@@ -645,7 +645,7 @@ const roomClients = new Map<string, Set<WebSocket>>();
 // Setup WebSocket Server
 const wss = new WebSocketServer({ server });
 
-function broadcastToRoom(roomCode: string, payload: any, senderWs?: WebSocket) {
+function broadcastToRoom(roomCode: string, payload: any, senderWs?: WebSocket, relayAcrossInstances = true) {
   const normCode = normalizeRoomCode(roomCode);
   const clients = new Set(roomClients.get(normCode) || []);
   // Keep the authenticated match sockets as a delivery fallback. A socket can
@@ -656,7 +656,6 @@ function broadcastToRoom(roomCode: string, payload: any, senderWs?: WebSocket) {
     if (match.players[1].socket) clients.add(match.players[1].socket);
     if (match.players[2].socket) clients.add(match.players[2].socket);
   }
-  if (clients.size === 0) return;
   let message: string;
   try {
     message = JSON.stringify(payload);
@@ -674,6 +673,9 @@ function broadcastToRoom(roomCode: string, payload: any, senderWs?: WebSocket) {
         console.warn(`[PvP] Could not deliver room broadcast (${normCode})`, error);
       }
     }
+  }
+  if (relayAcrossInstances && match && match.runtimeOwnerId === PVP_SERVER_INSTANCE_ID && PVP_STATEFUL_BROADCAST_TYPES.has(String(payload?.type || ''))) {
+    publishPvpRuntimeState(normCode, payload, match);
   }
 }
 
@@ -757,6 +759,9 @@ interface PvpMatchState {
   stepStartTime?: number;
   seed: number;
   boardVersion: number;
+  runtimeRevision?: number;
+  runtimeOwnerId?: string;
+  runtimeOwnerLastSeenAt?: number;
   board?: { element: string }[][];
   sharedBoard?: {
     seed: number;
@@ -855,8 +860,17 @@ function serializeMatchState(state: PvpMatchState | null | undefined): any {
     phase: state.phase,
     subPhase: state.subPhase,
     step: state.step,
+    actionCommittedStep: state.actionCommittedStep,
     attackerSlot: state.attackerSlot,
     targetSlot: state.targetSlot,
+    phaseStartedAt: state.phaseStartedAt,
+    phaseEndsAt: state.phaseEndsAt,
+    pendingNextTurnAt: state.pendingNextTurnAt,
+    lastEndedPhase: state.lastEndedPhase,
+    phaseTimerGeneration: state.phaseTimerGeneration || 0,
+    runtimeRevision: state.runtimeRevision || 0,
+    runtimeOwnerId: state.runtimeOwnerId || null,
+    runtimeOwnerLastSeenAt: state.runtimeOwnerLastSeenAt || Date.now(),
     players: {
       1: {
         id: p1?.id || 'player1',
@@ -948,6 +962,219 @@ function mutateBoard(
 }
 
 const activeMatchStates = new Map<string, PvpMatchState>();
+
+const PVP_STATEFUL_BROADCAST_TYPES = new Set([
+  'board_update', 'PVP_BOARD_UPDATED', 'board_full_sync', 'phase_start', 'phase_changed',
+  'phase_ended', 'PVP_PHASE_START_ANSWER', 'PVP_PHASE_START_SPEAKING', 'step_started',
+  'step_skipped', 'starmon_action_resolved', 'attack_resolved', 'PVP_ANSWER_SUBMITTED',
+  'PVP_ANSWER_RESULT', 'PVP_ACTION_REJECTED', 'all_starmons_done', 'PVP_MATCH_FINISHED', 'game_over',
+]);
+
+function applySerializedMatchState(state: PvpMatchState, snapshot: any) {
+  if (!snapshot || typeof snapshot !== 'object') return;
+  const previousPhase = state.phase;
+  state.turn = Number(snapshot.turn) || state.turn;
+  state.roundNumber = Number(snapshot.roundNumber) || state.turn;
+  state.phase = typeof snapshot.phase === 'string' ? snapshot.phase : state.phase;
+  state.subPhase = snapshot.subPhase === 2 || snapshot.subPhase === 3 ? snapshot.subPhase : 1;
+  state.step = Number(snapshot.step) || 1;
+  state.actionCommittedStep = Number(snapshot.actionCommittedStep) || 0;
+  state.attackerSlot = snapshot.attackerSlot === 1 || snapshot.attackerSlot === 2 ? snapshot.attackerSlot : null;
+  state.targetSlot = snapshot.targetSlot === 1 || snapshot.targetSlot === 2 ? snapshot.targetSlot : null;
+  state.phaseStartedAt = Number(snapshot.phaseStartedAt) || state.phaseStartedAt;
+  state.phaseEndsAt = Number(snapshot.phaseEndsAt) || state.phaseEndsAt;
+  state.pendingNextTurnAt = Number(snapshot.pendingNextTurnAt) || undefined;
+  state.lastEndedPhase = typeof snapshot.lastEndedPhase === 'string' ? snapshot.lastEndedPhase : undefined;
+  state.phaseTimerGeneration = Number(snapshot.phaseTimerGeneration) || state.phaseTimerGeneration || 0;
+  state.seed = Number(snapshot.seed) || state.seed;
+  state.boardVersion = Number(snapshot.boardVersion) || state.boardVersion;
+  state.runtimeRevision = Number(snapshot.runtimeRevision) || state.runtimeRevision || 0;
+  state.runtimeOwnerId = typeof snapshot.runtimeOwnerId === 'string' ? snapshot.runtimeOwnerId : state.runtimeOwnerId;
+  state.runtimeOwnerLastSeenAt = Number(snapshot.runtimeOwnerLastSeenAt) || 0;
+
+  const incomingPlayers = snapshot.players || {};
+  for (const slot of [1, 2] as const) {
+    const incoming = incomingPlayers[slot] || incomingPlayers[String(slot)] || snapshot[`player${slot}`];
+    const current = state.players[slot];
+    if (!incoming || !current) continue;
+    current.id = incoming.id || current.id;
+    current.name = incoming.name || current.name;
+    if (Array.isArray(incoming.starmons)) {
+      current.starmons = incoming.starmons.map((mon: any, index: number) => ({
+        ...current.starmons[index],
+        ...mon,
+        ownerSlot: slot,
+        index,
+        hp: Number(mon.hp ?? mon.currentHp ?? current.starmons[index]?.hp) || 0,
+        currentHp: Number(mon.hp ?? mon.currentHp ?? current.starmons[index]?.hp) || 0,
+        mana: Number(mon.mana ?? mon.currentMana ?? current.starmons[index]?.mana) || 0,
+        currentMana: Number(mon.mana ?? mon.currentMana ?? current.starmons[index]?.mana) || 0,
+      }));
+    }
+    if (Array.isArray(incoming.results)) current.results = [...incoming.results];
+    current.hasSubmittedAnswer = Boolean(incoming.hasSubmittedAnswer);
+    current.answeredCount = Number(incoming.answeredCount) || 0;
+  }
+  state.player1 = state.players[1];
+  state.player2 = state.players[2];
+  if (Array.isArray(snapshot.board) && snapshot.board.length === 8) state.board = snapshot.board;
+  if (state.sharedBoard) {
+    state.sharedBoard.seed = state.seed;
+    state.sharedBoard.grid = state.board || state.sharedBoard.grid;
+    state.sharedBoard.starmons = { 1: state.players[1].starmons, 2: state.players[2].starmons };
+    state.sharedBoard.version = state.boardVersion;
+  }
+
+  if (state.runtimeOwnerId !== PVP_SERVER_INSTANCE_ID) {
+    if (state.phaseTimerHandle) clearTimeout(state.phaseTimerHandle);
+    if (state.stepTimerHandle) clearTimeout(state.stepTimerHandle);
+    state.phaseTimerHandle = null;
+    state.stepTimerHandle = null;
+  } else if (previousPhase !== state.phase || !state.phaseTimerHandle) {
+    schedulePhaseEnd(state, state.roomCode);
+  }
+}
+
+const pvpSnapshotWrites = new Map<string, Promise<void>>();
+let pvpRealtimeBusReady = false;
+const pvpRealtimeBus = serverSupabase?.channel('starmon-pvp-runtime', { config: { private: true } });
+
+function applyRemotePvpRuntimeEnvelope(roomCodeInput: string, snapshot: any, event: any, origin: string) {
+  const roomCode = normalizeRoomCode(roomCodeInput);
+  const match = activeMatchStates.get(roomCode);
+  if (!match || !snapshot) return;
+  const remoteRevision = Number(snapshot.runtimeRevision) || 0;
+  if (remoteRevision <= (match.runtimeRevision || 0)) return;
+  applySerializedMatchState(match, snapshot);
+  const boardSnapshot = serializeBoard(match);
+  const syncEvent = {
+    ...(event || {}),
+    type: event?.type || 'board_full_sync',
+    phase: match.phase,
+    turn: match.turn,
+    subPhase: match.subPhase,
+    attackerSlot: match.attackerSlot,
+    targetSlot: match.targetSlot,
+    boardVersion: match.boardVersion,
+    version: match.boardVersion,
+    board: match.board,
+    boardSnapshot,
+    p1_hp: match.players[1].starmons.map(mon => mon.hp),
+    p2_hp: match.players[2].starmons.map(mon => mon.hp),
+    p1_mana: match.players[1].starmons.map(mon => mon.mana),
+    p2_mana: match.players[2].starmons.map(mon => mon.mana),
+  };
+  broadcastToRoom(roomCode, syncEvent, undefined, false);
+}
+
+function forwardPvpActionToRuntimeOwner(roomCode: string, playerSlot: 1 | 2, data: any) {
+  if (!pvpRealtimeBusReady || !pvpRealtimeBus) return false;
+  void pvpRealtimeBus.send({
+    type: 'broadcast',
+    event: 'match_command',
+    payload: { roomCode, ownerId: activeMatchStates.get(roomCode)?.runtimeOwnerId, playerSlot, data },
+  }).then((status: string) => {
+    if (status !== 'ok') console.warn(`[PvP] Could not forward battle action (${roomCode}):`, status);
+  }).catch(error => console.warn(`[PvP] Could not forward battle action (${roomCode}):`, error));
+  return true;
+}
+
+function publishPvpRuntimeState(roomCode: string, event: any, match: PvpMatchState) {
+  match.runtimeRevision = (match.runtimeRevision || 0) + 1;
+  match.runtimeOwnerId = PVP_SERVER_INSTANCE_ID;
+  match.runtimeOwnerLastSeenAt = Date.now();
+  const snapshot = serializeMatchState(match);
+  const envelope = { origin: PVP_SERVER_INSTANCE_ID, roomCode, event, snapshot };
+
+  if (serverSupabase) {
+    const previousWrite = pvpSnapshotWrites.get(roomCode) || Promise.resolve();
+    const write = previousWrite.catch(() => undefined).then(async () => {
+      const { error } = await serverSupabase.from('pvp_rooms')
+        .update({ match_state: snapshot, updated_at: Date.now() })
+        .eq('room_code', roomCode);
+      if (error) console.warn(`[PvP] Could not persist shared match state (${roomCode}):`, error.message);
+    });
+    pvpSnapshotWrites.set(roomCode, write);
+    void write.catch(error => {
+      console.warn(`[PvP] Could not persist shared match state (${roomCode}):`, error);
+    }).finally(() => {
+      if (pvpSnapshotWrites.get(roomCode) === write) pvpSnapshotWrites.delete(roomCode);
+    });
+  }
+
+  if (pvpRealtimeBusReady && pvpRealtimeBus) {
+    void pvpRealtimeBus.send({ type: 'broadcast', event: 'match_state', payload: envelope })
+      .then((status: string) => {
+        if (status !== 'ok') console.warn(`[PvP] Cross-instance state broadcast failed (${roomCode}):`, status);
+      })
+      .catch((error: unknown) => console.warn(`[PvP] Cross-instance state broadcast failed (${roomCode}):`, error));
+  }
+  setTimeout(() => {
+    const latest = activeMatchStates.get(roomCode);
+    if (latest === match && latest.runtimeOwnerId === PVP_SERVER_INSTANCE_ID && !latest.phaseTimerHandle) {
+      schedulePhaseEnd(latest, roomCode);
+    }
+  }, 0);
+}
+
+if (pvpRealtimeBus) {
+  pvpRealtimeBus
+    .on('broadcast', { event: 'match_command' }, ({ payload }) => {
+      if (!payload?.roomCode || payload.ownerId !== PVP_SERVER_INSTANCE_ID) return;
+      const roomCode = normalizeRoomCode(payload.roomCode);
+      const match = activeMatchStates.get(roomCode);
+      if (!match || match.runtimeOwnerId !== PVP_SERVER_INSTANCE_ID) return;
+      const command = payload.data;
+      if (!command || !Number.isInteger(command.starmonIndex) || !['physical_attack', 'use_ability'].includes(command.actionType)) return;
+      onStarmonAction(match, roomCode, payload.playerSlot === 2 ? 2 : 1, command, undefined);
+    })
+    .on('broadcast', { event: 'match_state' }, ({ payload }) => {
+      if (!payload || payload.origin === PVP_SERVER_INSTANCE_ID || typeof payload.roomCode !== 'string') return;
+      const match = activeMatchStates.get(normalizeRoomCode(payload.roomCode));
+      if (!match) return;
+      if (payload.heartbeat) {
+        if (match.runtimeOwnerId === payload.origin) match.runtimeOwnerLastSeenAt = Date.now();
+        return;
+      }
+      applyRemotePvpRuntimeEnvelope(payload.roomCode, payload.snapshot, payload.event, payload.origin);
+    })
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'pvp_rooms' }, ({ new: row }) => {
+      const snapshot = row?.match_state;
+      const origin = String(snapshot?.runtimeOwnerId || '');
+      if (!row?.room_code || !snapshot || origin === PVP_SERVER_INSTANCE_ID) return;
+      const match = activeMatchStates.get(normalizeRoomCode(row.room_code));
+      if (match && origin === match.runtimeOwnerId) match.runtimeOwnerLastSeenAt = Date.now();
+      applyRemotePvpRuntimeEnvelope(row.room_code, snapshot, { type: 'board_full_sync' }, origin);
+    })
+    .subscribe((status: string) => {
+      pvpRealtimeBusReady = status === 'SUBSCRIBED';
+      if (status !== 'SUBSCRIBED') console.warn('[PvP] Shared Realtime bus status:', status);
+    });
+}
+
+const pvpRuntimeHeartbeat = setInterval(() => {
+  const now = Date.now();
+  for (const [roomCode, match] of activeMatchStates) {
+    if (match.runtimeOwnerId === PVP_SERVER_INSTANCE_ID) {
+      match.runtimeOwnerLastSeenAt = now;
+      if (pvpRealtimeBusReady && pvpRealtimeBus) {
+        void pvpRealtimeBus.send({
+          type: 'broadcast',
+          event: 'match_state',
+          payload: { origin: PVP_SERVER_INSTANCE_ID, roomCode, heartbeat: true },
+        }).catch(error => console.warn(`[PvP] Runtime heartbeat failed (${roomCode}):`, error));
+      }
+    } else if (now - (match.runtimeOwnerLastSeenAt || 0) > 10_000) {
+      match.runtimeOwnerId = PVP_SERVER_INSTANCE_ID;
+      match.runtimeOwnerLastSeenAt = now;
+      match.runtimeRevision = (match.runtimeRevision || 0) + 1;
+      schedulePhaseEnd(match, roomCode);
+      publishPvpRuntimeState(roomCode, { type: 'board_full_sync' }, match);
+      console.warn(`[PvP] Took over stale match runtime (${roomCode})`);
+    }
+  }
+}, 2_000);
+pvpRuntimeHeartbeat.unref?.();
 
 function aliveStarmonIndices(player: PlayerSlotState): number[] {
   return player.starmons
@@ -1078,6 +1305,9 @@ function initializeMatchForRoom(room: PvpRoom): PvpMatchState {
     phaseTimerHandle: null,
     seed,
     boardVersion: 1,
+    runtimeRevision: 1,
+    runtimeOwnerId: PVP_SERVER_INSTANCE_ID,
+    runtimeOwnerLastSeenAt: Date.now(),
     board,
   };
 
@@ -1247,6 +1477,7 @@ function advanceIfPhaseExpired(state: PvpMatchState, roomCode: string): boolean 
 const phaseDeadlineWatchdog = setInterval(() => {
   const now = Date.now();
   for (const [roomCode, state] of activeMatchStates) {
+    if (state.runtimeOwnerId && state.runtimeOwnerId !== PVP_SERVER_INSTANCE_ID) continue;
     if (state.pendingNextTurnAt && now >= state.pendingNextTurnAt) {
       advanceToNextTurn(state, roomCode, state.phase, state.turn, state.pendingNextTurnAt);
       continue;
@@ -1857,9 +2088,11 @@ function onStarmonAction(
   ws?: WebSocket
 ) {
   const reject = (reason: string) => {
-    try {
-      ws?.send(JSON.stringify({ type: 'PVP_ACTION_REJECTED', reason }));
-    } catch {}
+    if (ws) {
+      try { ws.send(JSON.stringify({ type: 'PVP_ACTION_REJECTED', reason })); } catch {}
+    } else {
+      broadcastToRoom(roomCode, { type: 'PVP_ACTION_REJECTED', reason });
+    }
   };
 
   if (state.subPhase !== 2 && state.subPhase !== 3) {
@@ -2260,23 +2493,14 @@ wss.on('connection', (ws) => {
             }
             activeRooms = loadRooms();
             let authenticatedRoom = activeRooms.find(r => normalizeRoomCode(r.room_code || r.code) === targetCode);
-            if (!authenticatedRoom && serverSupabase) {
+            if (serverSupabase) {
               const { data: roomRow, error: roomError } = await serverSupabase.from('pvp_rooms').select('*').eq('room_code', targetCode).maybeSingle();
               if (roomError) throw roomError;
               if (roomRow) {
-                const hostId = String(roomRow.host_id || '');
-                const hostFallback: PlayerInRoom = {
-                  id: hostId, name: roomRow.host_name || hostId, level: roomRow.host_level || 1,
-                  isHost: true, isReady: true, starmons: [],
-                };
-                authenticatedRoom = {
-                  room_code: roomRow.room_code, code: roomRow.room_code, host_id: hostId,
-                  hostName: hostFallback.name, hostLevel: hostFallback.level,
-                  arena: roomRow.arena || 'Sunken Sands', status: roomRow.status || 'WAITING',
-                  players: normalizeRoomPlayers(roomRow.players, hostId, hostFallback),
-                  createdAt: roomRow.created_at || Date.now(), updatedAt: roomRow.updated_at || Date.now(),
-                } as PvpRoom;
-                activeRooms.unshift(authenticatedRoom);
+                authenticatedRoom = pvpRoomFromSupabaseRow(roomRow);
+                const localIndex = activeRooms.findIndex(room => normalizeRoomCode(room.room_code || room.code) === targetCode);
+                if (localIndex >= 0) activeRooms[localIndex] = authenticatedRoom;
+                else activeRooms.unshift(authenticatedRoom);
               }
             }
             const usernameKey = authenticatedUsername.toLowerCase();
@@ -2317,6 +2541,10 @@ wss.on('connection', (ws) => {
                 break;
               }
             }
+            const sharedSnapshot = (authenticatedRoom as any).matchState;
+            if (sharedSnapshot && Number(sharedSnapshot.runtimeRevision) > Number(match.runtimeRevision || 0)) {
+              applySerializedMatchState(match, sharedSnapshot);
+            }
 
             if (match) {
               const pId = msg.player_id || 'player';
@@ -2342,7 +2570,7 @@ wss.on('connection', (ws) => {
                 });
               }
 
-              if (!match.phaseTimerHandle) {
+              if (!match.phaseTimerHandle && match.runtimeOwnerId === PVP_SERVER_INSTANCE_ID) {
                 schedulePhaseEnd(match, targetCode);
               }
 
@@ -2394,6 +2622,17 @@ wss.on('connection', (ws) => {
                 p1_mana: match.players[1].starmons.map(s => s.mana),
                 p2_mana: match.players[2].starmons.map(s => s.mana),
               }));
+
+              if (match.runtimeOwnerId === PVP_SERVER_INSTANCE_ID) {
+                publishPvpRuntimeState(targetCode, {
+                  type: 'PVP_MATCH_STATE_SYNC',
+                  phase: match.phase,
+                  turn: match.turn,
+                  subPhase: match.subPhase,
+                  attackerSlot,
+                  targetSlot,
+                }, match);
+              }
 
               if (match.subPhase === 1) {
                 const p1Alive = aliveStarmonIndices(match.players[1]);
@@ -2651,7 +2890,8 @@ wss.on('connection', (ws) => {
           const match = activeMatchStates.get(targetCode);
           if (!match || !targetCode) break;
 
-          const rawSlot = msg.playerSlot ?? msg.attackerSlot ?? msg.actor_slot ?? msg.slot;
+          const authenticatedSlot = pvpBattleSocketAuth.get(ws)?.slot;
+          const rawSlot = authenticatedSlot ?? msg.playerSlot ?? msg.attackerSlot ?? msg.actor_slot ?? msg.slot;
           let playerSlot: 1 | 2;
           if (rawSlot === 2 || rawSlot === '2') {
             playerSlot = 2;
@@ -2686,6 +2926,18 @@ wss.on('connection', (ws) => {
             newBoard: msg.action?.newBoard,
           };
 
+          if (match.runtimeOwnerId && match.runtimeOwnerId !== PVP_SERVER_INSTANCE_ID) {
+            const forwarded = forwardPvpActionToRuntimeOwner(targetCode, playerSlot, {
+              starmonIndex: starmonIdx,
+              actionType,
+              payload: actionPayload,
+            });
+            if (!forwarded && ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: 'PVP_ACTION_REJECTED', reason: 'Đang đồng bộ trận đấu, vui lòng thử lại.' }));
+            }
+            break;
+          }
+
           onStarmonAction(match, targetCode, playerSlot, {
             starmonIndex: starmonIdx,
             actionType,
@@ -2698,7 +2950,7 @@ wss.on('connection', (ws) => {
           const targetCode = normalizeRoomCode(msg.room_code || currentRoomCode || '');
           if (targetCode && msg.board) {
             const match = activeMatchStates.get(targetCode);
-            if (match) {
+            if (match && match.runtimeOwnerId === PVP_SERVER_INSTANCE_ID) {
               match.board = msg.board;
               match.boardVersion = (match.boardVersion || 0) + 1;
               broadcastToRoom(targetCode, {
