@@ -55,6 +55,7 @@ import { getArenaMap } from '../data/arenaMaps';
 import { GOLD_IMAGE } from '../data/itemsData';
 import { getVietnameseAnalysisForQuestion } from '../data/vietnameseSuggestions';
 import { BattleLogEntry } from '../types';
+import { capCriterionBands, getInappropriateVocabularyCount, getShortAnswerBandPenalty } from '../utils/speakingScoring';
 
 interface Props {
   playerStarmons: Starmon[];
@@ -101,6 +102,7 @@ export interface IeltsAiEvaluationResult {
   questionIndex?: number;
   questionText?: string;
   grammar_errors?: GrammarErrorDetail[];
+  vocabulary_errors?: Array<{ word: string; issue: string; correction: string }>;
   pronunciation_errors?: PronunciationErrorDetail[];
   fluency_detail?: FluencyDetail;
   feedback_vi?: SpeakingFeedbackVi;
@@ -727,13 +729,7 @@ export const BattleView: React.FC<Props> = ({
         setTurnStatusType('missed');
         setTurnAnnouncement('HẾT 30 GIÂY! Mất lượt hành động...');
       }
-      const syncTimer = setInterval(() => {
-        sendPvpMessage({
-          type: 'PVP_REQUEST_PHASE_SYNC',
-          room_code: pvpRoomInfo?.code,
-        });
-      }, 2500);
-      return () => clearInterval(syncTimer);
+      return;
     }
 
     const t = setInterval(() => {
@@ -742,6 +738,21 @@ export const BattleView: React.FC<Props> = ({
 
     return () => clearInterval(t);
   }, [isPvP, phase, pvpTurnTimer, pvpActionMenu, pvpRoomInfo?.myPlayerId, pvpRoomInfo?.code, actingStepIndex, sendPvpMessage]);
+
+  // Phase n.3 -> (n+1).1 is a server-side transition. Periodically compare
+  // the local phase with the server so a missed websocket broadcast cannot
+  // leave either player waiting indefinitely at the end of a turn.
+  useEffect(() => {
+    if (!isPvP || !pvpRoomInfo?.code) return;
+    const syncTimer = setInterval(() => {
+      sendPvpMessage({
+        type: 'PVP_REQUEST_PHASE_SYNC',
+        room_code: pvpRoomInfo.code,
+        phase: pvpFlowPhaseRef.current,
+      });
+    }, 2500);
+    return () => clearInterval(syncTimer);
+  }, [isPvP, pvpRoomInfo?.code, sendPvpMessage]);
 
   // Strictly unlocked Starmons can participate in combat (in PvP always ensure 3 Starmons for 3 questions)
   const unlockedOnly = (playerStarmons || []).filter(s => s && s.unlocked);
@@ -2560,14 +2571,16 @@ export const BattleView: React.FC<Props> = ({
     const severeClauseErrors = grammarErrors.filter(e => e.error.includes('thiếu thành phần')).length;
     const verbFormErrors = grammarErrors.filter(e => /dạng từ|verb|V-ing|phân từ/i.test(`${e.error} ${e.practice_structure}`)).length;
     const minorGrammarErrors = Math.max(0, grammarErrors.length - severeClauseErrors - verbFormErrors);
-    baseGRA = Math.max(1, 8 - severeClauseErrors * 2 - verbFormErrors - minorGrammarErrors * 0.5);
-
     const shortAnswerPenalty = wordCount < 10 ? 3 : wordCount < 12 ? 2 : wordCount < 15 ? 1 : wordCount < 20 ? 0.5 : 0;
+    const grammarVocabLengthPenalty = getShortAnswerBandPenalty(wordCount);
+    const inappropriateVocabularyCount = getInappropriateVocabularyCount(transcriptText);
+    baseGRA = Math.max(1, 8 - severeClauseErrors * 2 - verbFormErrors - minorGrammarErrors * 0.5 - grammarVocabLengthPenalty);
+
     const speakingRatePenalty = getSpeakingRatePenalty(wordCount, telemetry.durationSeconds);
     let baseFC = Math.max(1, 8 - shortAnswerPenalty - speakingRatePenalty - telemetry.stutters.length * 0.5 - telemetry.hesitations.length * 0.5 - telemetry.pauses * 0.5);
     const repeatedPromptKeywords = countRepeatedPromptKeywords(questionItem.question, transcriptText);
     const repeatedKeywordPenalty = Math.floor(repeatedPromptKeywords / wordCount * 10) * 0.5;
-    let baseLR = Math.max(1, Math.min(8, 6 + Math.floor(countAdvancedSpeakingVocab(transcriptText) / 2) * 0.5 - repeatedKeywordPenalty));
+    let baseLR = Math.max(1, Math.min(8, 6 + Math.floor(countAdvancedSpeakingVocab(transcriptText) / 2) * 0.5 - repeatedKeywordPenalty - grammarVocabLengthPenalty - inappropriateVocabularyCount * 0.5));
     let basePR = 8.0;
 
     const pronunciationErrors: PronunciationErrorDetail[] = [];
@@ -2619,6 +2632,17 @@ export const BattleView: React.FC<Props> = ({
 
     basePR = Math.max(1, 8 - pronunciationErrors.length * 0.5);
 
+    const cappedBands = capCriterionBands({
+      fluencyCoherence: baseFC,
+      lexicalResource: baseLR,
+      grammaticalRange: baseGRA,
+      pronunciation: basePR,
+    });
+    baseFC = cappedBands.fluencyCoherence;
+    baseLR = cappedBands.lexicalResource;
+    baseGRA = cappedBands.grammaticalRange;
+    basePR = cappedBands.pronunciation;
+
     const rawAvg = (baseFC + baseLR + baseGRA + basePR) / 4;
     const roundedScore = floorToHalf(rawAvg);
     const isPassed = roundedScore >= requiredSpeakingBand;
@@ -2658,7 +2682,7 @@ export const BattleView: React.FC<Props> = ({
       },
       criteria: {
         fluencyCoherence: { band: floorToHalf(baseFC), feedback: speakingRatePenalty > 0 ? 'Speaking rate is slow.' : 'Natural conversational pace.' },
-        lexicalResource: { band: floorToHalf(baseLR), feedback: repeatedKeywordPenalty > 0 ? 'Keyword repetition reduces lexical flexibility.' : 'Relevant and functional vocabulary.' },
+        lexicalResource: { band: floorToHalf(baseLR), feedback: inappropriateVocabularyCount > 0 ? `Inappropriate word/collocation use: -0.5 per occurrence (${inappropriateVocabularyCount}).` : repeatedKeywordPenalty > 0 ? 'Keyword repetition reduces lexical flexibility.' : 'Relevant and functional vocabulary.' },
         grammaticalRange: { band: floorToHalf(baseGRA), feedback: 'Accurate and natural sentence structures.' },
         pronunciation: { band: floorToHalf(basePR), feedback: 'Clear phonetic articulation.' },
       },

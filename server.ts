@@ -8,6 +8,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { GoogleGenAI } from '@google/genai';
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
+import { capCriterionBands, getInappropriateVocabularyCount, getShortAnswerBandPenalty } from './src/utils/speakingScoring.ts';
 
 dotenv.config();
 
@@ -2005,8 +2006,18 @@ function checkWinAndContinue(state: PvpMatchState, roomCode: string) {
   } else if (!p1Alive) {
     endGame(state, roomCode, 'winner', 2);
   } else {
+    const endedPhase = state.phase;
+    const endedTurn = state.turn;
     setTimeout(() => {
-      startTurn(state, roomCode, state.turn + 1); // -> Sang turn tiếp theo: (n+1).1
+      // A deferred turn callback must still belong to the same live match and
+      // completed turn; otherwise an old n.3 callback can advance newer state.
+      if (
+        activeMatchStates.get(normalizeRoomCode(roomCode)) !== state ||
+        state.phase !== endedPhase ||
+        state.turn !== endedTurn ||
+        state.subPhase !== 3
+      ) return;
+      startTurn(state, roomCode, endedTurn + 1); // -> Sang turn tiếp theo: (n+1).1
     }, 1000);
   }
 }
@@ -2593,7 +2604,7 @@ wss.on('connection', (ws) => {
           const targetCode = normalizeRoomCode(currentRoomCode || msg.room_code || '');
           const match = activeMatchStates.get(targetCode);
           const auth = pvpBattleSocketAuth.get(ws);
-          if (match && auth && ws.readyState === WebSocket.OPEN) {
+          if (match && auth && ws.readyState === WebSocket.OPEN && msg.phase !== match.phase) {
             sendCurrentCombatPhaseToSocket(match, ws, auth.slot);
           }
           break;
@@ -3648,7 +3659,9 @@ app.post('/api/evaluate-speaking', async (req, res) => {
       const severeClauseErrors = grammarErrors.filter(e => e.error.includes('thiếu thành phần')).length;
       const verbFormErrors = grammarErrors.filter(e => /dạng từ|verb|V-ing|phân từ/i.test(`${e.error} ${e.practice_structure}`)).length;
       const minorGrammarErrors = Math.max(0, grammarErrors.length - severeClauseErrors - verbFormErrors);
-      baseGRA = Math.max(1, 8 - severeClauseErrors * 2 - verbFormErrors - minorGrammarErrors * 0.5);
+      const grammarVocabLengthPenalty = getShortAnswerBandPenalty(wordCount);
+      const inappropriateVocabularyCount = getInappropriateVocabularyCount(trimmedTranscript);
+      baseGRA = Math.max(1, 8 - severeClauseErrors * 2 - verbFormErrors - minorGrammarErrors * 0.5 - grammarVocabLengthPenalty);
 
       // 2. Fluency: based on real stutters, pauses, hesitations
       const shortAnswerPenalty = wordCount < 10 ? 3 : wordCount < 12 ? 2 : wordCount < 15 ? 1 : wordCount < 20 ? 0.5 : 0;
@@ -3721,13 +3734,24 @@ app.post('/api/evaluate-speaking', async (req, res) => {
       const advancedVocabCount = countAdvancedSpeakingVocab(trimmedTranscript);
       const repeatedPromptKeywords = countRepeatedPromptKeywords(question || '', trimmedTranscript);
       const repeatedKeywordPenalty = Math.floor(repeatedPromptKeywords / wordCount * 10) * 0.5;
-      const baseLR = Math.max(1, Math.min(8, 6 + Math.floor(advancedVocabCount / 2) * 0.5 - repeatedKeywordPenalty));
+      let baseLR = Math.max(1, Math.min(8, 6 + Math.floor(advancedVocabCount / 2) * 0.5 - repeatedKeywordPenalty - grammarVocabLengthPenalty - inappropriateVocabularyCount * 0.5));
+      const cappedBands = capCriterionBands({
+        fluencyCoherence: baseFC,
+        lexicalResource: baseLR,
+        grammaticalRange: baseGRA,
+        pronunciation: basePR,
+      });
+      baseFC = cappedBands.fluencyCoherence;
+      baseLR = cappedBands.lexicalResource;
+      baseGRA = cappedBands.grammaticalRange;
+      basePR = cappedBands.pronunciation;
       const rawAvg = (baseFC + baseLR + baseGRA + basePR) / 4;
       const roundedScore = floorToHalf(rawAvg);
       const canAttack = roundedScore >= Number(targetBand || 5.0);
 
       const dynamicWeaknesses: string[] = [];
       if (repeatedKeywordPenalty > 0) dynamicWeaknesses.push('Từ vựng: Lặp từ, thiếu linh hoạt từ vựng.');
+      if (inappropriateVocabularyCount > 0) dynamicWeaknesses.push(`Từ vựng: Dùng ${inappropriateVocabularyCount} từ/cụm từ chưa phù hợp; mỗi trường hợp bị trừ 0.5 band.`);
       if (speakingRatePenalty > 0) dynamicWeaknesses.push('Độ trôi chảy (Fluency): Tốc độ nói chậm.');
       if (detectedStutters.length > 0) {
         dynamicWeaknesses.push(`Độ trôi chảy (Fluency): Phát hiện ${detectedStutters.length} vị trí lặp từ (${detectedStutters.join(', ')}).`);
@@ -3775,7 +3799,9 @@ app.post('/api/evaluate-speaking', async (req, res) => {
           },
           lexicalResource: {
             band: floorToHalf(baseLR),
-            feedback: repeatedKeywordPenalty > 0 ? 'Lặp từ, thiếu linh hoạt từ vựng.' : 'Natural, effective vocabulary suited for IELTS Speaking topics.',
+            feedback: inappropriateVocabularyCount > 0
+              ? `Inappropriate word/collocation use: -0.5 per occurrence (${inappropriateVocabularyCount}).`
+              : repeatedKeywordPenalty > 0 ? 'Lặp từ, thiếu linh hoạt từ vựng.' : 'Natural, effective vocabulary suited for IELTS Speaking topics.',
           },
           grammaticalRange: {
             band: floorToHalf(baseGRA),
@@ -3809,6 +3835,7 @@ RECORDING TELEMETRY:
 CRITICAL SCORING & BAND EVALUATION GUIDELINES (PLEASE READ VERY CAREFULLY):
 1. GRAMMATICAL RANGE & ACCURACY (GRA):
    - Start each criterion at band 8.0 when no error is present. Apply each deduction separately: minor verb agreement, singular/plural, or preposition error: -0.5; wrong verb vs V-ing form: -1.0; incomplete sentence or extra/missing subject or predicate: -2.0.
+   - Apply this additional length deduction to BOTH GRA and Lexical Resource, after assessing quality: fewer than 7 words: -3.0; 7-9: -2.5; 10-11: -2.0; 12-14: -1.5; 15-17: -1.0; 18-21: -0.5; 22 or more: no length deduction. Apply the deduction once per criterion and do not let either score fall below 1.0.
    - For every grammar error identified, you MUST specify:
      * sentence: original sentence
      * error: exactly where and what the grammar error is ("sai ở đâu")
@@ -3830,7 +3857,7 @@ CRITICAL SCORING & BAND EVALUATION GUIDELINES (PLEASE READ VERY CAREFULLY):
 
 3. FLUENCY & COHERENCE (FC):
    - Start at 8.0 with no fluency/coherence issue. For total transcript length, deduct 0.5 below 20 words, 1.0 below 15, 2.0 below 12, or 3.0 below 10 (use the strongest matching deduction only). Describe this only as "the answer is too short"; never state a word count or threshold in feedback. For speaking rate, deduct 0.5 below 90 words/minute, 1.0 below 80, 1.5 below 70, or 2.0 below 60 (use the strongest matching deduction only) and describe it as "speaking rate is slow". Also deduct 0.5 for each unreasonable idea and point it out; deduct 0.5 for a 1-second hesitation, 1.0 for 2-3 seconds, and 1.5 for a pause longer than 3 seconds. Do not treat every pause as the same duration.
-4. LEXICAL RESOURCE: Start at 6.0. Add 0.5 for each pair of distinct advanced, topic-specific vocabulary items, collocations, or idioms actually used, capped at 8.0. Do not reward repeated use of the same item.
+4. LEXICAL RESOURCE: Start at 6.0. Add 0.5 for each pair of distinct advanced, topic-specific vocabulary items, collocations, or idioms actually used, capped at 8.0. Do not reward repeated use of the same item. Deduct 0.5 for every occurrence of an inappropriate or incorrectly used word/collocation. Return each occurrence in vocabulary_errors with the exact word or phrase, why it is inappropriate in context, and a suitable correction. Do not flag valid but simple vocabulary.
    - Accurately assess fluency based on candidate's real speaking performance:
      * Check for stuttering (nói lắp / repetitions like "I... I think", "the the")
      * Check for stumbles, hesitation fillers ("uh", "um", "er") and prolonged unnatural pauses
@@ -3856,6 +3883,9 @@ Output STRICTLY a valid JSON object without markdown fences, conforming to this 
       "practice_structure": "Tên cấu trúc ngữ pháp cần luyện tập",
       "explanation": "Giải thích chi tiết bằng tiếng Việt"
     }
+  ],
+  "vocabulary_errors": [
+    { "word": "exact word or phrase", "issue": "Why this use is inappropriate", "correction": "Suitable alternative" }
   ],
   "pronunciation_errors": [
     {
@@ -3903,15 +3933,32 @@ Output STRICTLY a valid JSON object without markdown fences, conforming to this 
     // Compute criteria bands and enforce strict floor-to-half rounding
     const modelFc = Number(result.criteria?.fluencyCoherence?.band) || 6.5;
     const shortAnswerPenalty = wordCount < 10 ? 3 : wordCount < 12 ? 2 : wordCount < 15 ? 1 : wordCount < 20 ? 0.5 : 0;
+    const grammarVocabLengthPenalty = getShortAnswerBandPenalty(wordCount);
     const speakingRatePenalty = getSpeakingRatePenalty(wordCount, Number(durationSeconds));
     const fc = Math.min(modelFc, Math.max(1, 8 - shortAnswerPenalty - speakingRatePenalty));
     const repeatedPromptKeywords = countRepeatedPromptKeywords(question || '', trimmedTranscript);
     const repeatedKeywordPenalty = Math.floor(repeatedPromptKeywords / wordCount * 10) * 0.5;
-    const lr = Math.max(1, Math.min(8, 6 + Math.floor(countAdvancedSpeakingVocab(trimmedTranscript) / 2) * 0.5 - repeatedKeywordPenalty));
-    const gr = Number(result.criteria?.grammaticalRange?.band) || 7.0;
+    const vocabularyErrors = Array.isArray(result.vocabulary_errors)
+      ? result.vocabulary_errors.filter((error: any) => error && typeof error.word === 'string')
+      : [];
+    const inappropriateVocabularyCount = Math.max(vocabularyErrors.length, getInappropriateVocabularyCount(trimmedTranscript));
+    result.vocabulary_errors = vocabularyErrors;
+    const lr = Math.max(1, Math.min(8, 6 + Math.floor(countAdvancedSpeakingVocab(trimmedTranscript) / 2) * 0.5 - repeatedKeywordPenalty - grammarVocabLengthPenalty - inappropriateVocabularyCount * 0.5));
+    const gr = Math.max(1, (Number(result.criteria?.grammaticalRange?.band) || 7.0) - grammarVocabLengthPenalty);
     const pr = Number(result.criteria?.pronunciation?.band) || 6.5;
 
-    const rawAvg = (fc + lr + gr + pr) / 4;
+    const cappedBands = capCriterionBands({
+      fluencyCoherence: fc,
+      lexicalResource: lr,
+      grammaticalRange: gr,
+      pronunciation: pr,
+    });
+    const finalFc = cappedBands.fluencyCoherence;
+    const finalLr = cappedBands.lexicalResource;
+    const finalGr = cappedBands.grammaticalRange;
+    const finalPr = cappedBands.pronunciation;
+
+    const rawAvg = (finalFc + finalLr + finalGr + finalPr) / 4;
     // Strict rounding down rule as requested: e.g. 7.7 -> 7.5
     const overallScore = floorToHalf(rawAvg);
 
@@ -3923,9 +3970,20 @@ Output STRICTLY a valid JSON object without markdown fences, conforming to this 
     result.criteria ||= {};
     result.criteria.fluencyCoherence ||= { band: 6.5, feedback: '' };
     result.criteria.lexicalResource ||= { band: 6.0, feedback: '' };
-    result.criteria.fluencyCoherence.band = floorToHalf(fc);
-    result.criteria.lexicalResource.band = floorToHalf(lr);
+    result.criteria.fluencyCoherence.band = finalFc;
+    result.criteria.lexicalResource.band = finalLr;
+    result.criteria.grammaticalRange ||= { band: finalGr, feedback: '' };
+    result.criteria.pronunciation ||= { band: finalPr, feedback: '' };
+    result.criteria.grammaticalRange.band = finalGr;
+    result.criteria.pronunciation.band = finalPr;
     if (repeatedKeywordPenalty > 0) result.criteria.lexicalResource.feedback = 'Keyword repetition reduces lexical flexibility.';
+    if (grammarVocabLengthPenalty > 0) {
+      result.criteria.grammaticalRange.feedback = 'The answer is too short to demonstrate a wider range of grammar.';
+      result.criteria.lexicalResource.feedback = 'The answer is too short to demonstrate a wider range of vocabulary.';
+    }
+    if (inappropriateVocabularyCount > 0) {
+      result.criteria.lexicalResource.feedback = `${inappropriateVocabularyCount} inappropriate word/collocation use(s) reduce lexical accuracy.`;
+    }
     if (speakingRatePenalty > 0) result.criteria.fluencyCoherence.feedback = 'Speaking rate is slow.';
 
     if (!Array.isArray(result.grammar_errors)) {
