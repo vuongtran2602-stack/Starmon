@@ -1295,7 +1295,8 @@ function sendCurrentCombatPhaseToSocket(state: PvpMatchState, ws: WebSocket, myS
   const starmon = attacker?.starmons[starmonIndex];
   const snapshot = serializeBoard(state);
   const now = Date.now();
-  const remainingSec = Math.max(1, Math.ceil((state.phaseEndsAt - now) / 1000));
+  const deadline = state.subPhase === 1 ? state.phaseStartedAt + ANSWER_DURATION_MS : state.phaseEndsAt;
+  const remainingSec = Math.max(1, Math.ceil((deadline - now) / 1000));
 
   try {
     ws.send(JSON.stringify({
@@ -1303,12 +1304,17 @@ function sendCurrentCombatPhaseToSocket(state: PvpMatchState, ws: WebSocket, myS
       phase: state.phase,
       turn: state.turn,
       subPhase: state.subPhase,
-      attackerSlot,
-      targetSlot,
+      attackerSlot: state.subPhase === 1 ? null : attackerSlot,
+      targetSlot: state.subPhase === 1 ? null : targetSlot,
       phaseStartedAt: state.phaseStartedAt,
       phaseEndsAt: state.phaseEndsAt,
       serverTime: now,
       time_limit: remainingSec,
+      analysis_buffer: state.subPhase === 1 ? Math.ceil(Math.max(0, state.phaseEndsAt - deadline) / 1000) : 0,
+      p1_alive_count: aliveStarmonIndices(state.players[1]).length,
+      p1_alive_indices: aliveStarmonIndices(state.players[1]),
+      p2_alive_count: aliveStarmonIndices(state.players[2]).length,
+      p2_alive_indices: aliveStarmonIndices(state.players[2]),
       board: state.board,
       boardSnapshot: snapshot,
       boardVersion: state.boardVersion,
@@ -2578,6 +2584,17 @@ wss.on('connection', (ws) => {
                 sender_id: msg.player_id,
               }, ws);
             }
+          }
+          break;
+        }
+
+        case 'PVP_REQUEST_PHASE_SYNC': {
+          // Replay the authoritative phase if this client missed the transition broadcast.
+          const targetCode = normalizeRoomCode(currentRoomCode || msg.room_code || '');
+          const match = activeMatchStates.get(targetCode);
+          const auth = pvpBattleSocketAuth.get(ws);
+          if (match && auth && ws.readyState === WebSocket.OPEN) {
+            sendCurrentCombatPhaseToSocket(match, ws, auth.slot);
           }
           break;
         }

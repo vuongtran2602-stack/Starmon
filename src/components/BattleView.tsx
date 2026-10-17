@@ -727,7 +727,13 @@ export const BattleView: React.FC<Props> = ({
         setTurnStatusType('missed');
         setTurnAnnouncement('HẾT 30 GIÂY! Mất lượt hành động...');
       }
-      return;
+      const syncTimer = setInterval(() => {
+        sendPvpMessage({
+          type: 'PVP_REQUEST_PHASE_SYNC',
+          room_code: pvpRoomInfo?.code,
+        });
+      }, 2500);
+      return () => clearInterval(syncTimer);
     }
 
     const t = setInterval(() => {
