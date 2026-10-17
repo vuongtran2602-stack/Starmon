@@ -77,6 +77,7 @@ interface Props {
     opponentId?: string;
     opponentName?: string;
     opponentStarmons?: Starmon[];
+    pvpAuth?: { username: string; deviceId: string; sessionToken: string };
   } | null;
   onRequestMicrophone?: () => void;
   onQuestProgress?: (category: 'match_orbs' | 'deal_damage' | 'speaking_band' | 'combo_hyper' | 'cast_skill', data?: any) => void;
@@ -1209,6 +1210,9 @@ export const BattleView: React.FC<Props> = ({
         player_name: pvpRoomInfo.myPlayerName || pvpRoomInfo.hostName,
         is_host: Boolean(pvpRoomInfo.isHost),
         slot: initialSlot,
+        username: pvpRoomInfo.pvpAuth?.username,
+        device_id: pvpRoomInfo.pvpAuth?.deviceId,
+        auth_token: pvpRoomInfo.pvpAuth?.sessionToken,
         starmons: playerTeamRef.current,
       }));
     };
@@ -6889,16 +6893,16 @@ export const BattleView: React.FC<Props> = ({
                 ĐÃ HOÀN TẤT 3 CÂU HỎI PHASE 1
               </span>
               <h3 className="text-xl md:text-2xl font-black font-game text-amber-300 mb-2">
-                Chờ đối thủ hoàn thành Phase 1...
+                Chờ Phase 1 hoàn tất...
               </h3>
               <p className="text-xs md:text-sm text-amber-200 font-bold max-w-lg leading-relaxed mb-3 bg-amber-950/40 border border-amber-500/40 px-4 py-2 rounded-xl">
                 Phase 1: Bạn có tổng cộng 2 phút để trả lời 3 câu hỏi. Nếu hết giờ, những câu chưa được trả lời sẽ bị tính là 0 điểm
               </p>
               <p className="text-xs md:text-sm text-slate-300 max-w-md leading-relaxed mb-4">
-                Trận đấu sẽ tự động chuyển sang Phase {currentRoundNumber}.2 ngay khi đối thủ trả lời xong hoặc khi hết 120 giây của Phase 1!
+                Sau 120 giây trả lời, hệ thống có tối đa 15 giây để chấm, lưu và đồng bộ kết quả bài nói cuối cùng. Hai người chơi sẽ cùng chuyển phase khi hết thời gian này.
               </p>
 
-              {/* Remaining Countdown of 120 seconds */}
+                {/* 120-second answer window; the server keeps a 15-second result-sync buffer afterward. */}
               <div className="w-full max-w-sm bg-slate-900/95 border-2 border-amber-400/80 rounded-2xl p-4 shadow-xl mb-4 flex flex-col items-center gap-2">
                 <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">
                   Thời gian đếm ngược còn lại của 120 giây:
@@ -6920,7 +6924,7 @@ export const BattleView: React.FC<Props> = ({
               {/* Chờ đối thủ status button (replaces buggy Vào chiến đấu ngay button) */}
               <div className="px-6 py-3 bg-slate-900 border-2 border-amber-400/80 text-amber-300 font-black font-game text-sm md:text-base rounded-xl shadow-xl flex items-center gap-2.5">
                 <RefreshCw className="w-4 h-4 text-amber-300 animate-spin" />
-                <span>CHỜ ĐỐI THỦ ({questionTimer}s CÒN LẠI)</span>
+                <span>{questionTimer > 0 ? `ĐANG CHỜ HẾT PHASE 1 (${questionTimer}s)` : 'ĐANG ĐỒNG BỘ KẾT QUẢ...'}</span>
               </div>
             </div>
           )}

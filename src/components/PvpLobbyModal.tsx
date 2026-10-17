@@ -54,6 +54,7 @@ interface Props {
     opponentId?: string;
     opponentName?: string;
     opponentStarmons?: Starmon[];
+    pvpAuth?: { username: string; deviceId: string; sessionToken: string };
   }) => void;
   onStartPveBattle?: () => void;
   onOpenTutorial?: () => void;
@@ -72,6 +73,112 @@ export const PvpLobbyModal: React.FC<Props> = ({
   onOpenTutorial,
   onUpdateGoogleAccount,
 }) => {
+  type PvpAuthSession = { username: string; deviceId: string; sessionToken: string };
+  const [pvpAuth, setPvpAuth] = useState<PvpAuthSession | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authUsernameInput, setAuthUsernameInput] = useState('');
+  const [authPasswordInput, setAuthPasswordInput] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [authBusy, setAuthBusy] = useState(false);
+  const [pvpDeviceId] = useState(() => {
+    try {
+      let id = localStorage.getItem('starmon_pvp_device_id');
+      if (!id) {
+        id = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `device_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+        localStorage.setItem('starmon_pvp_device_id', id);
+      }
+      return id;
+    } catch {
+      return `device_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    }
+  });
+
+  useEffect(() => {
+    let saved: PvpAuthSession | null = null;
+    try {
+      saved = JSON.parse(sessionStorage.getItem('starmon_pvp_auth_session') || 'null');
+    } catch {}
+    if (!saved) {
+      setAuthChecked(true);
+      return;
+    }
+    fetch('/api/pvp-auth/verify', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: saved.username, device_id: saved.deviceId, session_token: saved.sessionToken }),
+    }).then(async res => {
+      if (!res.ok) throw new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+      const result = await res.json();
+      const session = { ...saved!, username: result.username };
+      setPvpAuth(session);
+      setActiveGoogleId(session.username);
+      setActiveGoogleName(session.username);
+    }).catch((error: any) => {
+      sessionStorage.removeItem('starmon_pvp_auth_session');
+      setAuthError(error?.message || 'Không thể xác minh phiên đăng nhập.');
+    }).finally(() => setAuthChecked(true));
+  }, []);
+
+  const handlePvpAuthSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setAuthError('');
+    setAuthBusy(true);
+    try {
+      const response = await fetch(`/api/pvp-auth/${authMode}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: authUsernameInput.trim(), password: authPasswordInput, device_id: pvpDeviceId }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Không thể đăng nhập PvP.');
+      if (authMode === 'register') {
+        setAuthMode('login');
+        setAuthError('Tài khoản đã tạo. Đăng nhập để tiếp tục.');
+        return;
+      }
+      const session: PvpAuthSession = { username: data.username, deviceId: data.deviceId, sessionToken: data.sessionToken };
+      sessionStorage.setItem('starmon_pvp_auth_session', JSON.stringify(session));
+      setPvpAuth(session);
+      setActiveGoogleId(session.username);
+      setActiveGoogleName(session.username);
+      setAuthPasswordInput('');
+      onUpdateGoogleAccount?.(session.username);
+    } catch (error: any) {
+      setAuthError(error?.message || 'Không thể đăng nhập PvP.');
+    } finally {
+      setAuthBusy(false);
+      setAuthChecked(true);
+    }
+  };
+
+  const handlePvpLogout = async () => {
+    if (!pvpAuth) return;
+    try {
+      if (currentRoom) {
+        await fetch('/api/rooms/leave', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            room_code: currentRoom.room_code || currentRoom.code,
+            username: pvpAuth.username,
+            device_id: pvpAuth.deviceId,
+            auth_token: pvpAuth.sessionToken,
+          }),
+        });
+      }
+      await fetch('/api/pvp-auth/logout', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: pvpAuth.username, device_id: pvpAuth.deviceId, session_token: pvpAuth.sessionToken }),
+      });
+    } finally {
+      sessionStorage.removeItem('starmon_pvp_auth_session');
+      setPvpAuth(null);
+      setCurrentRoom(null);
+      setActiveGoogleId('');
+      setActiveGoogleName('');
+    }
+  };
+
   // Navigation tabs in main lobby
   const [activeTab, setActiveTab] = useState<'join' | 'create' | 'pve' | 'tutorial'>('join');
   const [rooms, setRooms] = useState<PvpRoom[]>([]);
@@ -395,6 +502,11 @@ export const PvpLobbyModal: React.FC<Props> = ({
 
   // Transition both players to PvP Battle with actual opponent Starmons
   const handleMatchLaunch = (room: PvpRoom, overrideUserId?: string) => {
+    if (!pvpAuth) {
+      setAuthError('Đăng nhập tài khoản PvP trước khi vào trận.');
+      hasLaunchedRef.current = false;
+      return;
+    }
     if (hasLaunchedRef.current) return;
     hasLaunchedRef.current = true;
     sound.playSwoosh();
@@ -409,9 +521,7 @@ export const PvpLobbyModal: React.FC<Props> = ({
     } catch {}
 
     // Determine Slot 1 (Host / TRÁI) vs Slot 2 (Guest / PHẢI) deterministically
-    const isMeHost = isRoomHostRef.current !== null
-      ? isRoomHostRef.current
-      : (currentUid === room.host_id);
+    const isMeHost = String(pvpAuth.username).toLowerCase() === String(room.host_id || '').toLowerCase();
 
     const myPlayerEntry = isMeHost
       ? (room.players.find(p => p.isHost) || room.players[0])
@@ -436,6 +546,7 @@ export const PvpLobbyModal: React.FC<Props> = ({
       opponentId: opponent?.id,
       opponentName: opponent ? `${opponent.name}` : room.hostName,
       opponentStarmons,
+      pvpAuth,
     });
   };
 
@@ -459,6 +570,7 @@ export const PvpLobbyModal: React.FC<Props> = ({
 
   // Handle Create Room (persisted in Supabase & central server)
   const handleCreateRoom = async () => {
+    if (!pvpAuth) return setAuthError('Đăng nhập tài khoản PvP trước khi tạo phòng.');
     sound.playClick();
     isRoomHostRef.current = true;
     setIsProcessing(true);
@@ -468,8 +580,8 @@ export const PvpLobbyModal: React.FC<Props> = ({
       Math.floor(100000 + Math.random() * 900000).toString();
 
     const hostPlayer: PlayerInRoom = {
-      id: activeGoogleId,
-      name: activeGoogleName,
+      id: pvpAuth.username,
+      name: pvpAuth.username,
       level: playerLevel || 1,
       isHost: true,
       isReady: true,
@@ -479,8 +591,8 @@ export const PvpLobbyModal: React.FC<Props> = ({
     const newRoom: PvpRoom = {
       room_code: newCode,
       code: newCode,
-      host_id: activeGoogleId,
-      hostName: activeGoogleName,
+      host_id: pvpAuth.username,
+      hostName: pvpAuth.username,
       hostLevel: playerLevel || 1,
       arena: selectedArena,
       status: 'WAITING',
@@ -497,9 +609,12 @@ export const PvpLobbyModal: React.FC<Props> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...newRoom,
+          username: pvpAuth.username,
+          device_id: pvpAuth.deviceId,
+          auth_token: pvpAuth.sessionToken,
           custom_code: newCode,
-          host_id: activeGoogleId,
-          host_name: activeGoogleName,
+          host_id: pvpAuth.username,
+          host_name: pvpAuth.username,
           hostLevel: playerLevel || 1,
           starmons: myPartyStarmons,
           players: [hostPlayer],
@@ -532,8 +647,8 @@ export const PvpLobbyModal: React.FC<Props> = ({
         wsRef.current.send(JSON.stringify({
           type: 'JOIN_ROOM',
           room_code: newCode,
-          user_id: activeGoogleId,
-          user_name: activeGoogleName,
+          user_id: pvpAuth.username,
+          user_name: pvpAuth.username,
         }));
       }
     } catch (err: any) {
@@ -546,6 +661,7 @@ export const PvpLobbyModal: React.FC<Props> = ({
 
   // Handle Join Room by 6-digit code or custom code
   const handleJoinByCode = async (targetCode: string) => {
+    if (!pvpAuth) return setAuthError('Đăng nhập tài khoản PvP trước khi vào phòng.');
     const raw = (targetCode || '').trim();
     const cleanCode = sanitizeRoomCode(raw);
     if (!cleanCode) {
@@ -567,8 +683,11 @@ export const PvpLobbyModal: React.FC<Props> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           room_code: cleanCode,
-          user_id: activeGoogleId,
-          user_name: activeGoogleName,
+          username: pvpAuth.username,
+          device_id: pvpAuth.deviceId,
+          auth_token: pvpAuth.sessionToken,
+          user_id: pvpAuth.username,
+          user_name: pvpAuth.username,
           user_level: playerLevel || 1,
           starmons: myPartyStarmons,
         }),
@@ -659,7 +778,9 @@ export const PvpLobbyModal: React.FC<Props> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           room_code: cleanCode,
-          user_id: activeGoogleId,
+          username: pvpAuth?.username,
+          device_id: pvpAuth?.deviceId,
+          auth_token: pvpAuth?.sessionToken,
         }),
       });
     } catch {}
@@ -709,6 +830,35 @@ export const PvpLobbyModal: React.FC<Props> = ({
           <X className="w-4 h-4" />
         </button>
 
+        {(!pvpAuth || !authChecked) && (
+          <div className="absolute inset-0 z-[80] rounded-3xl bg-slate-950/95 backdrop-blur-md flex items-center justify-center p-5">
+            <form onSubmit={handlePvpAuthSubmit} className="w-full max-w-sm flex flex-col gap-3">
+              <div className="text-center mb-1">
+                <div className="mx-auto mb-3 w-12 h-12 rounded-2xl bg-amber-400/15 border border-amber-400/50 flex items-center justify-center">
+                  <Shield className="w-6 h-6 text-amber-300" />
+                </div>
+                <h2 className="text-xl font-black text-amber-300">Đăng nhập PvP</h2>
+                <p className="mt-1 text-xs text-slate-300">Đăng nhập trước khi tạo hoặc vào phòng. Mỗi tài khoản chỉ hoạt động trên một thiết bị tại một thời điểm.</p>
+              </div>
+              {!authChecked ? (
+                <div className="py-6 text-center text-sm text-slate-300">Đang xác minh phiên đăng nhập…</div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button type="button" onClick={() => { setAuthMode('login'); setAuthError(''); }} className={`py-2 rounded-xl text-xs font-black ${authMode === 'login' ? 'bg-amber-400 text-slate-950' : 'bg-slate-800 text-slate-300'}`}>ĐĂNG NHẬP</button>
+                    <button type="button" onClick={() => { setAuthMode('register'); setAuthError(''); }} className={`py-2 rounded-xl text-xs font-black ${authMode === 'register' ? 'bg-amber-400 text-slate-950' : 'bg-slate-800 text-slate-300'}`}>TẠO TÀI KHOẢN</button>
+                  </div>
+                  <input value={authUsernameInput} onChange={e => setAuthUsernameInput(e.target.value)} autoComplete="username" placeholder="Tên đăng nhập" maxLength={24} required className="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white focus:outline-none focus:border-amber-400" />
+                  <input value={authPasswordInput} onChange={e => setAuthPasswordInput(e.target.value)} type="password" autoComplete={authMode === 'login' ? 'current-password' : 'new-password'} placeholder="Mật khẩu" maxLength={256} required className="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white focus:outline-none focus:border-amber-400" />
+                  {authError && <p className="text-xs text-rose-300 bg-rose-950/70 border border-rose-700 rounded-lg p-2">{authError}</p>}
+                  <button type="submit" disabled={authBusy} className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-500 text-slate-950 font-black disabled:opacity-50">{authBusy ? 'ĐANG XỬ LÝ…' : authMode === 'login' ? 'ĐĂNG NHẬP VÀO PvP' : 'TẠO TÀI KHOẢN'}</button>
+                  <button type="button" onClick={onClose} className="text-xs text-slate-400 hover:text-white">Quay lại</button>
+                </>
+              )}
+            </form>
+          </div>
+        )}
+
         {/* Global Status Notice */}
         {statusMessage && (
           <div className="p-2.5 rounded-xl bg-cyan-950/80 border border-cyan-500 text-xs text-cyan-300 font-bold flex items-center gap-2 animate-in fade-in">
@@ -733,7 +883,7 @@ export const PvpLobbyModal: React.FC<Props> = ({
               </div>
               <div className="leading-tight">
                 <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
-                  Tài khoản Google đang kết nối PvP:
+                  Tài khoản PvP đã đăng nhập:
                 </span>
                 <span className="text-xs font-black text-amber-300 font-mono">
                   {activeGoogleName} <span className="text-slate-400 font-normal">({activeGoogleId})</span>
@@ -742,19 +892,21 @@ export const PvpLobbyModal: React.FC<Props> = ({
             </div>
 
             <div className="flex items-center gap-1">
-              <button
-                onClick={() => setIsEditingAccount(!isEditingAccount)}
-                className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[10px] font-bold border border-slate-700 flex items-center gap-1 cursor-pointer transition-all"
-                title="Tùy chỉnh Google User ID hoặc Email"
-              >
-                <Edit3 className="w-3 h-3" />
-                <span>{isEditingAccount ? 'Đóng' : 'Đổi'}</span>
-              </button>
+              {pvpAuth && (
+                <button
+                  onClick={handlePvpLogout}
+                  className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-rose-950 text-slate-300 hover:text-rose-300 text-[10px] font-bold border border-slate-700 flex items-center gap-1 cursor-pointer transition-all"
+                  title="Đăng xuất và giải phóng thiết bị"
+                >
+                  <LogOut className="w-3 h-3" />
+                  <span>Đăng xuất</span>
+                </button>
+              )}
             </div>
           </div>
 
           {/* Quick Profile Switcher for cross-account PvP */}
-          <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-800/80">
+          {!pvpAuth && <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-800/80">
             <span className="text-[10px] text-slate-400 font-bold shrink-0">Chọn tài khoản PvP:</span>
             {availableAccounts.length > 0 ? (
               availableAccounts.map((acc: any) => {
@@ -802,10 +954,10 @@ export const PvpLobbyModal: React.FC<Props> = ({
                 </button>
               </>
             )}
-          </div>
+          </div>}
 
           {/* Custom Google Account Editor */}
-          {isEditingAccount && (
+          {!pvpAuth && isEditingAccount && (
             <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-700 flex flex-col gap-2 mt-1 animate-in fade-in">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
@@ -1157,26 +1309,6 @@ export const PvpLobbyModal: React.FC<Props> = ({
                     >
                       <ArrowRight className="w-4 h-4" />
                       <span>{isProcessing ? 'ĐANG TÌM...' : 'VÀO PHÒNG'}</span>
-                    </button>
-                  </div>
-
-                  {/* Preset Quick Join: STARMON-CC9C2 */}
-                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-900/90 border border-indigo-500/40 text-xs">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                      <span className="text-[11px] text-slate-300 font-bold">
-                        Phòng mẫu: <strong className="text-amber-300 font-mono">STARMON-CC9C2</strong>
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setJoinCodeInput('STARMON-8C425');
-                        handleJoinByCode('STARMON-8C425');
-                      }}
-                      className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold cursor-pointer transition-all active:scale-95 shadow"
-                    >
-                      Vào phòng starmon-8c425
                     </button>
                   </div>
 

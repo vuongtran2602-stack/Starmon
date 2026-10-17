@@ -3,6 +3,7 @@ import http from 'http';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { GoogleGenAI } from '@google/genai';
 import { createClient } from '@supabase/supabase-js';
@@ -41,6 +42,47 @@ const serverSupabase = supabaseServiceKey ? createClient(supabaseUrl, supabaseSe
 }) : null;
 if (!serverSupabase) {
   console.warn('Supabase server persistence is disabled. Set SUPABASE_SERVICE_ROLE_KEY to enable it.');
+}
+
+type PvpAuthAccount = {
+  username: string;
+  password_salt: string;
+  password_hash: string;
+  active_device_id: string | null;
+  active_session_hash: string | null;
+};
+const localPvpAuthAccounts = new Map<string, PvpAuthAccount>([
+  ['a', { username: 'A', password_salt: 'ba26831d9bce2b8746187f316563077c', password_hash: 'b1119cd9ebfb47b2110dd523f3a46eab3a63ffbe936007d584267964b6d3f9028b7cacb461f613ee7bef77b96d0759935177819270380b5e5b8bb53d063f1367', active_device_id: null, active_session_hash: null }],
+  ['b', { username: 'B', password_salt: 'c484aa35ed0278e0f4510925b4341ab0', password_hash: '3c97daf2ca296cff23838f73c170cb9bb6fe175b99eb671aa5cfb2c30c7347af3aee594ac65522fbd050fdeb0eded96c3a11682f3f04dca3fc873e4bacf99d82', active_device_id: null, active_session_hash: null }],
+]);
+
+function hashPvpSession(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
+
+function verifyPassword(password: string, account: PvpAuthAccount): boolean {
+  const actual = scryptSync(password, account.password_salt, 64);
+  const expected = Buffer.from(account.password_hash, 'hex');
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+async function getPvpAuthAccount(username: string): Promise<PvpAuthAccount | null> {
+  const key = username.trim().toLowerCase();
+  if (!serverSupabase) return localPvpAuthAccounts.get(key) || null;
+  const { data, error } = await serverSupabase.from('pvp_auth_accounts')
+    .select('username,password_salt,password_hash,active_device_id,active_session_hash')
+    .eq('username', key).maybeSingle();
+  if (error) throw error;
+  return data as PvpAuthAccount | null;
+}
+
+async function verifyPvpSession(username: string, deviceId: string, token: string): Promise<string | null> {
+  if (!username || !deviceId || !token) return null;
+  const account = await getPvpAuthAccount(username);
+  if (!account?.active_session_hash || account.active_device_id !== deviceId) return null;
+  const expected = Buffer.from(account.active_session_hash, 'hex');
+  const actual = Buffer.from(hashPvpSession(token), 'hex');
+  return expected.length === actual.length && timingSafeEqual(expected, actual) ? account.username : null;
 }
 
 function syncAccountsToSupabase(accounts: Record<string, ServerUserAccount>) {
@@ -954,7 +996,7 @@ function initializeMatchForRoom(room: PvpRoom): PvpMatchState {
     player2: player2State,
     attackQueue: [],
     phaseStartedAt: Date.now(),
-    phaseEndsAt: Date.now() + 120000,
+    phaseEndsAt: Date.now() + PHASE_DURATION[1],
     phaseTimerHandle: null,
     seed,
     boardVersion: 1,
@@ -974,8 +1016,10 @@ function initializeMatchForRoom(room: PvpRoom): PvpMatchState {
 // Tổng 1 turn: ĐÚNG 180s.
 // Quy tắc duy nhất: Phase CHỈ kết thúc khi serverNow() >= phaseEndsAt. Không có ngoại lệ.
 // =========================================================
+const ANSWER_DURATION_MS = 120_000;
+const ANSWER_ANALYSIS_BUFFER_MS = 15_000;
 const PHASE_DURATION: Record<1 | 2 | 3, number> = {
-  1: 120_000, // 120s cho Phase 1 (Answer)
+  1: ANSWER_DURATION_MS + ANSWER_ANALYSIS_BUFFER_MS,
   2: 30_000,  // 30s cho Phase 2 (P1 attack)
   3: 30_000,  // 30s cho Phase 3 (P2 attack)
 };
@@ -1065,6 +1109,23 @@ function handlePhaseEnd(
   }
 }
 
+// Recover a missed timeout callback and ensure an expired phase always advances.
+const phaseDeadlineWatchdog = setInterval(() => {
+  const now = Date.now();
+  for (const [roomCode, state] of activeMatchStates) {
+    if (now >= state.phaseEndsAt) {
+      handlePhaseEnd(
+        state,
+        roomCode,
+        state.phase,
+        state.phaseEndsAt,
+        state.phaseTimerGeneration || 0
+      );
+    }
+  }
+}, 1000);
+phaseDeadlineWatchdog.unref?.();
+
 function startTurn(state: PvpMatchState, roomCode: string, n: number) {
   state.turn = n;
   state.roundNumber = n;
@@ -1132,7 +1193,12 @@ function startPhase(state: PvpMatchState, roomCode: string, subPhase: 1 | 2 | 3)
     phaseStartedAt: state.phaseStartedAt,
     phaseEndsAt: state.phaseEndsAt, // Mốc tuyệt đối
     serverTime: now, // để client tính clockOffset
-    time_limit: Math.ceil(PHASE_DURATION[subPhase] / 1000),
+    // Keep the quiz at 120 seconds and reserve the final 15 seconds for server
+    // evaluation, persistence, and synchronizing both players' answer results.
+    time_limit: subPhase === 1
+      ? Math.ceil(ANSWER_DURATION_MS / 1000)
+      : Math.ceil(PHASE_DURATION[subPhase] / 1000),
+    analysis_buffer: subPhase === 1 ? Math.ceil(ANSWER_ANALYSIS_BUFFER_MS / 1000) : 0,
     boardSnapshot: snapshot,
     grid: state.board,
     board: state.board,
@@ -1317,12 +1383,11 @@ function onAnswerSubmit(
       phase: state.phase,
       phaseEndsAt: state.phaseEndsAt,
       serverTime: Date.now(),
-      message: 'Bạn đã trả lời xong. Đang chờ hết thời gian Phase 1...',
+      message: 'Bạn đã trả lời xong. Đang chờ đối thủ hoàn tất Phase 1...',
     }));
   }
 
-  // QUY TẮC DUY NHẤT: KHÔNG chuyển phase dù cả 2 đã nộp xong!
-  // Cả 2 người chơi VẪN PHẢI CHỜ đúng 120s đến khi state.phaseEndsAt kết thúc qua handlePhaseEnd().
+  // Keep Phase 1 open through its full deadline so both clients stay synchronized.
 }
 
 // =========================================================
@@ -1884,6 +1949,9 @@ function checkWinAndContinue(state: PvpMatchState, roomCode: string) {
   }
 }
 
+const pvpBattleSocketAuth = new WeakMap<WebSocket, { username: string; deviceId: string; slot: 1 | 2 }>();
+const pvpBattleSocketsByUsername = new Map<string, Set<WebSocket>>();
+
 wss.on('connection', (ws) => {
   let currentRoomCode: string | null = null;
 
@@ -1893,9 +1961,17 @@ wss.on('connection', (ws) => {
     ws.send(JSON.stringify({ type: 'ACCOUNTS_UPDATED', accounts: getUniqueAccountsList(serverAccounts) }));
   } catch {}
 
-  ws.on('message', (data) => {
+  ws.on('message', async (data) => {
     try {
       const msg = JSON.parse(data.toString());
+      const socketAuth = pvpBattleSocketAuth.get(ws);
+      if (socketAuth && msg.type !== 'PVP_JOIN_BATTLE') {
+        msg.player_id = socketAuth.username;
+        msg.slot = socketAuth.slot;
+        msg.actor_slot = socketAuth.slot;
+        msg.playerSlot = socketAuth.slot;
+        msg.attackerSlot = socketAuth.slot;
+      }
 
       switch (msg.type) {
         case 'GET_ACCOUNTS': {
@@ -1925,60 +2001,9 @@ wss.on('connection', (ws) => {
               roomClients.set(targetCode, new Set());
             }
             roomClients.get(targetCode)!.add(ws);
-
-            const uId = msg.user_id;
-            if (uId && uId === room.host_id) {
-              ws.send(JSON.stringify({ type: 'slot_assigned', slot: 1 }));
-            } else if (uId) {
-              const existingIdx = room.players.findIndex(p => p.id === uId);
-              if (existingIdx === -1 && room.players.length === 1) {
-                room.players.push({
-                  id: uId,
-                  name: msg.user_name || 'Player 2',
-                  level: msg.user_level || 1,
-                  isHost: false,
-                  isReady: true,
-                  starmons: Array.isArray(msg.starmons) && msg.starmons.length > 0 ? msg.starmons : [],
-                });
-                room.guestName = msg.user_name || 'Player 2';
-              }
-              ws.send(JSON.stringify({ type: 'slot_assigned', slot: 2 }));
-            }
-
-            // CRITICAL: When both players are present, immediately start the match and advance to Phase 1.1 if not already started!
-            if (room.players.length >= 2) {
-              const isNewMatch = !activeMatchStates.has(targetCode);
-              room.status = 'IN_GAME';
-              room.updatedAt = Date.now();
-              saveRooms(activeRooms);
-              const match = activeMatchStates.get(targetCode) || initializeMatchForRoom(room);
-              broadcastToRoom(targetCode, { type: 'ROOM_STATE_UPDATED', room });
-              const startPayload = {
-                type: 'match_start',
-                seed: match.seed,
-                boardSnapshot: serializeBoard(match),
-                board: match.board,
-                boardVersion: match.boardVersion,
-                version: match.boardVersion,
-                player1Id: room.players[0]?.id || match.players[1].id,
-                player2Id: room.players[1]?.id || match.players[2].id,
-                room,
-                matchState: serializeMatchState(match),
-              };
-              if (isNewMatch) {
-                broadcastToRoom(targetCode, startPayload);
-                broadcastToRoom(targetCode, { ...startPayload, type: 'MATCH_STARTED' });
-                broadcastRoomList();
-                setTimeout(() => {
-                  startTurn(match, targetCode, 1);
-                }, 600);
-              }
-              ws.send(JSON.stringify(startPayload));
-              ws.send(JSON.stringify({ ...startPayload, type: 'MATCH_STARTED' }));
-            } else {
-              // Send full room state
-              ws.send(JSON.stringify({ type: 'ROOM_STATE_UPDATED', room }));
-            }
+            // Lobby sockets only subscribe to updates. Room membership and
+            // match startup are handled by authenticated HTTP endpoints.
+            ws.send(JSON.stringify({ type: 'ROOM_STATE_UPDATED', room }));
           } else {
             ws.send(JSON.stringify({ type: 'ERROR', message: `Phòng ${rawCode} không tồn tại hoặc đã đóng.` }));
           }
@@ -2047,6 +2072,52 @@ wss.on('connection', (ws) => {
           const rawCode = msg.room_code || '';
           const targetCode = normalizeRoomCode(rawCode);
           if (targetCode) {
+            const authenticatedUsername = await verifyPvpSession(
+              String(msg.username || ''), String(msg.device_id || ''), String(msg.auth_token || '')
+            );
+            if (!authenticatedUsername) {
+              if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ERROR', message: 'Đăng nhập PvP hết hạn. Hãy đăng nhập lại.' }));
+              break;
+            }
+            activeRooms = loadRooms();
+            let authenticatedRoom = activeRooms.find(r => normalizeRoomCode(r.room_code || r.code) === targetCode);
+            if (!authenticatedRoom && serverSupabase) {
+              const { data: roomRow, error: roomError } = await serverSupabase.from('pvp_rooms').select('*').eq('room_code', targetCode).maybeSingle();
+              if (roomError) throw roomError;
+              if (roomRow) {
+                const hostId = String(roomRow.host_id || '');
+                const hostFallback: PlayerInRoom = {
+                  id: hostId, name: roomRow.host_name || hostId, level: roomRow.host_level || 1,
+                  isHost: true, isReady: true, starmons: [],
+                };
+                authenticatedRoom = {
+                  room_code: roomRow.room_code, code: roomRow.room_code, host_id: hostId,
+                  hostName: hostFallback.name, hostLevel: hostFallback.level,
+                  arena: roomRow.arena || 'Sunken Sands', status: roomRow.status || 'WAITING',
+                  players: normalizeRoomPlayers(roomRow.players, hostId, hostFallback),
+                  createdAt: roomRow.created_at || Date.now(), updatedAt: roomRow.updated_at || Date.now(),
+                } as PvpRoom;
+                activeRooms.unshift(authenticatedRoom);
+              }
+            }
+            const usernameKey = authenticatedUsername.toLowerCase();
+            const isHostAccount = String(authenticatedRoom?.host_id || '').toLowerCase() === usernameKey;
+            const isJoinedGuest = Boolean(authenticatedRoom?.players?.some(player =>
+              !player.isHost && String(player.id || '').toLowerCase() === usernameKey
+            ));
+            if (!authenticatedRoom || (!isHostAccount && !isJoinedGuest)) {
+              if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ERROR', message: 'Tài khoản này không thuộc phòng PvP đã chọn.' }));
+              break;
+            }
+            const assignedSlot: 1 | 2 = isHostAccount ? 1 : 2;
+            pvpBattleSocketAuth.set(ws, { username: authenticatedUsername, deviceId: String(msg.device_id), slot: assignedSlot });
+            const accountSockets = pvpBattleSocketsByUsername.get(usernameKey) || new Set<WebSocket>();
+            accountSockets.add(ws);
+            pvpBattleSocketsByUsername.set(usernameKey, accountSockets);
+            msg.slot = assignedSlot;
+            msg.is_host = assignedSlot === 1;
+            msg.player_id = authenticatedUsername;
+            msg.player_name = authenticatedUsername;
             if (currentRoomCode && currentRoomCode !== targetCode && roomClients.has(currentRoomCode)) {
               roomClients.get(currentRoomCode)!.delete(ws);
             }
@@ -2059,53 +2130,12 @@ wss.on('connection', (ws) => {
             let match = activeMatchStates.get(targetCode);
             if (!match) {
               activeRooms = loadRooms();
-              const room = activeRooms.find(r => normalizeRoomCode(r.room_code || r.code) === targetCode);
+              const room = activeRooms.find(r => normalizeRoomCode(r.room_code || r.code) === targetCode) || authenticatedRoom;
               if (room) {
                 match = initializeMatchForRoom(room);
               } else {
-                const seed = computeSeedFromRoomCode(targetCode);
-                const p1State: PlayerSlotState = {
-                  id: msg.player_id || 'host_player',
-                  name: msg.player_name || 'Player 1',
-                  slot: 1,
-                  starmons: createDefaultStarmonsForSlot(1),
-                  results: [null, null, null],
-                  hasSubmittedAnswer: false,
-                  answeredCount: 0,
-                };
-                const p2State: PlayerSlotState = {
-                  id: 'guest_player',
-                  name: 'Player 2',
-                  slot: 2,
-                  starmons: createDefaultStarmonsForSlot(2),
-                  results: [null, null, null],
-                  hasSubmittedAnswer: false,
-                  answeredCount: 0,
-                };
-                const now = Date.now();
-                match = {
-                  roomCode: targetCode,
-                  turn: 1,
-                  roundNumber: 1,
-                  phase: '1.1',
-                  subPhase: 1,
-                  step: 1,
-                  attackerSlot: null,
-                  targetSlot: null,
-                  players: { 1: p1State, 2: p2State },
-                  player1: p1State,
-                  player2: p2State,
-                  attackQueue: [],
-                  phaseStartedAt: now,
-                  phaseEndsAt: now + PHASE_DURATION[1],
-                  phaseTimerHandle: null,
-                  seed,
-                  boardVersion: 1,
-                  board: generateBoardFromSeed(seed),
-                };
-                initializeSharedBoard(match, seed);
-                activeMatchStates.set(targetCode, match);
-                schedulePhaseEnd(match, targetCode);
+                if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ERROR', message: 'Không tìm thấy phòng PvP hợp lệ.' }));
+                break;
               }
             }
 
@@ -2113,35 +2143,9 @@ wss.on('connection', (ws) => {
               const pId = msg.player_id || 'player';
               const pName = msg.player_name || (msg.is_host ? 'Host' : 'Guest');
 
-              const isSlot1Connected = Boolean(
-                match.players[1].socket &&
-                match.players[1].socket.readyState === WebSocket.OPEN &&
-                match.players[1].socket !== ws
-              );
-              const isSlot2Connected = Boolean(
-                match.players[2].socket &&
-                match.players[2].socket.readyState === WebSocket.OPEN &&
-                match.players[2].socket !== ws
-              );
-
-              const requestedSlot = (msg.slot === 2 || msg.slot === '2') ? 2 : ((msg.slot === 1 || msg.slot === '1') ? 1 : null);
-              const isHostFlag = msg.is_host === true || msg.isHost === true;
-              const isGuestFlag = msg.is_host === false || msg.isHost === false;
-
-              let slot: 1 | 2;
-              if (isHostFlag || requestedSlot === 1) {
-                // Room role is authoritative. Reconnecting host sockets must not be
-                // reassigned as the guest just because an old socket is still open.
-                slot = 1;
-              } else if (isGuestFlag || requestedSlot === 2) {
-                slot = 2;
-              } else if (isSlot1Connected && !isSlot2Connected) {
-                slot = 2;
-              } else if (isSlot2Connected && !isSlot1Connected) {
-                slot = 1;
-              } else {
-                slot = (match.players[1].id === pId && !isSlot1Connected) ? 1 : 2;
-              }
+              // Slot is derived from the authenticated username and server room
+              // membership above; client-provided is_host/slot flags are ignored.
+              const slot: 1 | 2 = assignedSlot;
 
               if (slot === 1) {
                 match.players[1].id = pId;
@@ -2159,7 +2163,7 @@ wss.on('connection', (ws) => {
                 });
               }
 
-              if (match.subPhase === 1 && !match.phaseTimerHandle) {
+              if (!match.phaseTimerHandle) {
                 schedulePhaseEnd(match, targetCode);
               }
 
@@ -2207,10 +2211,8 @@ wss.on('connection', (ws) => {
               if (match.subPhase === 1) {
                 const p1Alive = aliveStarmonIndices(match.players[1]);
                 const p2Alive = aliveStarmonIndices(match.players[2]);
-                const elapsedSec = (match as any).phaseStartTime
-                  ? Math.floor((Date.now() - (match as any).phaseStartTime) / 1000)
-                  : 0;
-                const remainingSec = Math.max(1, 120 - elapsedSec);
+                const answerDeadline = match.phaseStartedAt + ANSWER_DURATION_MS;
+                const remainingSec = Math.max(1, Math.ceil((answerDeadline - Date.now()) / 1000));
                 ws.send(JSON.stringify({
                   type: 'phase_changed',
                   phase: match.phase,
@@ -2221,6 +2223,7 @@ wss.on('connection', (ws) => {
                   targetSlot: null,
                   attackQueue: [],
                   time_limit: remainingSec,
+                  analysis_buffer: Math.ceil(ANSWER_ANALYSIS_BUFFER_MS / 1000),
                   p1_alive_count: p1Alive.length,
                   p1_alive_indices: p1Alive,
                   p2_alive_count: p2Alive.length,
@@ -2325,7 +2328,7 @@ wss.on('connection', (ws) => {
                 phase: match.phase,
                 phaseEndsAt: match.phaseEndsAt,
                 serverTime: Date.now(),
-                message: 'Bạn đã nộp bài. Đang chờ hết thời gian Phase 1 (120s)...',
+                message: 'Bạn đã nộp bài. Đang chờ đối thủ hoàn tất Phase 1...',
               }));
             }
           } else {
@@ -2603,6 +2606,13 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('close', () => {
+    const socketAuth = pvpBattleSocketAuth.get(ws);
+    if (socketAuth) {
+      const accountSockets = pvpBattleSocketsByUsername.get(socketAuth.username.toLowerCase());
+      accountSockets?.delete(ws);
+      if (accountSockets?.size === 0) pvpBattleSocketsByUsername.delete(socketAuth.username.toLowerCase());
+      pvpBattleSocketAuth.delete(ws);
+    }
     if (currentRoomCode && roomClients.has(currentRoomCode)) {
       const clients = roomClients.get(currentRoomCode)!;
       clients.delete(ws);
@@ -2614,6 +2624,126 @@ wss.on('connection', (ws) => {
 });
 
 // API: Get active PvP Rooms
+app.post('/api/pvp-auth/register', async (req, res) => {
+  const username = String(req.body?.username || '').trim();
+  const password = String(req.body?.password || '');
+  if (!/^[a-zA-Z0-9_]{3,24}$/.test(username) || password.length < 8 || password.length > 256) {
+    return res.status(400).json({ error: 'Tên đăng nhập phải dài 3–24 ký tự; mật khẩu tối thiểu 8 ký tự.' });
+  }
+  const key = username.toLowerCase();
+  const salt = randomBytes(16).toString('hex');
+  const account: PvpAuthAccount = {
+    username: key,
+    password_salt: salt,
+    password_hash: scryptSync(password, salt, 64).toString('hex'),
+    active_device_id: null,
+    active_session_hash: null,
+  };
+  try {
+    if (!serverSupabase) {
+      if (localPvpAuthAccounts.has(key)) return res.status(409).json({ error: 'Tên đăng nhập đã tồn tại.' });
+      localPvpAuthAccounts.set(key, account);
+    } else {
+      const { error } = await serverSupabase.from('pvp_auth_accounts').insert(account);
+      if (error?.code === '23505') return res.status(409).json({ error: 'Tên đăng nhập đã tồn tại.' });
+      if (error) throw error;
+    }
+    return res.status(201).json({ username: account.username });
+  } catch (error) {
+    console.error('PvP account registration failed:', error);
+    return res.status(503).json({ error: 'Không thể tạo tài khoản PvP lúc này.' });
+  }
+});
+
+app.post('/api/pvp-auth/login', async (req, res) => {
+  const username = String(req.body?.username || '').trim().toLowerCase();
+  const password = String(req.body?.password || '');
+  const deviceId = String(req.body?.device_id || '');
+  if (!username || !deviceId || deviceId.length > 128 || !password || password.length > 256) {
+    return res.status(400).json({ error: 'Vui lòng nhập tên đăng nhập và mật khẩu.' });
+  }
+  try {
+    const account = await getPvpAuthAccount(username);
+    if (!account || !verifyPassword(password, account)) {
+      return res.status(401).json({ error: 'Tên đăng nhập hoặc mật khẩu không đúng.' });
+    }
+    if (account.active_device_id && account.active_device_id !== deviceId) {
+      return res.status(409).json({ error: 'Tài khoản đang đăng nhập trên thiết bị khác. Hãy đăng xuất ở thiết bị đó trước.' });
+    }
+    const token = randomBytes(32).toString('hex');
+    const sessionHash = hashPvpSession(token);
+    if (!serverSupabase) {
+      account.active_device_id = deviceId;
+      account.active_session_hash = sessionHash;
+    } else {
+      // Atomic claim: one device can own this username at a time.
+      const { data: claimed, error: claimError } = await serverSupabase
+        .from('pvp_auth_accounts')
+        .update({ active_device_id: deviceId, active_session_hash: sessionHash })
+        .eq('username', username).is('active_device_id', null).select('username').maybeSingle();
+      if (claimError) throw claimError;
+      if (!claimed) {
+        const { data: sameDevice, error: sameDeviceError } = await serverSupabase
+          .from('pvp_auth_accounts')
+          .update({ active_session_hash: sessionHash })
+          .eq('username', username).eq('active_device_id', deviceId).select('username').maybeSingle();
+        if (sameDeviceError) throw sameDeviceError;
+        if (!sameDevice) return res.status(409).json({ error: 'Tài khoản đang đăng nhập trên thiết bị khác. Hãy đăng xuất ở thiết bị đó trước.' });
+      }
+    }
+    return res.json({ username: account.username, sessionToken: token, deviceId });
+  } catch (error) {
+    console.error('PvP login failed:', error);
+    return res.status(503).json({ error: 'Không thể đăng nhập PvP lúc này.' });
+  }
+});
+
+app.post('/api/pvp-auth/verify', async (req, res) => {
+  try {
+    const username = await verifyPvpSession(
+      String(req.body?.username || '').trim().toLowerCase(),
+      String(req.body?.device_id || ''),
+      String(req.body?.session_token || '')
+    );
+    return username ? res.json({ username }) : res.status(401).json({ error: 'Phiên đăng nhập PvP không còn hợp lệ.' });
+  } catch (error) {
+    console.error('PvP session validation failed:', error);
+    return res.status(503).json({ error: 'Không thể xác minh phiên PvP lúc này.' });
+  }
+});
+
+app.post('/api/pvp-auth/logout', async (req, res) => {
+  const username = String(req.body?.username || '').trim().toLowerCase();
+  const deviceId = String(req.body?.device_id || '');
+  const token = String(req.body?.session_token || '');
+  try {
+    if (!serverSupabase) {
+      const account = localPvpAuthAccounts.get(username);
+      if (account?.active_device_id === deviceId && account.active_session_hash === hashPvpSession(token)) {
+        account.active_device_id = null;
+        account.active_session_hash = null;
+      }
+    } else {
+      const { error } = await serverSupabase.from('pvp_auth_accounts')
+        .update({ active_device_id: null, active_session_hash: null })
+        .eq('username', username).eq('active_device_id', deviceId)
+        .eq('active_session_hash', hashPvpSession(token));
+      if (error) throw error;
+    }
+    const accountSockets = pvpBattleSocketsByUsername.get(username);
+    if (accountSockets) {
+      for (const socket of accountSockets) {
+        if (socket.readyState === WebSocket.OPEN) socket.close(4001, 'PvP logout');
+      }
+      pvpBattleSocketsByUsername.delete(username);
+    }
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('PvP logout failed:', error);
+    return res.status(503).json({ error: 'Không thể đăng xuất PvP lúc này.' });
+  }
+});
+
 app.get('/api/rooms', (_req, res) => {
   activeRooms = loadRooms();
   // Filter out any abandoned rooms older than 24 hours
@@ -2637,6 +2767,16 @@ app.get('/api/rooms/:code', (req, res) => {
 
 // API: Create new PvP Room (generates 6-digit code or supports custom code)
 app.post('/api/rooms/create', async (req, res) => {
+  let authenticatedUsername: string | null;
+  try {
+    authenticatedUsername = await verifyPvpSession(
+      String(req.body?.username || ''), String(req.body?.device_id || ''), String(req.body?.auth_token || '')
+    );
+  } catch (error) {
+    console.error('PvP room creation authentication failed:', error);
+    return res.status(503).json({ error: 'Không thể xác minh đăng nhập PvP lúc này.' });
+  }
+  if (!authenticatedUsername) return res.status(401).json({ error: 'Vui lòng đăng nhập tài khoản PvP trước khi tạo phòng.' });
   const {
     host_id,
     host_name,
@@ -2679,8 +2819,8 @@ app.post('/api/rooms/create', async (req, res) => {
   // Clear any existing match state for this room code
   activeMatchStates.delete(normNewCode);
 
-  const finalHostId = host_id || req.body.host_id || `host_${Date.now()}`;
-  const finalHostName = host_name || hostName || req.body.hostName || 'Player';
+  const finalHostId = authenticatedUsername;
+  const finalHostName = authenticatedUsername;
   const finalHostLevel = host_level || hostLevel || req.body.hostLevel || 1;
 
   const partyStarmons = Array.isArray(starmons) && starmons.length > 0
@@ -2718,6 +2858,16 @@ app.post('/api/rooms/create', async (req, res) => {
 
 // API: Join PvP Room by code (strict check: exists, WAITING status, not full)
 app.post('/api/rooms/join', async (req, res) => {
+  let authenticatedUsername: string | null;
+  try {
+    authenticatedUsername = await verifyPvpSession(
+      String(req.body?.username || ''), String(req.body?.device_id || ''), String(req.body?.auth_token || '')
+    );
+  } catch (error) {
+    console.error('PvP room join authentication failed:', error);
+    return res.status(503).json({ error: 'Không thể xác minh đăng nhập PvP lúc này.' });
+  }
+  if (!authenticatedUsername) return res.status(401).json({ error: 'Vui lòng đăng nhập tài khoản PvP trước khi vào phòng.' });
   const {
     room_code,
     code,
@@ -2796,51 +2946,19 @@ app.post('/api/rooms/join', async (req, res) => {
   }
 
   if (!room) {
-    // If joining the preset room STARMON-CC9C2 and it hasn't been created yet, auto-provision it as WAITING
-    if (normalizedInput === 'STARMONCC9C2') {
-      const presetHost: PlayerInRoom = {
-        id: 'host_starmon_cc9c2',
-        name: 'Chủ phòng CC9C2',
-        level: 1,
-        isHost: true,
-        isReady: true,
-        starmons: [],
-      };
-      room = {
-        room_code: 'STARMON-CC9C2',
-        code: 'STARMON-CC9C2',
-        host_id: 'host_starmon_cc9c2',
-        hostName: 'Chủ phòng CC9C2',
-        hostLevel: 1,
-        arena: 'Sunken Sands',
-        status: 'WAITING',
-        players: [presetHost],
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-      activeRooms.unshift(room);
-      saveRooms(activeRooms);
-    } else {
-      return res.status(404).json({ error: `Phòng "${rawInput}" không tồn tại hoặc đã bị hủy. Vui lòng kiểm tra lại!` });
-    }
+    return res.status(404).json({ error: `Phòng "${rawInput}" không tồn tại hoặc đã bị hủy. Vui lòng kiểm tra lại!` });
   }
 
-  let finalUserId = user_id || `guest_${Date.now()}`;
-  let finalUserName = user_name || guestName || 'Tài khoản Google B';
+  let finalUserId = authenticatedUsername;
+  let finalUserName = authenticatedUsername;
   const finalUserLevel = user_level || guestLevel || 1;
 
-  // CRITICAL FIX: If joining user has identical ID to host (e.g. 2 tabs in same browser or default ID),
-  // assign distinct guest ID and guest name so they don't collide and can battle!
-  if (finalUserId === room.host_id) {
-    const existingGuest = room.players.find(player => !player.isHost && player.id.startsWith(`${room.host_id}_guest`));
-    finalUserId = existingGuest?.id || `${finalUserId}_guest_${Date.now().toString().slice(-4)}`;
-    if (finalUserName === room.hostName) {
-      finalUserName = existingGuest?.name || 'Tài khoản Google B';
-    }
+  if (finalUserId.toLowerCase() === String(room.host_id || '').toLowerCase()) {
+    return res.status(409).json({ error: 'Chủ phòng không thể tham gia lại bằng cùng tài khoản. Hãy dùng tài khoản khác cho người chơi 2.' });
   }
 
   // Check if challenger is reconnecting (never match or overwrite the host slot)
-  const existingPlayerIndex = room.players.findIndex(p => !p.isHost && (p.id === finalUserId || (user_id !== room.host_id && p.id === user_id)));
+  const existingPlayerIndex = room.players.findIndex(p => !p.isHost && p.id.toLowerCase() === finalUserId.toLowerCase());
   const isAlreadyInRoom = existingPlayerIndex !== -1;
 
   if (isAlreadyInRoom) {
@@ -2945,7 +3063,17 @@ app.post('/api/rooms/start', (req, res) => {
 
 // API: Leave / Close Room
 app.post('/api/rooms/leave', async (req, res) => {
-  const { room_code, code, user_id } = req.body;
+  const { room_code, code } = req.body;
+  let authenticatedUsername: string | null;
+  try {
+    authenticatedUsername = await verifyPvpSession(
+      String(req.body?.username || ''), String(req.body?.device_id || ''), String(req.body?.auth_token || '')
+    );
+  } catch (error) {
+    console.error('PvP room leave authentication failed:', error);
+    return res.status(503).json({ error: 'Không thể xác minh đăng nhập PvP lúc này.' });
+  }
+  if (!authenticatedUsername) return res.status(401).json({ error: 'Vui lòng đăng nhập tài khoản PvP trước khi rời phòng.' });
   const rawInput = (room_code || code || '').toString().trim();
   const normalizedInput = normalizeRoomCode(rawInput);
 
@@ -2953,7 +3081,10 @@ app.post('/api/rooms/leave', async (req, res) => {
   const room = activeRooms.find(r => normalizeRoomCode(r.room_code || r.code) === normalizedInput);
 
   if (room) {
-    if (user_id && user_id === room.host_id) {
+    const isHost = authenticatedUsername.toLowerCase() === String(room.host_id || '').toLowerCase();
+    const isRoomMember = room.players.some(player => String(player.id || '').toLowerCase() === authenticatedUsername.toLowerCase());
+    if (!isRoomMember) return res.status(403).json({ error: 'Tài khoản này không thuộc phòng PvP.' });
+    if (isHost) {
       // Host leaves: close room
       room.status = 'FINISHED';
       activeRooms = activeRooms.filter(r => normalizeRoomCode(r.room_code || r.code) !== normalizedInput);
@@ -2963,7 +3094,7 @@ app.post('/api/rooms/leave', async (req, res) => {
       broadcastToRoom(room.room_code, { type: 'ROOM_CLOSED', room_code: room.room_code });
     } else {
       // Guest leaves
-      room.players = room.players.filter(p => p.id !== user_id);
+      room.players = room.players.filter(p => String(p.id || '').toLowerCase() !== authenticatedUsername!.toLowerCase());
       room.guestName = undefined;
       room.status = 'WAITING';
       room.updatedAt = Date.now();

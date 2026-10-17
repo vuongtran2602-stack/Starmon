@@ -251,6 +251,7 @@ export default function App() {
     opponentId?: string;
     opponentName?: string;
     opponentStarmons?: Starmon[];
+    pvpAuth?: { username: string; deviceId: string; sessionToken: string };
   } | null>(null);
   const [showPackModal, setShowPackModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -1570,6 +1571,7 @@ export default function App() {
     opponentId?: string;
     opponentName?: string;
     opponentStarmons?: Starmon[];
+    pvpAuth?: { username: string; deviceId: string; sessionToken: string };
   }) => {
     const unlockedStarmons = starmons.filter(s => s.unlocked);
     const party = (player.battleParty && player.battleParty.length > 0)
