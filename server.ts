@@ -730,6 +730,7 @@ interface PvpMatchState {
   phaseEndsAt: number;
   phaseTimerGeneration?: number;
   lastEndedPhase?: string;
+  pendingNextTurnAt?: number;
   phaseTimerHandle?: NodeJS.Timeout | null;
   timerHandle?: NodeJS.Timeout | null;
   stepTimerHandle?: NodeJS.Timeout | null;
@@ -1166,10 +1167,26 @@ function handlePhaseEnd(
   }
 }
 
+function advanceIfPhaseExpired(state: PvpMatchState, roomCode: string): boolean {
+  if (Date.now() < state.phaseEndsAt) return false;
+  handlePhaseEnd(
+    state,
+    roomCode,
+    state.phase,
+    state.phaseEndsAt,
+    state.phaseTimerGeneration || 0
+  );
+  return true;
+}
+
 // Recover a missed timeout callback and ensure an expired phase always advances.
 const phaseDeadlineWatchdog = setInterval(() => {
   const now = Date.now();
   for (const [roomCode, state] of activeMatchStates) {
+    if (state.pendingNextTurnAt && now >= state.pendingNextTurnAt) {
+      advanceToNextTurn(state, roomCode, state.phase, state.turn, state.pendingNextTurnAt);
+      continue;
+    }
     if (now >= state.phaseEndsAt) {
       handlePhaseEnd(
         state,
@@ -1191,6 +1208,8 @@ function startTurn(state: PvpMatchState, roomCode: string, n: number) {
 }
 
 function startPhase(state: PvpMatchState, roomCode: string, subPhase: 1 | 2 | 3) {
+  state.pendingNextTurnAt = undefined;
+  state.lastEndedPhase = undefined;
   if (state.phaseTimerHandle) {
     clearTimeout(state.phaseTimerHandle);
     state.phaseTimerHandle = null;
@@ -1326,7 +1345,16 @@ function sendCurrentCombatPhaseToSocket(state: PvpMatchState, ws: WebSocket, myS
       p2_mana: state.players[2].starmons.map(s => s.mana),
     }));
 
-    if (state.subPhase >= 2) {
+    if (state.subPhase >= 2 && state.step > 3) {
+      ws.send(JSON.stringify({
+        type: 'all_starmons_done',
+        phase: state.phase,
+        turn: state.turn,
+        subPhase: state.subPhase,
+        phaseEndsAt: state.phaseEndsAt,
+        serverTime: now,
+      }));
+    } else if (state.subPhase >= 2) {
       ws.send(JSON.stringify({
         type: 'step_started',
         phase: state.phase,
@@ -1405,7 +1433,7 @@ function onAnswerSubmit(
   }
 
   // Reject nếu phase đã kết thúc
-  if (Date.now() >= state.phaseEndsAt) {
+  if (advanceIfPhaseExpired(state, roomCode)) {
     return;
   }
 
@@ -1468,9 +1496,7 @@ function runStep(state: PvpMatchState, roomCode: string) {
   }
 
   // Nếu phase 30s đã kết thúc, nhường quyền cho handlePhaseEnd
-  if (Date.now() >= state.phaseEndsAt) {
-    return;
-  }
+  if (advanceIfPhaseExpired(state, roomCode)) return;
 
   const attackerSlot: 1 | 2 = state.attackerSlot || ((state.subPhase - 1) as 1 | 2);
   const targetSlot: 1 | 2 = state.targetSlot || ((3 - attackerSlot) as 1 | 2);
@@ -1617,6 +1643,8 @@ function endStep(state: PvpMatchState, roomCode: string, _skipped: boolean = fal
     clearTimeout(state.stepTimerHandle);
     state.stepTimerHandle = null;
   }
+
+  if (advanceIfPhaseExpired(state, roomCode)) return;
 
   state.step += 1;
   if (state.step > 3) {
@@ -1775,6 +1803,7 @@ function onStarmonAction(
   }
 
   if (Date.now() >= state.phaseEndsAt) {
+    advanceIfPhaseExpired(state, roomCode);
     return reject('phase tấn công đã kết thúc');
   }
 
@@ -2008,18 +2037,31 @@ function checkWinAndContinue(state: PvpMatchState, roomCode: string) {
   } else {
     const endedPhase = state.phase;
     const endedTurn = state.turn;
+    const nextTurnAt = Date.now() + 1000;
+    state.pendingNextTurnAt = nextTurnAt;
     setTimeout(() => {
-      // A deferred turn callback must still belong to the same live match and
-      // completed turn; otherwise an old n.3 callback can advance newer state.
-      if (
-        activeMatchStates.get(normalizeRoomCode(roomCode)) !== state ||
-        state.phase !== endedPhase ||
-        state.turn !== endedTurn ||
-        state.subPhase !== 3
-      ) return;
-      startTurn(state, roomCode, endedTurn + 1); // -> Sang turn tiếp theo: (n+1).1
-    }, 1000);
+      advanceToNextTurn(state, roomCode, endedPhase, endedTurn, nextTurnAt);
+    }, nextTurnAt - Date.now());
   }
+}
+
+function advanceToNextTurn(
+  state: PvpMatchState,
+  roomCode: string,
+  endedPhase: string,
+  endedTurn: number,
+  expectedAt: number,
+) {
+  if (
+    Date.now() < expectedAt ||
+    activeMatchStates.get(normalizeRoomCode(roomCode)) !== state ||
+    state.pendingNextTurnAt !== expectedAt ||
+    state.phase !== endedPhase ||
+    state.turn !== endedTurn ||
+    state.subPhase !== 3
+  ) return;
+  state.pendingNextTurnAt = undefined;
+  startTurn(state, roomCode, endedTurn + 1);
 }
 
 const pvpBattleSocketAuth = new WeakMap<WebSocket, { username: string; deviceId: string; slot: 1 | 2 }>();
@@ -2600,12 +2642,33 @@ wss.on('connection', (ws) => {
         }
 
         case 'PVP_REQUEST_PHASE_SYNC': {
-          // Replay the authoritative phase if this client missed the transition broadcast.
+          // Recover both a missed phase broadcast and a timer that expired on
+          // the client before the server's deadline callback was processed.
           const targetCode = normalizeRoomCode(currentRoomCode || msg.room_code || '');
           const match = activeMatchStates.get(targetCode);
           const auth = pvpBattleSocketAuth.get(ws);
-          if (match && auth && ws.readyState === WebSocket.OPEN && msg.phase !== match.phase) {
-            sendCurrentCombatPhaseToSocket(match, ws, auth.slot);
+          if (match && auth && ws.readyState === WebSocket.OPEN) {
+            if (Date.now() >= match.phaseEndsAt) {
+              const expiredPhase = match.phase;
+              handlePhaseEnd(
+                match,
+                targetCode,
+                match.phase,
+                match.phaseEndsAt,
+                match.phaseTimerGeneration || 0
+              );
+              if (match.phase !== expiredPhase) {
+                sendCurrentCombatPhaseToSocket(match, ws, auth.slot);
+              }
+            } else if (
+              msg.phase !== match.phase ||
+              msg.timerExpired === true ||
+              msg.step === null ||
+              (typeof msg.step === 'number' && msg.step !== match.step)
+            ) {
+              if (!match.phaseTimerHandle) schedulePhaseEnd(match, targetCode);
+              sendCurrentCombatPhaseToSocket(match, ws, auth.slot);
+            }
           }
           break;
         }

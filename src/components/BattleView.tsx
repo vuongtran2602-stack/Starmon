@@ -317,6 +317,9 @@ export const BattleView: React.FC<Props> = ({
   const [pvpFlowPhaseString, setPvpFlowPhaseString] = useState<string>('1.1');
   const pvpFlowPhaseRef = useRef<string>('1.1');
   pvpFlowPhaseRef.current = pvpFlowPhaseString;
+  // Tracks the last authoritative combat step received from the PvP server.
+  // Null means the phase changed but its step notification may have been missed.
+  const pvpSyncedStepRef = useRef<number | null>(null);
 
   const [pvpTurnBanner, setPvpTurnBanner] = useState<string | null>(null);
   const [pvpTurnTimer, setPvpTurnTimer] = useState<number | null>(null);
@@ -716,6 +719,12 @@ export const BattleView: React.FC<Props> = ({
         player_id: pvpRoomInfo?.myPlayerId,
         phase: pvpFlowPhaseRef.current,
       });
+      sendPvpMessage({
+        type: 'PVP_REQUEST_PHASE_SYNC',
+        room_code: pvpRoomInfo?.code,
+        phase: pvpFlowPhaseRef.current,
+        timerExpired: true,
+      });
       if (pvpAttackerSlotRef.current === pvpMySlotRef.current && pvpActionMenu !== null) {
         sound.playWrong();
         setPvpActionMenu(null);
@@ -749,6 +758,7 @@ export const BattleView: React.FC<Props> = ({
         type: 'PVP_REQUEST_PHASE_SYNC',
         room_code: pvpRoomInfo.code,
         phase: pvpFlowPhaseRef.current,
+        step: pvpSyncedStepRef.current,
       });
     }, 2500);
     return () => clearInterval(syncTimer);
@@ -1276,6 +1286,7 @@ export const BattleView: React.FC<Props> = ({
             logTurnRef.current = turnNum;
             setPvpSubPhase(sub);
             pvpSubPhaseRef.current = sub;
+            pvpSyncedStepRef.current = sub === 1 ? 1 : null;
             setPvpFlowPhaseString(phaseStr);
             pvpFlowPhaseRef.current = phaseStr;
 
@@ -1333,6 +1344,7 @@ export const BattleView: React.FC<Props> = ({
               logTurnRef.current = tNum;
               setPvpSubPhase(sPhase);
               pvpSubPhaseRef.current = sPhase;
+              pvpSyncedStepRef.current = sPhase === 1 ? 1 : null;
               if (sPhase === 1) {
                 setIsActionPendingServer(false);
                 setPvpWaitingForOpponentSpeaking(false);
@@ -1370,6 +1382,7 @@ export const BattleView: React.FC<Props> = ({
           case 'phase_start':
           case 'phase_changed': {
             const phaseStr = String(msg.phase || '1.1');
+            if (phaseStr !== pvpFlowPhaseRef.current) pvpSyncedStepRef.current = null;
             const parts = phaseStr.split('.');
             const turnNum = parseInt(parts[0], 10) || 1;
             const sub = (parseInt(parts[1], 10) || 1) as 1 | 2 | 3;
@@ -1398,6 +1411,7 @@ export const BattleView: React.FC<Props> = ({
             }
 
             if (sub === 1) {
+              pvpSyncedStepRef.current = 1;
               setIsActionPendingServer(false);
               setPvpWaitingForOpponentSpeaking(false);
               setPvpActionMenu(null);
@@ -1463,6 +1477,7 @@ export const BattleView: React.FC<Props> = ({
             const starmonIdx = typeof msg.starmonIndex === 'number'
               ? msg.starmonIndex
               : (typeof msg.starmon_index === 'number' ? msg.starmon_index : (msg.step ? msg.step - 1 : 0));
+            pvpSyncedStepRef.current = typeof msg.step === 'number' ? msg.step : starmonIdx + 1;
             const stepTimeoutSec = msg.time_limit || 30;
             setPvpTurnTimer(stepTimeoutSec);
 
@@ -1518,6 +1533,7 @@ export const BattleView: React.FC<Props> = ({
             logTurnRef.current = nextRound;
             setPvpSubPhase(1);
             pvpSubPhaseRef.current = 1;
+            pvpSyncedStepRef.current = 1;
             pvpAttackerSlotRef.current = null;
             pvpTargetSlotRef.current = null;
             setPvpHighlightedAttackerSlot(null);
@@ -1590,6 +1606,7 @@ export const BattleView: React.FC<Props> = ({
             const starmonIdx = typeof msg.starmonIndex === 'number'
               ? msg.starmonIndex
               : (typeof msg.starmon_index === 'number' ? msg.starmon_index : 0);
+            pvpSyncedStepRef.current = typeof msg.step === 'number' ? msg.step : starmonIdx + 1;
             const stepTimeoutSec = msg.time_limit || 30;
             setPvpTurnTimer(stepTimeoutSec);
 
@@ -1704,6 +1721,7 @@ export const BattleView: React.FC<Props> = ({
           }
 
           case 'all_starmons_done': {
+            pvpSyncedStepRef.current = 4;
             setIsActionPendingServer(false);
             setPvpActionMenu(null);
             setTurnAnnouncement(`Các đòn đánh của Phase ${msg.phase || pvpFlowPhaseRef.current} đã hoàn tất. Đang chờ hết thời gian (30s)...`);
