@@ -53,13 +53,13 @@ const DAILY_REWARDS: { day: number; title: string; detail: string; image: string
   { day: 7, title: 'Mystery Chest', detail: 'Spin for a random reward', image: chestClosed },
 ];
 const BOARD_SLOTS: Record<number, { left: string; top: string; width: string; height: string }> = {
-  1: { left: '32.7%', top: '42.2%', width: '14%', height: '16.3%' },
-  2: { left: '48.8%', top: '42.2%', width: '14%', height: '16.3%' },
-  3: { left: '65.1%', top: '42.2%', width: '14%', height: '16.3%' },
-  4: { left: '32.7%', top: '71.9%', width: '14%', height: '16.3%' },
-  5: { left: '48.8%', top: '71.9%', width: '14%', height: '16.3%' },
-  6: { left: '65.1%', top: '71.9%', width: '14%', height: '16.3%' },
-  7: { left: '85%', top: '60%', width: '14.5%', height: '19.5%' },
+  1: { left: '32.8%', top: '41.8%', width: '14.1%', height: '15.6%' },
+  2: { left: '49%', top: '41.8%', width: '14.1%', height: '15.6%' },
+  3: { left: '65.1%', top: '41.8%', width: '14.1%', height: '15.6%' },
+  4: { left: '32.8%', top: '68.4%', width: '14.1%', height: '15.6%' },
+  5: { left: '49%', top: '68.4%', width: '14.1%', height: '15.6%' },
+  6: { left: '65.1%', top: '68.4%', width: '14.1%', height: '15.6%' },
+  7: { left: '85%', top: '55%', width: '14.5%', height: '19.5%' },
 };
 
 function rollMysteryReward(): { category: PrizeCategory; reward: MysteryReward; midpoint: number } {
