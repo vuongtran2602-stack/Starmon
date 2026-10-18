@@ -1674,7 +1674,7 @@ function retryFailedPhaseTransition(
 
 function advanceExpiredPhase(state: PvpMatchState, roomCode: string): boolean {
   if (Date.now() < state.phaseEndsAt) return false;
-  if (state.finished) return true;
+  if (state.finished || state.pendingNextTurnAt) return true;
   // Recover if a previous owner persisted the end marker and stopped before
   // changing phase. Keep this shared by watchdog, timeout, and sync paths.
   if (state.lastEndedPhase === state.phase) {

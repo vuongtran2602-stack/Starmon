@@ -131,6 +131,18 @@ const ADVANCED_SPEAKING_VOCAB = [
   'a wide range of', 'significant impact', 'deep-rooted', 'cost-effective', 'time-consuming', 'user-friendly', 'energy-efficient',
 ];
 
+function isEarlierPvpPhase(incomingPhase: unknown, currentPhase: string): boolean {
+  if (typeof incomingPhase !== 'string') return false;
+  const parse = (value: string) => {
+    const match = /^(\d+)\.(\d+)$/.exec(value);
+    return match ? [Number(match[1]), Number(match[2])] as const : null;
+  };
+  const incoming = parse(incomingPhase);
+  const current = parse(currentPhase);
+  if (!incoming || !current) return false;
+  return incoming[0] < current[0] || (incoming[0] === current[0] && incoming[1] < current[1]);
+}
+
 function countAdvancedSpeakingVocab(transcript: string): number {
   return ADVANCED_SPEAKING_VOCAB.filter(phrase => {
     const escaped = phrase.split('').map(char => /[.*+?^${}()|[\]\\]/.test(char) ? `\\${char}` : char).join('').replace(/\s+/g, '\\s+');
@@ -1325,6 +1337,7 @@ export const BattleView: React.FC<Props> = ({
 
           case 'resync': {
             const phaseStr = String(msg.phase || pvpFlowPhaseRef.current || '1.1');
+            if (isEarlierPvpPhase(phaseStr, pvpFlowPhaseRef.current)) break;
             const parts = phaseStr.split('.');
             const turnNum = parseInt(parts[0], 10) || 1;
             const sub = (parseInt(parts[1], 10) || 1) as 1 | 2 | 3;
@@ -1378,6 +1391,7 @@ export const BattleView: React.FC<Props> = ({
           case 'PVP_MATCH_STATE_SYNC': {
             lastPvpSocketAckAtRef.current = Date.now();
             reconnectAttempt = 0;
+            if (isEarlierPvpPhase(msg.phase, pvpFlowPhaseRef.current)) break;
             if (typeof msg.slot === 'number') {
               const s: 1 | 2 = msg.slot === 2 ? 2 : 1;
               setPvpMySlot(s);
@@ -1442,6 +1456,7 @@ export const BattleView: React.FC<Props> = ({
             lastPvpSocketAckAtRef.current = Date.now();
             reconnectAttempt = 0;
             const phaseStr = String(msg.phase || '1.1');
+            if (isEarlierPvpPhase(phaseStr, pvpFlowPhaseRef.current)) break;
             if (phaseStr !== pvpFlowPhaseRef.current) pvpSyncedStepRef.current = null;
             const parts = phaseStr.split('.');
             const turnNum = parseInt(parts[0], 10) || 1;
@@ -1487,7 +1502,9 @@ export const BattleView: React.FC<Props> = ({
               setPvpWaitingForOpponentSpeaking(false);
               setPvpActionMenu(null);
               setPhase('phase2_combat');
-              const attackerSlot: 1 | 2 = (sub - 1) as 1 | 2;
+              const attackerSlot: 1 | 2 = msg.attackerSlot === 1 || msg.attackerSlot === 2
+                ? msg.attackerSlot
+                : ((sub - 1) as 1 | 2);
               const targetSlot: 1 | 2 = (3 - attackerSlot) as 1 | 2;
               // CHỈ hiện thông báo phase, KHÔNG hiện step
               showPhaseBanner(`Phase ${phaseStr}`);
@@ -1503,9 +1520,12 @@ export const BattleView: React.FC<Props> = ({
             setPhase('phase2_combat');
 
             const phaseStr = String(msg.phase || pvpFlowPhaseRef.current || '1.2');
+            if (isEarlierPvpPhase(phaseStr, pvpFlowPhaseRef.current)) break;
             const phaseParts = phaseStr.split('.');
             const turnNum = parseInt(phaseParts[0], 10) || pvpTurnNumberRef.current || 1;
             const subPhase = (parseInt(phaseParts[1], 10) === 3 ? 3 : 2) as 2 | 3;
+            if (phaseStr === pvpFlowPhaseRef.current && typeof msg.step === 'number' &&
+                pvpSyncedStepRef.current !== null && msg.step < pvpSyncedStepRef.current) break;
             const attackerSlot: 1 | 2 = msg.attackerSlot === 2 ? 2 : (msg.attackerSlot === 1 ? 1 : ((subPhase - 1) as 1 | 2));
             const targetSlot: 1 | 2 = (3 - attackerSlot) as 1 | 2;
 
@@ -1631,9 +1651,12 @@ export const BattleView: React.FC<Props> = ({
             setPhase('phase2_combat');
 
             const phaseStr = String(msg.phase || pvpFlowPhaseRef.current || '1.2');
+            if (isEarlierPvpPhase(phaseStr, pvpFlowPhaseRef.current)) break;
             const phaseParts = phaseStr.split('.');
             const turnNum = parseInt(phaseParts[0], 10) || pvpTurnNumberRef.current || 1;
             const subPhase = (parseInt(phaseParts[1], 10) === 3 ? 3 : 2) as 2 | 3;
+            if (phaseStr === pvpFlowPhaseRef.current && typeof msg.step === 'number' &&
+                pvpSyncedStepRef.current !== null && msg.step < pvpSyncedStepRef.current) break;
 
             const attackerSlot: 1 | 2 = msg.attackerSlot === 1 || msg.attackerSlot === 2
               ? msg.attackerSlot
