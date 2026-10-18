@@ -1,5 +1,6 @@
 import { QuizQuestion, QuizQuestionMode } from '../types';
 import { EXTENDED_SPEAKING_BANK, SpeakingQuestionItem } from './speakingBank';
+import { PART3_FORECAST_2026_QUESTIONS } from './part3Forecast2026';
 
 export { EXTENDED_SPEAKING_BANK };
 
@@ -294,6 +295,19 @@ export function getRandomQuizSet(
 ): QuizQuestion[] {
   // Dynamically generate questions corresponding strictly to the number of Starmons in the Party (1, 2, or 3)
   const count = Math.max(1, Math.min(3, activeStarmonCount));
+
+  if (mode === 'part3_forecase_2026') {
+    const shuffled = [...PART3_FORECAST_2026_QUESTIONS].sort(() => Math.random() - 0.5);
+    return shuffled.slice(0, count).map((item, idx) => ({
+      id: `speaking_part3_forecase_2026_${Date.now()}_${idx}`,
+      type: 'speaking',
+      title: `IELTS SPEAKING PART 3: ${item.topic}`,
+      category: 'IELTS Speaking',
+      question: item.question,
+      minBand: 5.5,
+      assignedStarmonIndex: idx,
+    }));
+  }
 
   if (mode === 'random' || mode === 'part1_preference') {
     const preferenceQuestions = PART1_PREFERENCE_QUESTIONS;

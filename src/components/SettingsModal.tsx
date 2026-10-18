@@ -205,7 +205,11 @@ export const SettingsModal: React.FC<Props> = ({
       label: 'Học Tập & Hướng Dẫn',
       shortLabel: 'Học Tập',
       icon: <GraduationCap className="w-3.5 h-3.5" />,
-      badge: questionMode === 'part1_preference' ? 'Part 1 Preference' : 'Random',
+      badge: questionMode === 'part3_forecase_2026'
+        ? 'Part 3 Forecase 2026'
+        : questionMode === 'part1_preference'
+          ? 'Part 1 Preference'
+          : 'Random',
       color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
     },
     {
@@ -768,7 +772,7 @@ export const SettingsModal: React.FC<Props> = ({
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 pt-1">
                     <button
                       type="button"
                       onClick={() => {
@@ -776,14 +780,14 @@ export const SettingsModal: React.FC<Props> = ({
                         onChangeQuestionMode?.('random');
                       }}
                       className={`p-3 rounded-xl border-2 text-left transition-all cursor-pointer flex flex-col justify-between gap-1.5 relative ${
-                        questionMode !== 'part1_preference'
+                        questionMode === 'random'
                           ? 'bg-amber-500/20 border-amber-400 text-white shadow-lg shadow-amber-500/20 ring-1 ring-amber-400'
                           : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
                       }`}
                     >
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-black font-game text-amber-300">🎲 Random</span>
-                        {questionMode !== 'part1_preference' && (
+                        {questionMode === 'random' && (
                           <span className="text-[9px] px-1.5 py-0.2 bg-amber-400 text-slate-950 font-black rounded-full uppercase">
                             Ngẫu nhiên
                           </span>
@@ -816,6 +820,31 @@ export const SettingsModal: React.FC<Props> = ({
                       </div>
                       <span className="text-[10px] text-slate-300 leading-snug">
                         Lấy ngẫu nhiên 1 câu trong bộ câu hỏi Part 1 Preference.
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        sound.playClick();
+                        onChangeQuestionMode?.('part3_forecase_2026');
+                      }}
+                      className={`p-3 rounded-xl border-2 text-left transition-all cursor-pointer flex flex-col justify-between gap-1.5 relative ${
+                        questionMode === 'part3_forecase_2026'
+                          ? 'bg-cyan-500/20 border-cyan-400 text-white shadow-lg shadow-cyan-500/20 ring-1 ring-cyan-400'
+                          : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-xs font-black font-game text-cyan-300">📚 Part 3 Forecase 2026</span>
+                        {questionMode === 'part3_forecase_2026' && (
+                          <span className="text-[9px] px-1.5 py-0.2 bg-cyan-400 text-slate-950 font-black rounded-full uppercase shrink-0">
+                            Đang chọn
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-slate-300 leading-snug">
+                        Dùng ngân hàng câu hỏi Speaking Part 3 Forecast 2026 gồm 20 chủ đề.
                       </span>
                     </button>
                   </div>

@@ -70,7 +70,7 @@ export default function App() {
         const parsed = JSON.parse(saved);
         return {
           ...parsed,
-          quizQuestionMode: parsed.quizQuestionMode === 'part1_preference' ? 'part1_preference' : 'random',
+          quizQuestionMode: parsed.quizQuestionMode === 'part1_preference' || parsed.quizQuestionMode === 'part3_forecase_2026' ? parsed.quizQuestionMode : 'random',
           speakingLog: Array.isArray(parsed.speakingLog) ? parsed.speakingLog : [],
           googleId: parsed.googleId || savedGoogleId,
           googleEmail: parsed.googleEmail || '',
@@ -1288,7 +1288,7 @@ export default function App() {
     const uname = accountUsername || loadedPlayer.username || loadedPlayer.name || 'Player';
     setPlayer({
       ...loadedPlayer,
-      quizQuestionMode: loadedPlayer.quizQuestionMode === 'part1_preference' ? 'part1_preference' : 'random',
+      quizQuestionMode: loadedPlayer.quizQuestionMode === 'part1_preference' || loadedPlayer.quizQuestionMode === 'part3_forecase_2026' ? loadedPlayer.quizQuestionMode : 'random',
       speakingLog: Array.isArray(loadedPlayer.speakingLog) ? loadedPlayer.speakingLog : [],
       name: uname,
       username: uname,

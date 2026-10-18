@@ -7078,11 +7078,10 @@ export const BattleView: React.FC<Props> = ({
                 <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">
                   Thời gian đếm ngược còn lại của 120 giây:
                 </span>
-                <div className="flex items-center gap-2 text-2xl md:text-3xl font-black font-mono text-amber-300">
-                  <Clock className="w-6 h-6 text-amber-400 animate-pulse" />
-                  <span>
-                    {Math.floor(questionTimer / 60)}:{String(questionTimer % 60).padStart(2, '0')} ({questionTimer}s / 120s)
-                  </span>
+                <div className="flex items-center gap-2 text-3xl md:text-4xl font-black font-mono text-amber-300">
+                  <Clock className="w-7 h-7 md:w-8 md:h-8 text-amber-400 animate-pulse" />
+                  <span>{Math.floor(questionTimer / 60)}:{String(questionTimer % 60).padStart(2, '0')}</span>
+                  <span className="text-sm md:text-base text-amber-100/80">({questionTimer}s / 120s)</span>
                 </div>
                 <div className="w-full h-3 bg-slate-950 rounded-full border border-amber-400/60 p-0.5 overflow-hidden">
                   <div
@@ -7116,7 +7115,7 @@ export const BattleView: React.FC<Props> = ({
             {!tutorialStage && !isPvP && (
               <div className="flex items-center gap-1 bg-slate-950/80 border border-slate-800 rounded-xl p-1 shadow-sm shrink-0">
                 <span className="text-[10px] text-slate-400 font-bold px-1 hidden sm:inline">Chế độ:</span>
-                {(['random', 'part1_preference'] as const).map(mode => (
+                {(['random', 'part1_preference', 'part3_forecase_2026'] as const).map(mode => (
                   <button
                     key={mode}
                     type="button"
@@ -7136,21 +7135,23 @@ export const BattleView: React.FC<Props> = ({
                       questionMode === mode
                         ? mode === 'random'
                           ? 'bg-amber-400 text-slate-950 shadow-md ring-1 ring-amber-300'
-                          : 'bg-indigo-500 text-white shadow-md ring-1 ring-indigo-300'
+                          : mode === 'part1_preference'
+                            ? 'bg-indigo-500 text-white shadow-md ring-1 ring-indigo-300'
+                            : 'bg-cyan-500 text-slate-950 shadow-md ring-1 ring-cyan-300'
                         : 'text-slate-400 hover:text-white bg-slate-900/60'
                     }`}
                   >
-                    {mode === 'random' ? '🎲 Random' : '🗣️ Part 1 Preference'}
+                    {mode === 'random' ? '🎲 Random' : mode === 'part1_preference' ? '🗣️ Part 1 Preference' : '📚 Part 3 Forecase 2026'}
                   </button>
                 ))}
               </div>
             )}
 
             <div className="flex-1 min-w-[140px] flex flex-col items-center">
-              <span className="text-xs font-black font-game tracking-wider text-amber-300 mb-1">
+              <span className="text-sm md:text-lg font-black font-game tracking-wider text-amber-300 mb-1">
                 THỜI GIAN PHASE 1: {Math.floor(questionTimer / 60)}:{String(questionTimer % 60).padStart(2, '0')} ({questionTimer}s / 120s)
               </span>
-              <div className="w-full h-3 bg-slate-900 rounded-full border-2 border-amber-400/80 p-0.5 shadow-md overflow-hidden">
+              <div className="w-full h-4 bg-slate-900 rounded-full border-2 border-amber-400/80 p-0.5 shadow-md overflow-hidden">
                 <div
                   className="h-full rounded-full bg-gradient-to-r from-red-500 via-yellow-400 via-green-400 to-cyan-400 transition-all duration-1000"
                   style={{ width: `${(questionTimer / QUESTION_TIME_LIMIT) * 100}%` }}
