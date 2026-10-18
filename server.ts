@@ -2230,6 +2230,18 @@ function onStarmonAction(
   const { starmonIndex, actionType, payload = {} } = data;
 
   // ---- Validate ----
+  const expectedBoardVersion = payload.boardVersion;
+  if (actionType === 'physical_attack' && !Number.isInteger(expectedBoardVersion)) {
+    return reject('client chưa gửi phiên bản board; vui lòng tải lại trận đấu để đồng bộ');
+  }
+  if (Number.isInteger(expectedBoardVersion) && expectedBoardVersion !== state.boardVersion) {
+    return reject('board đã thay đổi; đang đồng bộ trạng thái mới nhất');
+  }
+  const proposedBoard = actionType === 'physical_attack' ? normalizePvpBoard(payload.newBoard) : null;
+  if (actionType === 'physical_attack' && Number.isInteger(expectedBoardVersion) && !proposedBoard) {
+    return reject('board gửi lên không hợp lệ; đang đồng bộ trạng thái mới nhất');
+  }
+
   if (playerSlot !== state.attackerSlot) {
     return reject('không phải lượt của bạn');
   }
@@ -2301,8 +2313,7 @@ function onStarmonAction(
         starmon.mana = Math.min(200, (starmon.mana ?? starmon.currentMana ?? 0) + manaGain);
         starmon.currentMana = starmon.mana;
 
-        const nextBoard = normalizePvpBoard(payload.newBoard);
-        if (nextBoard) state.board = nextBoard;
+        if (proposedBoard) state.board = proposedBoard;
       } else if (actionType === 'use_ability') {
         const ability = getAbility(starmon, payload.abilityId, payload)!;
         const currentMana = starmon.mana ?? starmon.currentMana ?? 0;
@@ -3088,21 +3099,24 @@ wss.on('connection', (ws) => {
               : (typeof msg.action?.attackerIndex === 'number' ? msg.action.attackerIndex : (match.step || 1) - 1));
 
           const actionType = msg.actionType || (msg.action?.actionType === 'SKILL' ? 'use_ability' : 'physical_attack');
-          const actionPayload = msg.payload || {
-            targetStarmonIndex: typeof msg.targetStarmonIndex === 'number'
-              ? msg.targetStarmonIndex
-              : (typeof msg.action?.targetIdx === 'number' ? msg.action.targetIdx : 0),
-            orbSwitches: msg.action?.orbSwitches || [],
-            abilityId: msg.action?.abilityId || msg.action?.skillName,
-            abilityNum: msg.action?.abilityNum,
-            skillName: msg.action?.skillName,
-            manaCost: msg.action?.manaCost,
-            elem: msg.action?.elem,
-            matchCount: msg.action?.matchCount,
-            damage: msg.action?.damage,
-            isCrit: msg.action?.isCrit,
-            isAoE: msg.action?.isAoE,
-            newBoard: msg.action?.newBoard,
+          const actionPayload = {
+            ...(msg.payload || {
+              targetStarmonIndex: typeof msg.targetStarmonIndex === 'number'
+                ? msg.targetStarmonIndex
+                : (typeof msg.action?.targetIdx === 'number' ? msg.action.targetIdx : 0),
+              orbSwitches: msg.action?.orbSwitches || [],
+              abilityId: msg.action?.abilityId || msg.action?.skillName,
+              abilityNum: msg.action?.abilityNum,
+              skillName: msg.action?.skillName,
+              manaCost: msg.action?.manaCost,
+              elem: msg.action?.elem,
+              matchCount: msg.action?.matchCount,
+              damage: msg.action?.damage,
+              isCrit: msg.action?.isCrit,
+              isAoE: msg.action?.isAoE,
+              newBoard: msg.action?.newBoard,
+            }),
+            boardVersion: msg.boardVersion ?? msg.payload?.boardVersion ?? msg.version,
           };
 
           const ownsRuntime = await ensurePvpRuntimeOwner(match);

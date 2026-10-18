@@ -704,6 +704,9 @@ export const BattleView: React.FC<Props> = ({
         isCrit: action.isCrit,
         isAoE: action.isAoE,
         newBoard: action.newBoard,
+        // Bind the proposed board transition to the exact server snapshot it
+        // was calculated from. The server rejects it if a newer action won.
+        boardVersion: boardVersionRef.current,
       };
 
       sendPvpMessage({
@@ -1711,13 +1714,13 @@ export const BattleView: React.FC<Props> = ({
 
           case 'board_update':
           case 'PVP_BOARD_UPDATED': {
-            const v = msg.boardVersion ?? msg.version ?? 0;
-            if (v > 0 && v < boardVersionRef.current) {
+            const v = Number(msg.boardVersion ?? msg.version);
+            // Every authoritative board mutation carries a version. A legacy
+            // or malformed event must not bypass stale-version checks.
+            if (!Number.isInteger(v) || v <= 0 || v < boardVersionRef.current) {
               return;
             }
-            if (v > 0) {
-              boardVersionRef.current = v;
-            }
+            boardVersionRef.current = v;
             const deserialized = deserializeBoard(msg.boardSnapshot || msg.patch?.grid || msg.grid || msg.board);
             if (deserialized) {
               setBoard(deserialized);
