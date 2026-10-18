@@ -1219,6 +1219,48 @@ if (pvpRealtimeBus) {
       const slot: 1 | 2 = payload.playerSlot === 2 ? 2 : 1;
       if (command?.commandType === 'answer_submit' && Array.isArray(command.results)) {
         onAnswerSubmit(match, roomCode, slot, command.results, Boolean(command.isTimeout));
+      } else if (command?.commandType === 'answer_progress' && Array.isArray(command.results) && match.subPhase === 1) {
+        const player = match.players[slot];
+        if (!player.hasSubmittedAnswer) command.results.forEach((value: unknown, index: number) => {
+          if (typeof value === 'boolean' && player.starmons[index]) {
+            const unlocked = value && player.starmons[index].hp > 0;
+            player.results[index] = unlocked;
+            player.starmons[index].unlocked = unlocked;
+          }
+        });
+        publishPvpRuntimeState(roomCode, { type: 'board_full_sync' }, match);
+      } else if (command?.commandType === 'phase_sync_request') {
+        if (Date.now() >= match.phaseEndsAt) {
+          handlePhaseEnd(match, roomCode, match.phase, match.phaseEndsAt, match.phaseTimerGeneration || 0);
+        } else {
+          if (!match.phaseTimerHandle) schedulePhaseEnd(match, roomCode);
+          broadcastToRoom(roomCode, {
+            type: 'phase_changed', phase: match.phase, turn: match.turn, subPhase: match.subPhase,
+            step: match.step, attackerSlot: match.attackerSlot, targetSlot: match.targetSlot,
+            phaseEndsAt: match.phaseEndsAt, serverTime: Date.now(), board: match.board,
+            boardSnapshot: serializeBoard(match), boardVersion: match.boardVersion, version: match.boardVersion,
+            p1_hp: match.players[1].starmons.map(mon => mon.hp),
+            p2_hp: match.players[2].starmons.map(mon => mon.hp),
+            p1_mana: match.players[1].starmons.map(mon => mon.mana),
+            p2_mana: match.players[2].starmons.map(mon => mon.mana),
+          });
+        }
+      } else if (command?.commandType === 'turn_end' && Number.isInteger(command.starmonIndex)) {
+        const { attackerSlot } = getAttackerAndTargetByPhase(match.phase);
+        if (attackerSlot === slot && (match.subPhase === 2 || match.subPhase === 3) &&
+            (!command.phase || command.phase === match.phase)) {
+          onStepTimeout(match, roomCode, slot, command.starmonIndex);
+        }
+      } else if (command?.commandType === 'match_end') {
+        const winnerSlot = (match.players[slot].starmons.some(mon => mon.hp > 0) &&
+          !match.players[slot === 1 ? 2 : 1].starmons.some(mon => mon.hp > 0)) ? slot : null;
+        if (winnerSlot) {
+          const winner = match.players[winnerSlot];
+          if (match.timerHandle) clearTimeout(match.timerHandle);
+          activeMatchStates.delete(roomCode);
+          broadcastToRoom(roomCode, { type: 'PVP_MATCH_FINISHED', winner_id: winner.id, winner_name: winner.name });
+          broadcastToRoom(roomCode, { type: 'game_over', winner: winner.id });
+        }
       } else if (command?.commandType === 'resync_request') {
         broadcastToRoom(roomCode, {
           type: 'board_full_sync',
@@ -2801,6 +2843,7 @@ wss.on('connection', (ws) => {
           const match = activeMatchStates.get(targetCode);
           const socketAuth = pvpBattleSocketAuth.get(ws);
           if (!match || !targetCode || !socketAuth) break;
+          if (!Array.isArray(msg.results)) break;
           if (match.subPhase !== 1 ||
               (msg.round_number != null && Number(msg.round_number) !== match.turn)) {
             sendCurrentCombatPhaseToSocket(match, ws, socketAuth.slot);
@@ -2811,6 +2854,19 @@ wss.on('connection', (ws) => {
           // player. The authenticated room username is the slot authority.
           const slot = socketAuth.slot;
           const P = match.players[slot];
+          const ownsRuntime = await ensurePvpRuntimeOwner(match);
+          if (!ownsRuntime && (match.runtimeOwnerId === PVP_SERVER_INSTANCE_ID || !match.runtimeOwnerId)) {
+            ws.send(JSON.stringify({ type: 'PVP_ACTION_REJECTED', reason: 'Máy chủ trận đấu chưa khóa được state dùng chung.' }));
+            break;
+          }
+          if (match.runtimeOwnerId && match.runtimeOwnerId !== PVP_SERVER_INSTANCE_ID) {
+            const forwarded = forwardPvpActionToRuntimeOwner(targetCode, slot, {
+              commandType: 'answer_progress',
+              results: msg.results.map((value: unknown) => typeof value === 'boolean' ? value : null),
+            });
+            if (!forwarded) ws.send(JSON.stringify({ type: 'PVP_ACTION_REJECTED', reason: 'Đang đồng bộ trận đấu; vui lòng thử lại.' }));
+            break;
+          }
           if (P && Array.isArray(msg.results)) {
             msg.results.forEach((val: any, idx: number) => {
               if (val !== undefined && P.starmons[idx]) {
@@ -2842,27 +2898,24 @@ wss.on('connection', (ws) => {
           }
           if (!match) break;
 
-          const rawSlot = msg.slot ?? msg.actor_slot;
-          const slot: 1 | 2 = (rawSlot === 2 || rawSlot === '2') ? 2 : 1;
+          const socketAuth = pvpBattleSocketAuth.get(ws);
+          if (!socketAuth) break;
+          const ownsRuntime = await ensurePvpRuntimeOwner(match);
+          if (!ownsRuntime && (match.runtimeOwnerId === PVP_SERVER_INSTANCE_ID || !match.runtimeOwnerId)) {
+            ws.send(JSON.stringify({ type: 'PVP_ACTION_REJECTED', reason: 'Máy chủ trận đấu chưa khóa được state dùng chung.' }));
+            break;
+          }
+          if (match.runtimeOwnerId && match.runtimeOwnerId !== PVP_SERVER_INSTANCE_ID) {
+            const ownResults = Array.isArray(msg.results) ? msg.results : match.players[socketAuth.slot].results;
+            if (!forwardPvpActionToRuntimeOwner(targetCode, socketAuth.slot, {
+              commandType: 'answer_submit', results: ownResults, isTimeout: msg.type === 'PVP_PHASE1_TIMEOUT',
+            })) ws.send(JSON.stringify({ type: 'PVP_ACTION_REJECTED', reason: 'Đang đồng bộ trận đấu; vui lòng thử lại.' }));
+            break;
+          }
+
+          const slot = socketAuth.slot;
           match.players[slot].socket = ws;
 
-          // If cloud speaking submissions were forwarded, populate missing results before Phase 2
-          if (Array.isArray(msg.slot1_results)) {
-            match.players[1].starmons.forEach((s, idx) => {
-              const ok = Boolean(msg.slot1_results[idx]) && s.hp > 0;
-              match!.players[1].results[idx] = ok;
-              s.unlocked = ok;
-            });
-            match.players[1].hasSubmittedAnswer = true;
-          }
-          if (Array.isArray(msg.slot2_results)) {
-            match.players[2].starmons.forEach((s, idx) => {
-              const ok = Boolean(msg.slot2_results[idx]) && s.hp > 0;
-              match!.players[2].results[idx] = ok;
-              s.unlocked = ok;
-            });
-            match.players[2].hasSubmittedAnswer = true;
-          }
           if (Array.isArray(msg.results)) {
             match.players[slot].starmons.forEach((s, idx) => {
               const ok = Boolean(msg.results[idx]) && s.hp > 0;
@@ -3138,6 +3191,16 @@ wss.on('connection', (ws) => {
           const match = activeMatchStates.get(targetCode);
           const auth = pvpBattleSocketAuth.get(ws);
           if (match && auth && ws.readyState === WebSocket.OPEN) {
+            const ownsRuntime = await ensurePvpRuntimeOwner(match);
+            if (!ownsRuntime && (match.runtimeOwnerId === PVP_SERVER_INSTANCE_ID || !match.runtimeOwnerId)) {
+              ws.send(JSON.stringify({ type: 'PVP_ACTION_REJECTED', reason: 'Máy chủ trận đấu chưa khóa được state dùng chung.' }));
+              break;
+            }
+            if (match.runtimeOwnerId && match.runtimeOwnerId !== PVP_SERVER_INSTANCE_ID) {
+              const forwarded = forwardPvpActionToRuntimeOwner(targetCode, auth.slot, { commandType: 'phase_sync_request' });
+              if (!forwarded) ws.send(JSON.stringify({ type: 'PVP_ACTION_REJECTED', reason: 'Đang đồng bộ trận đấu; vui lòng thử lại.' }));
+              break;
+            }
             if (Date.now() >= match.phaseEndsAt) {
               const expiredPhase = match.phase;
               handlePhaseEnd(
@@ -3182,6 +3245,17 @@ wss.on('connection', (ws) => {
           const targetCode = normalizeRoomCode(msg.room_code || currentRoomCode || '');
           const match = activeMatchStates.get(targetCode);
           if (!match || (match.subPhase !== 2 && match.subPhase !== 3)) break;
+          const ownsRuntime = await ensurePvpRuntimeOwner(match);
+          if (!ownsRuntime && (match.runtimeOwnerId === PVP_SERVER_INSTANCE_ID || !match.runtimeOwnerId)) {
+            ws.send(JSON.stringify({ type: 'PVP_ACTION_REJECTED', reason: 'Máy chủ trận đấu chưa khóa được state dùng chung.' }));
+            break;
+          }
+          if (match.runtimeOwnerId && match.runtimeOwnerId !== PVP_SERVER_INSTANCE_ID) {
+            if (!forwardPvpActionToRuntimeOwner(targetCode, pvpBattleSocketAuth.get(ws)?.slot || 1, { commandType: 'phase_sync_request' })) {
+              ws.send(JSON.stringify({ type: 'PVP_ACTION_REJECTED', reason: 'Đang đồng bộ trận đấu; vui lòng thử lại.' }));
+            }
+            break;
+          }
 
           // Accept only a timeout for the phase the server is currently running.
           // Both clients can report zero; handlePhaseEnd's phase/generation guard
@@ -3207,7 +3281,21 @@ wss.on('connection', (ws) => {
           const match = activeMatchStates.get(targetCode);
           if (!match) break;
 
-          const rawSlot = msg.actor_slot ?? msg.slot ?? msg.attackerSlot;
+          const authenticatedSlot = pvpBattleSocketAuth.get(ws)?.slot;
+          const ownsRuntime = await ensurePvpRuntimeOwner(match);
+          if (!ownsRuntime && (match.runtimeOwnerId === PVP_SERVER_INSTANCE_ID || !match.runtimeOwnerId)) {
+            ws.send(JSON.stringify({ type: 'PVP_ACTION_REJECTED', reason: 'Máy chủ trận đấu chưa khóa được state dùng chung.' }));
+            break;
+          }
+          if (match.runtimeOwnerId && match.runtimeOwnerId !== PVP_SERVER_INSTANCE_ID) {
+            const actor = authenticatedSlot ?? (msg.actor_slot === 2 || msg.slot === 2 ? 2 : 1);
+            if (!forwardPvpActionToRuntimeOwner(targetCode, actor, {
+              commandType: 'turn_end', starmonIndex: Number(msg.starmon_index), phase: msg.phase,
+            })) ws.send(JSON.stringify({ type: 'PVP_ACTION_REJECTED', reason: 'Đang đồng bộ trận đấu; vui lòng thử lại.' }));
+            break;
+          }
+
+          const rawSlot = authenticatedSlot ?? msg.actor_slot ?? msg.slot ?? msg.attackerSlot;
           const playerSlot: 1 | 2 = (rawSlot === 2 || rawSlot === '2')
             ? 2
             : (rawSlot === 1 || rawSlot === '1' || rawSlot === 0 ? 1 : (match.players[1].id === msg.player_id ? 1 : 2));
@@ -3222,22 +3310,24 @@ wss.on('connection', (ws) => {
 
         case 'PVP_MATCH_END': {
           const targetCode = normalizeRoomCode(msg.room_code || currentRoomCode || '');
-          if (targetCode) {
-            const match = activeMatchStates.get(targetCode);
-            if (match?.timerHandle) {
-              clearTimeout(match.timerHandle);
-            }
-            activeMatchStates.delete(targetCode);
-            broadcastToRoom(targetCode, {
-              type: 'PVP_MATCH_FINISHED',
-              winner_id: msg.winner_id,
-              winner_name: msg.winner_name,
-            });
-            broadcastToRoom(targetCode, {
-              type: 'game_over',
-              winner: msg.winner_id,
-            });
+          const match = activeMatchStates.get(targetCode);
+          const auth = pvpBattleSocketAuth.get(ws);
+          if (!targetCode || !match || !auth) break;
+          const ownsRuntime = await ensurePvpRuntimeOwner(match);
+          if (!ownsRuntime && (match.runtimeOwnerId === PVP_SERVER_INSTANCE_ID || !match.runtimeOwnerId)) break;
+          if (match.runtimeOwnerId && match.runtimeOwnerId !== PVP_SERVER_INSTANCE_ID) {
+            forwardPvpActionToRuntimeOwner(targetCode, auth.slot, { commandType: 'match_end' });
+            break;
           }
+          const winner = match.players[auth.slot];
+          const loser = match.players[auth.slot === 1 ? 2 : 1];
+          if (!winner.starmons.some(mon => mon.hp > 0) || loser.starmons.some(mon => mon.hp > 0)) break;
+          if (match.timerHandle) clearTimeout(match.timerHandle);
+          if (match.phaseTimerHandle) clearTimeout(match.phaseTimerHandle);
+          if (match.stepTimerHandle) clearTimeout(match.stepTimerHandle);
+          activeMatchStates.delete(targetCode);
+          broadcastToRoom(targetCode, { type: 'PVP_MATCH_FINISHED', winner_id: winner.id, winner_name: winner.name });
+          broadcastToRoom(targetCode, { type: 'game_over', winner: winner.id });
           break;
         }
 
