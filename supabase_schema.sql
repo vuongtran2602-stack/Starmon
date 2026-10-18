@@ -58,13 +58,23 @@ declare
   current_owner text;
   current_seen bigint;
   current_revision bigint;
+  current_room_status text;
 begin
-  select match_state into current_state
+  select match_state, status into current_state, current_room_status
   from public.pvp_rooms
   where room_code = p_room_code
   for update;
 
   if not found then
+    return null;
+  end if;
+
+  -- A room moved back to WAITING or was otherwise closed. Clear any leftover
+  -- snapshot and refuse late writes from timers or queued actions of its old match.
+  if current_room_status is distinct from 'IN_GAME' then
+    if current_state is not null then
+      update public.pvp_rooms set match_state = null where room_code = p_room_code;
+    end if;
     return null;
   end if;
 

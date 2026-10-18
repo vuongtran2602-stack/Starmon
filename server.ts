@@ -122,17 +122,27 @@ function syncAccountsToSupabase(accounts: Record<string, ServerUserAccount>) {
     .then(({ error }) => { if (error) console.error('Supabase account persistence failed:', error.message); });
 }
 
-async function deleteRoomFromSupabase(roomCode: string): Promise<{ success: boolean; error?: any }> {
+async function deleteRoomFromSupabase(roomCode: string, expected?: { updatedAt: number; status?: string }): Promise<{ success: boolean; error?: any }> {
   if (!serverSupabase) return requiresSharedRoomStore
     ? { success: false, error: new Error('SUPABASE_SERVICE_ROLE_KEY is not configured') }
     : { success: true };
   const normalizedCode = normalizeRoomCode(roomCode);
   if (!normalizedCode) return { success: false, error: new Error('Invalid room code') };
   try {
-    const { error } = await serverSupabase.from('pvp_rooms').delete().eq('room_code', normalizedCode);
+    let query = serverSupabase.from('pvp_rooms').delete().eq('room_code', normalizedCode);
+    if (expected) {
+      query = query.eq('updated_at', expected.updatedAt);
+      if (expected.status) query = query.eq('status', expected.status);
+    }
+    const { data, error } = await query.select('room_code').maybeSingle();
     if (error) {
       console.error('Supabase room deletion failed:', error.message);
       return { success: false, error };
+    }
+    if (expected && !data) {
+      const conflict: any = new Error(`PvP room ${normalizedCode} changed before it could be closed`);
+      conflict.code = 'PVP_ROOM_CONFLICT';
+      return { success: false, error: conflict };
     }
     return { success: true };
   } catch (error) {
@@ -143,13 +153,19 @@ async function deleteRoomFromSupabase(roomCode: string): Promise<{ success: bool
 
 const requiresSharedRoomStore = process.env.NODE_ENV === 'production' || Boolean(process.env.K_SERVICE);
 
-async function persistRoomToSupabase(room: PvpRoom, insertOnly = false): Promise<{ success: boolean; error?: any }> {
+async function persistRoomToSupabase(
+  room: PvpRoom,
+  insertOnly = false,
+  clearRuntimeState = false,
+  expected?: { updatedAt: number; status?: string },
+): Promise<{ success: boolean; error?: any }> {
   if (!serverSupabase) {
     return requiresSharedRoomStore
       ? { success: false, error: new Error('SUPABASE_SERVICE_ROLE_KEY is not configured') }
       : { success: true };
   }
   const roomCode = normalizeRoomCode(room.room_code || room.code);
+  if (expected) room.updatedAt = Math.max(Date.now(), expected.updatedAt + 1);
   const row: Record<string, any> = {
     room_code: roomCode,
     code: roomCode,
@@ -164,6 +180,7 @@ async function persistRoomToSupabase(room: PvpRoom, insertOnly = false): Promise
     created_at: room.createdAt,
     updated_at: room.updatedAt || Date.now(),
   };
+  if (clearRuntimeState) row.match_state = null;
   // Match snapshots are written only through the atomic runtime RPC. A lobby
   // update from a stale instance cache must not replace authoritative state.
   try {
@@ -173,13 +190,21 @@ async function persistRoomToSupabase(room: PvpRoom, insertOnly = false): Promise
       // `row`, and PostgREST upsert can apply a missing column as NULL on
       // conflict. That would erase the authoritative runtime snapshot during
       // an ordinary lobby update (join, start, or leave).
-      : await serverSupabase.from('pvp_rooms').update(row).eq('room_code', roomCode).select('room_code').maybeSingle();
+      : await (async () => {
+          let query = serverSupabase.from('pvp_rooms').update(row).eq('room_code', roomCode);
+          if (expected) {
+            query = query.eq('updated_at', expected.updatedAt);
+            if (expected.status) query = query.eq('status', expected.status);
+          }
+          return query.select('room_code').maybeSingle();
+        })();
     if (result.error) {
       console.error('Supabase room persistence failed:', result.error.message);
       return { success: false, error: result.error };
     }
     if (!insertOnly && !result.data) {
-      const error = new Error(`PvP room ${roomCode} no longer exists in the shared store`);
+      const error: any = new Error(`PvP room ${roomCode} no longer exists or changed in the shared store`);
+      if (expected) error.code = 'PVP_ROOM_CONFLICT';
       console.error('Supabase room persistence failed:', error.message);
       return { success: false, error };
     }
@@ -507,6 +532,7 @@ function normalizeRoomPlayers(players: PlayerInRoom[] | undefined, hostId: strin
 
 function pvpRoomFromSupabaseRow(row: any): PvpRoom {
   const hostId = String(row.host_id || 'host_default');
+  const storedUpdatedAt = Number(row.updated_at ?? row.updatedAt);
   const hostFallback: PlayerInRoom = {
     id: hostId,
     name: row.host_name || row.hostName || 'Player',
@@ -527,7 +553,7 @@ function pvpRoomFromSupabaseRow(row: any): PvpRoom {
     status: row.status || 'WAITING',
     players: normalizeRoomPlayers(row.players, hostId, hostFallback),
     createdAt: Number(row.created_at || row.createdAt) || Date.now(),
-    updatedAt: Number(row.updated_at || row.updatedAt) || Date.now(),
+    updatedAt: Number.isFinite(storedUpdatedAt) ? storedUpdatedAt : Date.now(),
     ...(row.match_state ? { matchState: row.match_state } : {}),
   } as PvpRoom;
 }
@@ -1045,6 +1071,21 @@ const pvpRuntimeLeaseRefreshAt = new Map<string, number>();
 let pvpRealtimeBusReady = false;
 const pvpRealtimeBus = serverSupabase?.channel('starmon-pvp-runtime', { config: { private: true } });
 
+function stopPvpRuntime(roomCodeInput: string) {
+  const roomCode = normalizeRoomCode(roomCodeInput);
+  const match = activeMatchStates.get(roomCode);
+  if (match?.phaseTimerHandle) clearTimeout(match.phaseTimerHandle);
+  if (match?.stepTimerHandle) clearTimeout(match.stepTimerHandle);
+  if (match?.timerHandle) clearTimeout(match.timerHandle);
+  if (match) {
+    match.phaseTimerHandle = null;
+    match.stepTimerHandle = null;
+    match.timerHandle = null;
+  }
+  activeMatchStates.delete(roomCode);
+  pvpRuntimeLeaseRefreshAt.delete(roomCode);
+}
+
 function applyRemotePvpRuntimeEnvelope(roomCodeInput: string, snapshot: any, event: any, origin: string) {
   const roomCode = normalizeRoomCode(roomCodeInput);
   const match = activeMatchStates.get(roomCode);
@@ -1291,12 +1332,19 @@ if (pvpRealtimeBus) {
       applyRemotePvpRuntimeEnvelope(payload.roomCode, payload.snapshot, payload.event, payload.origin);
     })
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'pvp_rooms' }, ({ new: row }) => {
+      if (row?.room_code && row.status !== 'IN_GAME') {
+        stopPvpRuntime(row.room_code);
+        return;
+      }
       const snapshot = row?.match_state;
       const origin = String(snapshot?.runtimeOwnerId || '');
       if (!row?.room_code || !snapshot || origin === PVP_SERVER_INSTANCE_ID) return;
       const match = activeMatchStates.get(normalizeRoomCode(row.room_code));
       if (match && origin === match.runtimeOwnerId) match.runtimeOwnerLastSeenAt = Date.now();
       applyRemotePvpRuntimeEnvelope(row.room_code, snapshot, { type: 'board_full_sync' }, origin);
+    })
+    .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'pvp_rooms' }, ({ old: row }) => {
+      if (row?.room_code) stopPvpRuntime(row.room_code);
     })
     .subscribe((status: string) => {
       pvpRealtimeBusReady = status === 'SUBSCRIBED';
@@ -1515,6 +1563,7 @@ function handlePhaseEnd(
   expectedPhaseEndsAt: number,
   generation: number
 ) {
+  if (activeMatchStates.get(normalizeRoomCode(roomCode)) !== state) return;
   // A cleared timer can already be queued in the event loop. Ignore it if a later
   // phase has replaced it, so an old n.2 timeout cannot consume n.3 (or later rounds).
   if (
@@ -2009,6 +2058,7 @@ function countAlive(starmons: StarmonCombatant[]): number {
 }
 
 function runStep(state: PvpMatchState, roomCode: string) {
+  if (activeMatchStates.get(normalizeRoomCode(roomCode)) !== state) return;
   if (state.stepTimerHandle) {
     clearTimeout(state.stepTimerHandle);
     state.stepTimerHandle = null;
@@ -2684,22 +2734,25 @@ wss.on('connection', (ws) => {
           if (room && room.players.length >= 2) {
             const roomBeforeStart = JSON.parse(JSON.stringify(room)) as PvpRoom;
             room.status = 'IN_GAME';
-            room.updatedAt = Date.now();
-            const match = initializeMatchForRoom(room);
-            const ownsRuntime = await ensurePvpRuntimeOwner(match);
-            if (!ownsRuntime && !match.runtimeOwnerId) {
-              Object.assign(room, roomBeforeStart);
-              activeMatchStates.delete(targetCode);
-              saveRooms(activeRooms);
-              ws.send(JSON.stringify({ type: 'ERROR', message: 'PvP chưa thể khởi động: cần triển khai hàm persist_pvp_runtime_state trong Supabase.' }));
-              break;
-            }
-            const persisted = await persistRoomToSupabase(room);
+            const persisted = await persistRoomToSupabase(room, false, false, {
+              updatedAt: roomBeforeStart.updatedAt,
+              status: roomBeforeStart.status,
+            });
             if (!persisted.success) {
               Object.assign(room, roomBeforeStart);
-              activeMatchStates.delete(targetCode);
+              ws.send(JSON.stringify({ type: 'ERROR', message: 'Phòng vừa thay đổi hoặc không lưu được trạng thái PvP. Hãy làm mới danh sách phòng.' }));
+              break;
+            }
+            const match = activeMatchStates.get(targetCode) || initializeMatchForRoom(room);
+            const ownsRuntime = await ensurePvpRuntimeOwner(match);
+            if (!ownsRuntime && !match.runtimeOwnerId) {
+              const failedWriteUpdatedAt = room.updatedAt;
+              const rollbackRoom = { ...roomBeforeStart, updatedAt: Math.max(Date.now(), failedWriteUpdatedAt + 1) };
+              Object.assign(room, rollbackRoom);
+              await persistRoomToSupabase(rollbackRoom, false, false, { updatedAt: failedWriteUpdatedAt, status: 'IN_GAME' });
+              stopPvpRuntime(targetCode);
               saveRooms(activeRooms);
-              ws.send(JSON.stringify({ type: 'ERROR', message: 'Không lưu được trạng thái phòng PvP.' }));
+              ws.send(JSON.stringify({ type: 'ERROR', message: 'PvP chưa thể khởi động: cần triển khai hàm persist_pvp_runtime_state trong Supabase.' }));
               break;
             }
             saveRooms(activeRooms);
@@ -2718,7 +2771,7 @@ wss.on('connection', (ws) => {
             broadcastToRoom(targetCode, startPayload);
             broadcastToRoom(targetCode, { ...startPayload, type: 'MATCH_STARTED' });
             broadcastRoomList();
-            if (ownsRuntime) {
+            if (ownsRuntime && roomBeforeStart.status === 'WAITING') {
               setTimeout(() => {
                 startTurn(match, targetCode, 1);
               }, 1000);
@@ -2735,12 +2788,16 @@ wss.on('connection', (ws) => {
           const room = activeRooms.find(r => normalizeRoomCode(r.room_code || r.code) === targetCode);
           if (room) {
             if (uid && uid === room.host_id) {
-              room.status = 'FINISHED';
-              const deleted = await deleteRoomFromSupabase(targetCode);
+              const deleted = await deleteRoomFromSupabase(targetCode, {
+                updatedAt: Number(room.updatedAt) || 0,
+                status: room.status,
+              });
               if (!deleted.success) {
                 ws.send(JSON.stringify({ type: 'ERROR', message: 'Không thể đóng phòng PvP lúc này.' }));
                 break;
               }
+              room.status = 'FINISHED';
+              stopPvpRuntime(targetCode);
               activeRooms = activeRooms.filter(r => normalizeRoomCode(r.room_code || r.code) !== targetCode);
               saveRooms(activeRooms);
               broadcastToRoom(targetCode, { type: 'ROOM_CLOSED', room_code: targetCode });
@@ -2750,12 +2807,16 @@ wss.on('connection', (ws) => {
               room.guestName = undefined;
               room.status = 'WAITING';
               room.updatedAt = Date.now();
-              const persisted = await persistRoomToSupabase(room);
+              const persisted = await persistRoomToSupabase(room, false, true, {
+                updatedAt: roomBeforeLeave.updatedAt,
+                status: roomBeforeLeave.status,
+              });
               if (!persisted.success) {
                 Object.assign(room, roomBeforeLeave);
                 ws.send(JSON.stringify({ type: 'ERROR', message: 'Không lưu được trạng thái phòng PvP.' }));
                 break;
               }
+              stopPvpRuntime(targetCode);
               saveRooms(activeRooms);
               broadcastToRoom(targetCode, { type: 'ROOM_STATE_UPDATED', room });
             }
@@ -3939,9 +4000,15 @@ app.post('/api/rooms/join', async (req, res) => {
   room.status = 'IN_GAME';
   room.updatedAt = Date.now();
 
-  const persisted = await persistRoomToSupabase(room);
+  const persisted = await persistRoomToSupabase(room, false, false, {
+    updatedAt: roomBeforeJoin.updatedAt,
+    status: isAlreadyInRoom ? roomBeforeJoin.status : 'WAITING',
+  });
   if (!persisted.success) {
     activeRooms = loadRooms();
+    if (persisted.error?.code === 'PVP_ROOM_CONFLICT') {
+      return res.status(409).json({ error: 'Phòng vừa có người khác tham gia hoặc thay đổi. Hãy làm mới danh sách phòng.', code: 'PVP_ROOM_CHANGED' });
+    }
     return res.status(503).json({
       error: 'Không lưu được trạng thái phòng lên Supabase. Kiểm tra quyền INSERT và UPDATE cho service_role trên public.pvp_rooms.',
       code: 'PVP_ROOM_STORE_WRITE_FAILED',
@@ -3963,11 +4030,13 @@ app.post('/api/rooms/join', async (req, res) => {
   }
   const ownsRuntime = await ensurePvpRuntimeOwner(match);
   if (!ownsRuntime && !match.runtimeOwnerId) {
-    Object.assign(room, roomBeforeJoin);
+    const failedWriteUpdatedAt = room.updatedAt;
+    const rollbackRoom = { ...roomBeforeJoin, updatedAt: Math.max(Date.now(), failedWriteUpdatedAt + 1) };
+    Object.assign(room, rollbackRoom);
     const roomIndex = activeRooms.findIndex(candidate => normalizeRoomCode(candidate.room_code || candidate.code) === normalizedInput);
     if (roomIndex >= 0) activeRooms[roomIndex] = room;
     else activeRooms.unshift(room);
-    await persistRoomToSupabase(roomBeforeJoin);
+    await persistRoomToSupabase(rollbackRoom, false, false, { updatedAt: failedWriteUpdatedAt, status: 'IN_GAME' });
     writeRoomsStore(activeRooms);
     if (isNewMatch) activeMatchStates.delete(normalizedInput);
     return res.status(503).json({ error: 'PvP chưa thể khởi động. Hãy triển khai hàm persist_pvp_runtime_state trong Supabase.', code: 'PVP_RUNTIME_LOCK_UNAVAILABLE' });
@@ -4043,8 +4112,15 @@ app.post('/api/rooms/start', async (req, res) => {
   room.status = 'IN_GAME';
   room.updatedAt = Date.now();
 
-  const persisted = await persistRoomToSupabase(room);
+  const persisted = await persistRoomToSupabase(room, false, false, {
+    updatedAt: roomBeforeStart.updatedAt,
+    status: roomBeforeStart.status,
+  });
   if (!persisted.success) {
+    Object.assign(room, roomBeforeStart);
+    if (persisted.error?.code === 'PVP_ROOM_CONFLICT') {
+      return res.status(409).json({ error: 'Phòng vừa thay đổi. Hãy làm mới phòng trước khi bắt đầu.', code: 'PVP_ROOM_CHANGED' });
+    }
     return res.status(503).json({ error: 'Không lưu được trạng thái phòng lên Supabase.', code: 'PVP_ROOM_STORE_WRITE_FAILED' });
   }
 
@@ -4053,11 +4129,13 @@ app.post('/api/rooms/start', async (req, res) => {
   const match = isNewMatch ? initializeMatchForRoom(room) : activeMatchStates.get(normalizedInput)!;
   const ownsRuntime = await ensurePvpRuntimeOwner(match);
   if (!ownsRuntime && !match.runtimeOwnerId) {
-    Object.assign(room, roomBeforeStart);
+    const failedWriteUpdatedAt = room.updatedAt;
+    const rollbackRoom = { ...roomBeforeStart, updatedAt: Math.max(Date.now(), failedWriteUpdatedAt + 1) };
+    Object.assign(room, rollbackRoom);
     const roomIndex = activeRooms.findIndex(candidate => normalizeRoomCode(candidate.room_code || candidate.code) === normalizedInput);
     if (roomIndex >= 0) activeRooms[roomIndex] = room;
     else activeRooms.unshift(room);
-    await persistRoomToSupabase(roomBeforeStart);
+    await persistRoomToSupabase(rollbackRoom, false, false, { updatedAt: failedWriteUpdatedAt, status: 'IN_GAME' });
     writeRoomsStore(activeRooms);
     if (isNewMatch) activeMatchStates.delete(normalizedInput);
     return res.status(503).json({ error: 'PvP chưa thể khởi động. Hãy triển khai hàm persist_pvp_runtime_state trong Supabase.', code: 'PVP_RUNTIME_LOCK_UNAVAILABLE' });
@@ -4116,21 +4194,40 @@ app.post('/api/rooms/leave', async (req, res) => {
     if (!isRoomMember) return res.status(403).json({ error: 'Tài khoản này không thuộc phòng PvP.' });
     if (isHost) {
       // Host leaves: close room
-      const deleted = await deleteRoomFromSupabase(normalizedInput);
-      if (!deleted.success) return res.status(503).json({ error: 'Không thể xóa phòng khỏi Supabase.', code: 'PVP_ROOM_STORE_WRITE_FAILED' });
+      const deleted = await deleteRoomFromSupabase(normalizedInput, {
+        updatedAt: room.updatedAt,
+        status: room.status,
+      });
+      if (!deleted.success) {
+        if (deleted.error?.code === 'PVP_ROOM_CONFLICT') {
+          return res.status(409).json({ error: 'Phòng vừa thay đổi. Hãy làm mới trước khi đóng phòng.', code: 'PVP_ROOM_CHANGED' });
+        }
+        return res.status(503).json({ error: 'Không thể xóa phòng khỏi Supabase.', code: 'PVP_ROOM_STORE_WRITE_FAILED' });
+      }
       room.status = 'FINISHED';
       activeRooms = activeRooms.filter(r => normalizeRoomCode(r.room_code || r.code) !== normalizedInput);
-      activeMatchStates.delete(normalizedInput);
+      stopPvpRuntime(normalizedInput);
       saveRooms(activeRooms);
       broadcastToRoom(room.room_code, { type: 'ROOM_CLOSED', room_code: room.room_code });
     } else {
       // Guest leaves
+      const roomBeforeLeave = JSON.parse(JSON.stringify(room)) as PvpRoom;
       room.players = room.players.filter(p => String(p.id || '').toLowerCase() !== authenticatedUsername!.toLowerCase());
       room.guestName = undefined;
       room.status = 'WAITING';
       room.updatedAt = Date.now();
-      const persisted = await persistRoomToSupabase(room);
-      if (!persisted.success) return res.status(503).json({ error: 'Không lưu được trạng thái phòng lên Supabase.', code: 'PVP_ROOM_STORE_WRITE_FAILED' });
+      const persisted = await persistRoomToSupabase(room, false, true, {
+        updatedAt: roomBeforeLeave.updatedAt,
+        status: roomBeforeLeave.status,
+      });
+      if (!persisted.success) {
+        Object.assign(room, roomBeforeLeave);
+        if (persisted.error?.code === 'PVP_ROOM_CONFLICT') {
+          return res.status(409).json({ error: 'Phòng vừa thay đổi. Hãy làm mới trạng thái phòng.', code: 'PVP_ROOM_CHANGED' });
+        }
+        return res.status(503).json({ error: 'Không lưu được trạng thái phòng lên Supabase.', code: 'PVP_ROOM_STORE_WRITE_FAILED' });
+      }
+      stopPvpRuntime(normalizedInput);
       saveRooms(activeRooms);
       broadcastToRoom(room.room_code, { type: 'ROOM_STATE_UPDATED', room });
     }
