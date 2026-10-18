@@ -764,6 +764,7 @@ interface PvpMatchState {
   phaseTimerGeneration?: number;
   lastEndedPhase?: string;
   pendingNextTurnAt?: number;
+  finished?: boolean;
   phaseTimerHandle?: NodeJS.Timeout | null;
   timerHandle?: NodeJS.Timeout | null;
   stepTimerHandle?: NodeJS.Timeout | null;
@@ -896,6 +897,7 @@ function serializeMatchState(state: PvpMatchState | null | undefined): any {
     phaseStartedAt: state.phaseStartedAt,
     phaseEndsAt: state.phaseEndsAt,
     pendingNextTurnAt: state.pendingNextTurnAt,
+    finished: Boolean(state.finished),
     lastEndedPhase: state.lastEndedPhase,
     phaseTimerGeneration: state.phaseTimerGeneration || 0,
     runtimeRevision: state.runtimeRevision || 0,
@@ -1014,6 +1016,7 @@ function applySerializedMatchState(state: PvpMatchState, snapshot: any) {
   state.phaseStartedAt = Number(snapshot.phaseStartedAt) || state.phaseStartedAt;
   state.phaseEndsAt = Number(snapshot.phaseEndsAt) || state.phaseEndsAt;
   state.pendingNextTurnAt = Number(snapshot.pendingNextTurnAt) || undefined;
+  state.finished = Boolean(snapshot.finished);
   state.lastEndedPhase = typeof snapshot.lastEndedPhase === 'string' ? snapshot.lastEndedPhase : undefined;
   state.phaseTimerGeneration = Number(snapshot.phaseTimerGeneration) || state.phaseTimerGeneration || 0;
   state.seed = Number(snapshot.seed) || state.seed;
@@ -1564,6 +1567,7 @@ function handlePhaseEnd(
   generation: number
 ) {
   if (activeMatchStates.get(normalizeRoomCode(roomCode)) !== state) return;
+  if (state.finished) return;
   // A cleared timer can already be queued in the event loop. Ignore it if a later
   // phase has replaced it, so an old n.2 timeout cannot consume n.3 (or later rounds).
   if (
@@ -1683,12 +1687,26 @@ function advanceIfPhaseExpired(state: PvpMatchState, roomCode: string): boolean 
 const phaseDeadlineWatchdog = setInterval(() => {
   const now = Date.now();
   for (const [roomCode, state] of activeMatchStates) {
+    if (state.finished) continue;
     if (state.runtimeOwnerId && state.runtimeOwnerId !== PVP_SERVER_INSTANCE_ID) continue;
     if (state.pendingNextTurnAt && now >= state.pendingNextTurnAt) {
       advanceToNextTurn(state, roomCode, state.phase, state.turn, state.pendingNextTurnAt);
       continue;
     }
     if (now >= state.phaseEndsAt) {
+      // A previous owner can persist the "phase ended" marker and disappear
+      // before committing the next phase. In that case handlePhaseEnd's
+      // idempotency guard would reject every watchdog retry forever. Recover
+      // only while the current phase itself is still unchanged; startPhase
+      // updates state.phase synchronously, so this cannot replay a completed
+      // transition.
+      if (state.lastEndedPhase === state.phase) {
+        console.warn(`[PvP] Recovering stalled phase transition (${roomCode}, ${state.phase})`);
+        state.lastEndedPhase = undefined;
+        if (state.phaseTimerHandle) clearTimeout(state.phaseTimerHandle);
+        state.phaseTimerHandle = null;
+        state.phaseTimerGeneration = (state.phaseTimerGeneration || 0) + 1;
+      }
       handlePhaseEnd(
         state,
         roomCode,
@@ -2559,6 +2577,8 @@ function onStarmonAction(
 }
 
 function endGame(state: PvpMatchState, roomCode: string, result: 'draw' | 'winner', winnerSlot?: 1 | 2) {
+  if (state.finished) return;
+  state.finished = true;
   // Invalidate even an already queued phase callback so a finished match cannot restart.
   state.phaseTimerGeneration = (state.phaseTimerGeneration || 0) + 1;
   if (state.timerHandle) {
