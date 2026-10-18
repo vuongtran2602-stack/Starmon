@@ -205,8 +205,8 @@ export const SettingsModal: React.FC<Props> = ({
       label: 'Học Tập & Hướng Dẫn',
       shortLabel: 'Học Tập',
       icon: <GraduationCap className="w-3.5 h-3.5" />,
-      badge: questionMode === 'part3_forecase_2026'
-        ? 'Part 3 Forecase 2026'
+      badge: questionMode === 'part3_forecast_2026'
+        ? 'Part 3 Forecast 2026'
         : questionMode === 'part1_preference'
           ? 'Part 1 Preference'
           : 'Random',
@@ -827,17 +827,17 @@ export const SettingsModal: React.FC<Props> = ({
                       type="button"
                       onClick={() => {
                         sound.playClick();
-                        onChangeQuestionMode?.('part3_forecase_2026');
+                        onChangeQuestionMode?.('part3_forecast_2026');
                       }}
                       className={`p-3 rounded-xl border-2 text-left transition-all cursor-pointer flex flex-col justify-between gap-1.5 relative ${
-                        questionMode === 'part3_forecase_2026'
+                        questionMode === 'part3_forecast_2026'
                           ? 'bg-cyan-500/20 border-cyan-400 text-white shadow-lg shadow-cyan-500/20 ring-1 ring-cyan-400'
                           : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
                       }`}
                     >
                       <div className="flex items-center justify-between gap-1">
-                        <span className="text-xs font-black font-game text-cyan-300">📚 Part 3 Forecase 2026</span>
-                        {questionMode === 'part3_forecase_2026' && (
+                        <span className="text-xs font-black font-game text-cyan-300">📚 Part 3 Forecast 2026</span>
+                        {questionMode === 'part3_forecast_2026' && (
                           <span className="text-[9px] px-1.5 py-0.2 bg-cyan-400 text-slate-950 font-black rounded-full uppercase shrink-0">
                             Đang chọn
                           </span>

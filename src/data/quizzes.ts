@@ -296,10 +296,10 @@ export function getRandomQuizSet(
   // Dynamically generate questions corresponding strictly to the number of Starmons in the Party (1, 2, or 3)
   const count = Math.max(1, Math.min(3, activeStarmonCount));
 
-  if (mode === 'part3_forecase_2026') {
+  if (mode === 'part3_forecast_2026') {
     const shuffled = [...PART3_FORECAST_2026_QUESTIONS].sort(() => Math.random() - 0.5);
     return shuffled.slice(0, count).map((item, idx) => ({
-      id: `speaking_part3_forecase_2026_${Date.now()}_${idx}`,
+      id: `speaking_part3_forecast_2026_${Date.now()}_${idx}`,
       type: 'speaking',
       title: `IELTS SPEAKING PART 3: ${item.topic}`,
       category: 'IELTS Speaking',

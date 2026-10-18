@@ -91,7 +91,7 @@ export interface Starmon {
   isDaPhucVersion?: boolean;
 }
 
-export type QuizQuestionMode = 'random' | 'part1_preference' | 'part3_forecase_2026' | 'mixed' | 'mcq_only' | 'speaking_only';
+export type QuizQuestionMode = 'random' | 'part1_preference' | 'part3_forecast_2026' | 'mixed' | 'mcq_only' | 'speaking_only';
 
 export interface SpeakingLogEntry {
   id: string;

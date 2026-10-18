@@ -7115,7 +7115,7 @@ export const BattleView: React.FC<Props> = ({
             {!tutorialStage && !isPvP && (
               <div className="flex items-center gap-1 bg-slate-950/80 border border-slate-800 rounded-xl p-1 shadow-sm shrink-0">
                 <span className="text-[10px] text-slate-400 font-bold px-1 hidden sm:inline">Chế độ:</span>
-                {(['random', 'part1_preference', 'part3_forecase_2026'] as const).map(mode => (
+                {(['random', 'part1_preference', 'part3_forecast_2026'] as const).map(mode => (
                   <button
                     key={mode}
                     type="button"
@@ -7141,7 +7141,7 @@ export const BattleView: React.FC<Props> = ({
                         : 'text-slate-400 hover:text-white bg-slate-900/60'
                     }`}
                   >
-                    {mode === 'random' ? '🎲 Random' : mode === 'part1_preference' ? '🗣️ Part 1 Preference' : '📚 Part 3 Forecase 2026'}
+                    {mode === 'random' ? '🎲 Random' : mode === 'part1_preference' ? '🗣️ Part 1 Preference' : '📚 Part 3 Forecast 2026'}
                   </button>
                 ))}
               </div>
