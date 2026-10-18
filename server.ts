@@ -122,34 +122,6 @@ function syncAccountsToSupabase(accounts: Record<string, ServerUserAccount>) {
     .then(({ error }) => { if (error) console.error('Supabase account persistence failed:', error.message); });
 }
 
-function syncRoomsToSupabase(rooms: PvpRoom[]) {
-  if (!serverSupabase) return;
-  const rows = rooms.map(room => ({
-    room_code: normalizeRoomCode(room.room_code || room.code),
-    code: normalizeRoomCode(room.room_code || room.code),
-    host_id: room.host_id,
-    host_name: room.hostName,
-    host_level: room.hostLevel || 1,
-    guest_name: room.guestName || '',
-    guest_level: room.guestLevel || 1,
-    arena: room.arena || 'Sunken Sands',
-    status: room.status || 'WAITING',
-    players: room.players || [],
-    created_at: room.createdAt,
-    updated_at: room.updatedAt || Date.now(),
-  }));
-  void (async () => {
-    if (rows.length) {
-      try {
-        const { error } = await serverSupabase.from('pvp_rooms').upsert(rows, { onConflict: 'room_code' });
-        if (error) console.error('Supabase room persistence failed:', error.message);
-      } catch (error) {
-        console.error('Supabase room persistence failed:', error);
-      }
-    }
-  })();
-}
-
 async function deleteRoomFromSupabase(roomCode: string): Promise<{ success: boolean; error?: any }> {
   if (!serverSupabase) return requiresSharedRoomStore
     ? { success: false, error: new Error('SUPABASE_SERVICE_ROLE_KEY is not configured') }
@@ -192,14 +164,24 @@ async function persistRoomToSupabase(room: PvpRoom, insertOnly = false): Promise
     created_at: room.createdAt,
     updated_at: room.updatedAt || Date.now(),
   };
-  if ((room as any).matchState) row.match_state = (room as any).matchState;
+  // Match snapshots are written only through the atomic runtime RPC. A lobby
+  // update from a stale instance cache must not replace authoritative state.
   try {
     const result = insertOnly
       ? await serverSupabase.from('pvp_rooms').insert(row)
-      : await serverSupabase.from('pvp_rooms').upsert(row, { onConflict: 'room_code' });
+      // Do not upsert lobby data: match_state is intentionally absent from
+      // `row`, and PostgREST upsert can apply a missing column as NULL on
+      // conflict. That would erase the authoritative runtime snapshot during
+      // an ordinary lobby update (join, start, or leave).
+      : await serverSupabase.from('pvp_rooms').update(row).eq('room_code', roomCode).select('room_code').maybeSingle();
     if (result.error) {
       console.error('Supabase room persistence failed:', result.error.message);
       return { success: false, error: result.error };
+    }
+    if (!insertOnly && !result.data) {
+      const error = new Error(`PvP room ${roomCode} no longer exists in the shared store`);
+      console.error('Supabase room persistence failed:', error.message);
+      return { success: false, error };
     }
     return { success: true };
   } catch (error) {
@@ -580,12 +562,15 @@ function loadRooms(): PvpRoom[] {
 }
 
 function saveRooms(rooms: PvpRoom[]) {
+  writeRoomsStore(rooms);
+}
+
+function writeRoomsStore(rooms: PvpRoom[]) {
   try {
     fs.writeFileSync(ROOMS_STORE_FILE, JSON.stringify(rooms, null, 2), 'utf-8');
   } catch (err) {
     console.warn('Error writing pvp_rooms_store.json:', err);
   }
-  syncRoomsToSupabase(rooms);
 }
 
 let activeRooms: PvpRoom[] = loadRooms();
@@ -1217,8 +1202,62 @@ if (pvpRealtimeBus) {
       if (!match || match.runtimeOwnerId !== PVP_SERVER_INSTANCE_ID) return;
       const command = payload.data;
       const slot: 1 | 2 = payload.playerSlot === 2 ? 2 : 1;
-      if (command?.commandType === 'answer_submit' && Array.isArray(command.results)) {
+      if (command?.commandType === 'player_joined') {
+        const player = match.players[slot];
+        if (command.id) player.id = String(command.id);
+        if (command.name) player.name = String(command.name);
+        if (Array.isArray(command.starmons) && command.starmons.length > 0 && match.turn === 1 &&
+            match.subPhase === 1 && !player.hasSubmittedAnswer) {
+          player.starmons = createDefaultStarmonsForSlot(slot, command.starmons);
+          player.starmons.forEach((mon, index) => { mon.unlocked = Boolean(player.results[index]); });
+        }
+        if (match.sharedBoard) {
+          match.sharedBoard.starmons[slot] = player.starmons;
+        }
+        const state = serializeMatchState(match);
+        const syncEvent = { type: 'PVP_MATCH_STATE_SYNC', state, matchState: state };
+        broadcastToRoom(roomCode, syncEvent);
+        publishPvpRuntimeState(roomCode, syncEvent, match);
+      } else if (command?.commandType === 'answer_submit' && Array.isArray(command.results)) {
         onAnswerSubmit(match, roomCode, slot, command.results, Boolean(command.isTimeout));
+      } else if (command?.commandType === 'phase_sync_request') {
+        const request = command.request || {};
+        if (Date.now() >= match.phaseEndsAt) {
+          handlePhaseEnd(match, roomCode, match.phase, match.phaseEndsAt, match.phaseTimerGeneration || 0);
+        } else if (
+          request.phase !== match.phase ||
+          ((request.battlePhase === 'phase1_quiz' || request.battlePhase === 'phase2_combat') &&
+            request.battlePhase !== (match.subPhase === 1 ? 'phase1_quiz' : 'phase2_combat')) ||
+          request.timerExpired === true ||
+          request.step === null ||
+          (typeof request.step === 'number' && request.step !== match.step)
+        ) {
+          if (!match.phaseTimerHandle) schedulePhaseEnd(match, roomCode);
+          broadcastToRoom(roomCode, buildCurrentPhaseSyncPayload(match));
+          if (match.subPhase === 2 || match.subPhase === 3) {
+            if (match.step > 3) {
+              broadcastToRoom(roomCode, {
+                type: 'all_starmons_done', phase: match.phase, turn: match.turn,
+                subPhase: match.subPhase, phaseEndsAt: match.phaseEndsAt, serverTime: Date.now(),
+              });
+            } else {
+              broadcastToRoom(roomCode, buildCurrentStepSyncPayload(match));
+            }
+          }
+        }
+      } else if (command?.commandType === 'turn_end') {
+        const { attackerSlot } = getAttackerAndTargetByPhase(match.phase);
+        if (attackerSlot === slot && (match.subPhase === 2 || match.subPhase === 3) &&
+            command.phase === match.phase && command.turn === match.turn &&
+            command.step === match.step && command.starmonIndex === match.step - 1) {
+          onStepTimeout(match, roomCode, slot, command.starmonIndex);
+        }
+      } else if (command?.commandType === 'match_end') {
+        const winner = match.players[slot];
+        const loser = match.players[slot === 1 ? 2 : 1];
+        if (winner.starmons.some(mon => mon.hp > 0) && !loser.starmons.some(mon => mon.hp > 0)) {
+          endGame(match, roomCode, 'winner', slot);
+        }
       } else if (command?.commandType === 'resync_request') {
         broadcastToRoom(roomCode, {
           type: 'board_full_sync',
@@ -1716,6 +1755,73 @@ function startPhase(state: PvpMatchState, roomCode: string, subPhase: 1 | 2 | 3)
   } else {
     runStep(state, roomCode);
   }
+}
+
+function buildCurrentPhaseSyncPayload(state: PvpMatchState) {
+  const now = Date.now();
+  const answerDeadline = state.phaseStartedAt + ANSWER_DURATION_MS;
+  const deadline = state.subPhase === 1 ? answerDeadline : state.phaseEndsAt;
+  return {
+    type: 'phase_changed',
+    phase: state.phase,
+    turn: state.turn,
+    round_number: state.turn,
+    subPhase: state.subPhase,
+    step: state.step,
+    attackerSlot: state.attackerSlot,
+    targetSlot: state.targetSlot,
+    phaseStartedAt: state.phaseStartedAt,
+    phaseEndsAt: state.phaseEndsAt,
+    serverTime: now,
+    time_limit: Math.max(1, Math.ceil((deadline - now) / 1000)),
+    analysis_buffer: state.subPhase === 1 ? Math.ceil(Math.max(0, state.phaseEndsAt - answerDeadline) / 1000) : 0,
+    p1_alive_count: aliveStarmonIndices(state.players[1]).length,
+    p1_alive_indices: aliveStarmonIndices(state.players[1]),
+    p2_alive_count: aliveStarmonIndices(state.players[2]).length,
+    p2_alive_indices: aliveStarmonIndices(state.players[2]),
+    board: state.board,
+    boardSnapshot: serializeBoard(state),
+    boardVersion: state.boardVersion,
+    version: state.boardVersion,
+    p1_hp: state.players[1].starmons.map(mon => mon.hp),
+    p2_hp: state.players[2].starmons.map(mon => mon.hp),
+    p1_mana: state.players[1].starmons.map(mon => mon.mana),
+    p2_mana: state.players[2].starmons.map(mon => mon.mana),
+  };
+}
+
+function buildCurrentStepSyncPayload(state: PvpMatchState) {
+  const attackerSlot = state.attackerSlot || ((state.subPhase - 1) as 1 | 2);
+  const targetSlot = state.targetSlot || ((3 - attackerSlot) as 1 | 2);
+  const starmonIndex = Math.max(0, Math.min(2, state.step - 1));
+  const attacker = state.players[attackerSlot];
+  const starmon = attacker.starmons[starmonIndex];
+  const now = Date.now();
+  return {
+    type: 'step_started',
+    phase: state.phase,
+    turn: state.turn,
+    subPhase: state.subPhase,
+    step: state.step,
+    attackerSlot,
+    targetSlot,
+    starmonIndex,
+    starmon_name: starmon?.name,
+    actor_name: attacker.name,
+    validTargetIndices: aliveStarmonIndices(state.players[targetSlot]),
+    options: ['physical_attack', 'use_ability'],
+    phaseEndsAt: state.phaseEndsAt,
+    serverTime: now,
+    time_limit: Math.max(1, Math.ceil((state.phaseEndsAt - now) / 1000)),
+    board: state.board,
+    boardSnapshot: serializeBoard(state),
+    boardVersion: state.boardVersion,
+    version: state.boardVersion,
+    p1_hp: state.players[1].starmons.map(mon => mon.hp),
+    p2_hp: state.players[2].starmons.map(mon => mon.hp),
+    p1_mana: state.players[1].starmons.map(mon => mon.mana),
+    p2_mana: state.players[2].starmons.map(mon => mon.mana),
+  };
 }
 
 // Đồng bộ trạng thái Phase hiện tại cho 1 socket cụ thể mà không làm gián đoạn client kia
@@ -2531,7 +2637,27 @@ wss.on('connection', (ws) => {
           const rawCode = msg.room_code || msg.code || '';
           const targetCode = normalizeRoomCode(rawCode);
           activeRooms = loadRooms();
-          const room = activeRooms.find(r => normalizeRoomCode(r.room_code || r.code) === targetCode);
+          let room = activeRooms.find(r => normalizeRoomCode(r.room_code || r.code) === targetCode);
+          if (serverSupabase && targetCode) {
+            try {
+              const { data, error } = await serverSupabase.from('pvp_rooms').select('*')
+                .eq('room_code', targetCode).maybeSingle();
+              if (error) throw error;
+              room = data ? pvpRoomFromSupabaseRow(data) : undefined;
+              if (room) {
+                const localIndex = activeRooms.findIndex(candidate => normalizeRoomCode(candidate.room_code || candidate.code) === targetCode);
+                if (localIndex >= 0) activeRooms[localIndex] = room;
+                else activeRooms.unshift(room);
+                writeRoomsStore(activeRooms);
+              }
+            } catch (error) {
+              console.error(`[PvP] Could not resolve lobby room ${targetCode}:`, error);
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'ERROR', message: 'Không thể tải phòng từ kho PvP dùng chung.' }));
+              }
+              break;
+            }
+          }
           if (room) {
             if (currentRoomCode && currentRoomCode !== targetCode && roomClients.has(currentRoomCode)) {
               roomClients.get(currentRoomCode)!.delete(ws);
@@ -2556,15 +2682,27 @@ wss.on('connection', (ws) => {
           activeRooms = loadRooms();
           const room = activeRooms.find(r => normalizeRoomCode(r.room_code || r.code) === targetCode);
           if (room && room.players.length >= 2) {
+            const roomBeforeStart = JSON.parse(JSON.stringify(room)) as PvpRoom;
             room.status = 'IN_GAME';
             room.updatedAt = Date.now();
-            saveRooms(activeRooms);
             const match = initializeMatchForRoom(room);
             const ownsRuntime = await ensurePvpRuntimeOwner(match);
             if (!ownsRuntime && !match.runtimeOwnerId) {
+              Object.assign(room, roomBeforeStart);
+              activeMatchStates.delete(targetCode);
+              saveRooms(activeRooms);
               ws.send(JSON.stringify({ type: 'ERROR', message: 'PvP chưa thể khởi động: cần triển khai hàm persist_pvp_runtime_state trong Supabase.' }));
               break;
             }
+            const persisted = await persistRoomToSupabase(room);
+            if (!persisted.success) {
+              Object.assign(room, roomBeforeStart);
+              activeMatchStates.delete(targetCode);
+              saveRooms(activeRooms);
+              ws.send(JSON.stringify({ type: 'ERROR', message: 'Không lưu được trạng thái phòng PvP.' }));
+              break;
+            }
+            saveRooms(activeRooms);
             const startPayload = {
               type: 'match_start',
               seed: match.seed,
@@ -2598,15 +2736,26 @@ wss.on('connection', (ws) => {
           if (room) {
             if (uid && uid === room.host_id) {
               room.status = 'FINISHED';
+              const deleted = await deleteRoomFromSupabase(targetCode);
+              if (!deleted.success) {
+                ws.send(JSON.stringify({ type: 'ERROR', message: 'Không thể đóng phòng PvP lúc này.' }));
+                break;
+              }
               activeRooms = activeRooms.filter(r => normalizeRoomCode(r.room_code || r.code) !== targetCode);
               saveRooms(activeRooms);
-              deleteRoomFromSupabase(targetCode);
               broadcastToRoom(targetCode, { type: 'ROOM_CLOSED', room_code: targetCode });
             } else {
+              const roomBeforeLeave = JSON.parse(JSON.stringify(room)) as PvpRoom;
               room.players = room.players.filter(p => p.id !== uid);
               room.guestName = undefined;
               room.status = 'WAITING';
               room.updatedAt = Date.now();
+              const persisted = await persistRoomToSupabase(room);
+              if (!persisted.success) {
+                Object.assign(room, roomBeforeLeave);
+                ws.send(JSON.stringify({ type: 'ERROR', message: 'Không lưu được trạng thái phòng PvP.' }));
+                break;
+              }
               saveRooms(activeRooms);
               broadcastToRoom(targetCode, { type: 'ROOM_STATE_UPDATED', room });
             }
@@ -2708,6 +2857,19 @@ wss.on('connection', (ws) => {
                 match.players[slot].starmons.forEach((s, idx) => {
                   s.unlocked = Boolean(match!.players[slot].results[idx]);
                 });
+              }
+
+              if (match.runtimeOwnerId && match.runtimeOwnerId !== PVP_SERVER_INSTANCE_ID) {
+                const forwarded = forwardPvpActionToRuntimeOwner(targetCode, slot, {
+                  commandType: 'player_joined',
+                  id: match.players[slot].id,
+                  name: match.players[slot].name,
+                  starmons: match.players[slot].starmons,
+                });
+                if (!forwarded) {
+                  ws.send(JSON.stringify({ type: 'ERROR', message: 'Máy chủ trận đấu đang kết nối lại. Vui lòng tải lại trận.' }));
+                  break;
+                }
               }
 
               if (!match.phaseTimerHandle && match.runtimeOwnerId === PVP_SERVER_INSTANCE_ID) {
@@ -3152,6 +3314,35 @@ wss.on('connection', (ws) => {
           const match = activeMatchStates.get(targetCode);
           const auth = pvpBattleSocketAuth.get(ws);
           if (match && auth && ws.readyState === WebSocket.OPEN) {
+            const ownsRuntime = await ensurePvpRuntimeOwner(match);
+            if (!ownsRuntime && (match.runtimeOwnerId === PVP_SERVER_INSTANCE_ID || !match.runtimeOwnerId)) {
+              ws.send(JSON.stringify({ type: 'PVP_ACTION_REJECTED', reason: 'Máy chủ trận đấu chưa khóa được state dùng chung.' }));
+              break;
+            }
+            if (match.runtimeOwnerId && match.runtimeOwnerId !== PVP_SERVER_INSTANCE_ID) {
+              const forwarded = forwardPvpActionToRuntimeOwner(targetCode, auth.slot, {
+                commandType: 'phase_sync_request',
+                request: {
+                  phase: msg.phase,
+                  battlePhase: msg.battlePhase,
+                  step: msg.step,
+                  timerExpired: msg.timerExpired === true,
+                },
+              });
+              if (!forwarded) {
+                ws.send(JSON.stringify({ type: 'PVP_ACTION_REJECTED', reason: 'Máy chủ trận đấu đang kết nối lại.' }));
+              } else {
+                ws.send(JSON.stringify({
+                  type: 'PVP_SYNC_ACK',
+                  phase: match.phase,
+                  turn: match.turn,
+                  subPhase: match.subPhase,
+                  step: match.step,
+                  serverTime: Date.now(),
+                }));
+              }
+              break;
+            }
             if (Date.now() >= match.phaseEndsAt) {
               const expiredPhase = match.phase;
               handlePhaseEnd(
@@ -3197,6 +3388,21 @@ wss.on('connection', (ws) => {
           const match = activeMatchStates.get(targetCode);
           if (!match || (match.subPhase !== 2 && match.subPhase !== 3)) break;
 
+          const ownsRuntime = await ensurePvpRuntimeOwner(match);
+          if (!ownsRuntime && (match.runtimeOwnerId === PVP_SERVER_INSTANCE_ID || !match.runtimeOwnerId)) {
+            ws.send(JSON.stringify({ type: 'PVP_ACTION_REJECTED', reason: 'Máy chủ trận đấu chưa khóa được state dùng chung.' }));
+            break;
+          }
+          if (match.runtimeOwnerId && match.runtimeOwnerId !== PVP_SERVER_INSTANCE_ID) {
+            if (!forwardPvpActionToRuntimeOwner(targetCode, pvpBattleSocketAuth.get(ws)?.slot || 1, {
+              commandType: 'phase_sync_request',
+              request: { phase: msg.phase, timerExpired: true },
+            })) {
+              ws.send(JSON.stringify({ type: 'PVP_ACTION_REJECTED', reason: 'Máy chủ trận đấu đang kết nối lại.' }));
+            }
+            break;
+          }
+
           // Accept only a timeout for the phase the server is currently running.
           // Both clients can report zero; handlePhaseEnd's phase/generation guard
           // makes duplicate reports safe.
@@ -3221,14 +3427,34 @@ wss.on('connection', (ws) => {
           const match = activeMatchStates.get(targetCode);
           if (!match) break;
 
+          const ownsRuntime = await ensurePvpRuntimeOwner(match);
+          if (!ownsRuntime && (match.runtimeOwnerId === PVP_SERVER_INSTANCE_ID || !match.runtimeOwnerId)) {
+            ws.send(JSON.stringify({ type: 'PVP_ACTION_REJECTED', reason: 'Máy chủ trận đấu chưa khóa được state dùng chung.' }));
+            break;
+          }
+
           const rawSlot = msg.actor_slot ?? msg.slot ?? msg.attackerSlot;
           const playerSlot: 1 | 2 = (rawSlot === 2 || rawSlot === '2')
             ? 2
             : (rawSlot === 1 || rawSlot === '1' || rawSlot === 0 ? 1 : (match.players[1].id === msg.player_id ? 1 : 2));
 
           const { attackerSlot } = getAttackerAndTargetByPhase(match.phase);
+          if (match.runtimeOwnerId && match.runtimeOwnerId !== PVP_SERVER_INSTANCE_ID) {
+            const starmonIndex = Number(msg.starmon_index);
+            if (!forwardPvpActionToRuntimeOwner(targetCode, playerSlot, {
+              commandType: 'turn_end',
+              phase: msg.phase || match.phase,
+              turn: Number(msg.turn ?? match.turn),
+              step: Number(msg.step ?? (starmonIndex + 1)),
+              starmonIndex,
+            })) ws.send(JSON.stringify({ type: 'PVP_ACTION_REJECTED', reason: 'Máy chủ trận đấu đang kết nối lại.' }));
+            break;
+          }
           if (attackerSlot === playerSlot && (match.subPhase === 2 || match.subPhase === 3)) {
             const requestedStarmonIndex = Number(msg.starmon_index);
+            if ((msg.phase && msg.phase !== match.phase) ||
+                (msg.turn != null && Number(msg.turn) !== match.turn) ||
+                (msg.step != null && Number(msg.step) !== match.step)) break;
             onStepTimeout(match, targetCode, playerSlot, requestedStarmonIndex);
           }
           break;
@@ -3236,21 +3462,19 @@ wss.on('connection', (ws) => {
 
         case 'PVP_MATCH_END': {
           const targetCode = normalizeRoomCode(msg.room_code || currentRoomCode || '');
-          if (targetCode) {
-            const match = activeMatchStates.get(targetCode);
-            if (match?.timerHandle) {
-              clearTimeout(match.timerHandle);
-            }
-            activeMatchStates.delete(targetCode);
-            broadcastToRoom(targetCode, {
-              type: 'PVP_MATCH_FINISHED',
-              winner_id: msg.winner_id,
-              winner_name: msg.winner_name,
-            });
-            broadcastToRoom(targetCode, {
-              type: 'game_over',
-              winner: msg.winner_id,
-            });
+          const match = activeMatchStates.get(targetCode);
+          const auth = pvpBattleSocketAuth.get(ws);
+          if (!targetCode || !match || !auth) break;
+          const ownsRuntime = await ensurePvpRuntimeOwner(match);
+          if (!ownsRuntime && (match.runtimeOwnerId === PVP_SERVER_INSTANCE_ID || !match.runtimeOwnerId)) break;
+          if (match.runtimeOwnerId && match.runtimeOwnerId !== PVP_SERVER_INSTANCE_ID) {
+            forwardPvpActionToRuntimeOwner(targetCode, auth.slot, { commandType: 'match_end' });
+            break;
+          }
+          const winner = match.players[auth.slot];
+          const loser = match.players[auth.slot === 1 ? 2 : 1];
+          if (winner.starmons.some(mon => mon.hp > 0) && !loser.starmons.some(mon => mon.hp > 0)) {
+            endGame(match, targetCode, 'winner', auth.slot);
           }
           break;
         }
@@ -3667,6 +3891,7 @@ app.post('/api/rooms/join', async (req, res) => {
   if (!room) {
     return res.status(404).json({ error: `Phòng "${rawInput}" không tồn tại hoặc đã bị hủy. Vui lòng kiểm tra lại!` });
   }
+  const roomBeforeJoin = JSON.parse(JSON.stringify(room)) as PvpRoom;
 
   let finalUserId = authenticatedUsername;
   let finalUserName = authenticatedUsername;
@@ -3738,6 +3963,13 @@ app.post('/api/rooms/join', async (req, res) => {
   }
   const ownsRuntime = await ensurePvpRuntimeOwner(match);
   if (!ownsRuntime && !match.runtimeOwnerId) {
+    Object.assign(room, roomBeforeJoin);
+    const roomIndex = activeRooms.findIndex(candidate => normalizeRoomCode(candidate.room_code || candidate.code) === normalizedInput);
+    if (roomIndex >= 0) activeRooms[roomIndex] = room;
+    else activeRooms.unshift(room);
+    await persistRoomToSupabase(roomBeforeJoin);
+    writeRoomsStore(activeRooms);
+    if (isNewMatch) activeMatchStates.delete(normalizedInput);
     return res.status(503).json({ error: 'PvP chưa thể khởi động. Hãy triển khai hàm persist_pvp_runtime_state trong Supabase.', code: 'PVP_RUNTIME_LOCK_UNAVAILABLE' });
   }
   broadcastRoomList();
@@ -3807,6 +4039,7 @@ app.post('/api/rooms/start', async (req, res) => {
     return res.status(400).json({ error: 'Cần ít nhất 2 người chơi trong phòng để bắt đầu trận đấu!' });
   }
 
+  const roomBeforeStart = JSON.parse(JSON.stringify(room)) as PvpRoom;
   room.status = 'IN_GAME';
   room.updatedAt = Date.now();
 
@@ -3820,6 +4053,13 @@ app.post('/api/rooms/start', async (req, res) => {
   const match = isNewMatch ? initializeMatchForRoom(room) : activeMatchStates.get(normalizedInput)!;
   const ownsRuntime = await ensurePvpRuntimeOwner(match);
   if (!ownsRuntime && !match.runtimeOwnerId) {
+    Object.assign(room, roomBeforeStart);
+    const roomIndex = activeRooms.findIndex(candidate => normalizeRoomCode(candidate.room_code || candidate.code) === normalizedInput);
+    if (roomIndex >= 0) activeRooms[roomIndex] = room;
+    else activeRooms.unshift(room);
+    await persistRoomToSupabase(roomBeforeStart);
+    writeRoomsStore(activeRooms);
+    if (isNewMatch) activeMatchStates.delete(normalizedInput);
     return res.status(503).json({ error: 'PvP chưa thể khởi động. Hãy triển khai hàm persist_pvp_runtime_state trong Supabase.', code: 'PVP_RUNTIME_LOCK_UNAVAILABLE' });
   }
   broadcastRoomList();

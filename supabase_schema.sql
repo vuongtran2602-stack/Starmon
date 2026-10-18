@@ -30,6 +30,12 @@ create table if not exists public.pvp_rooms (
   updated_at bigint not null default 0
 );
 
+-- CREATE TABLE IF NOT EXISTS does not add columns to an existing table. Older
+-- deployments already have pvp_rooms, so add the runtime snapshot explicitly
+-- before installing the ownership RPC below.
+alter table public.pvp_rooms
+  add column if not exists match_state jsonb;
+
 alter table public.pvp_rooms alter column arena set default 'Sunken Sands';
 create index if not exists pvp_rooms_status_idx on public.pvp_rooms (status);
 

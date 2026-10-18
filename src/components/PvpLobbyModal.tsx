@@ -412,6 +412,9 @@ export const PvpLobbyModal: React.FC<Props> = ({
             setCurrentRoom(null);
             setStatusMessage('Chủ phòng đã hủy phòng đấu.');
             setTimeout(() => setStatusMessage(''), 4000);
+          } else if (msg.type === 'ERROR') {
+            setIsProcessing(false);
+            setJoinError(msg.message || 'Máy chủ PvP không thể xử lý yêu cầu lúc này.');
           }
         } catch {}
       };

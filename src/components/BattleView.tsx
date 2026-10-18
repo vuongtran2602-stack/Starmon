@@ -763,6 +763,9 @@ export const BattleView: React.FC<Props> = ({
           room_code: pvpRoomInfo?.code,
           player_id: pvpRoomInfo?.myPlayerId,
           actor_slot: pvpMySlotRef.current,
+          phase: pvpFlowPhaseRef.current,
+          turn: pvpTurnNumberRef.current,
+          step: actingStepIndex + 1,
           starmon_index: actingStepIndex,
         });
         setTurnStatusType('missed');
@@ -1436,6 +1439,8 @@ export const BattleView: React.FC<Props> = ({
 
           case 'phase_start':
           case 'phase_changed': {
+            lastPvpSocketAckAtRef.current = Date.now();
+            reconnectAttempt = 0;
             const phaseStr = String(msg.phase || '1.1');
             if (phaseStr !== pvpFlowPhaseRef.current) pvpSyncedStepRef.current = null;
             const parts = phaseStr.split('.');
@@ -1773,6 +1778,13 @@ export const BattleView: React.FC<Props> = ({
             });
             sound.playWrong();
             setTurnAnnouncement(`Lượt đi không hợp lệ: ${msg.reason || 'Chưa tới lượt của bạn'}`);
+            break;
+          }
+
+          case 'ERROR': {
+            setIsActionPendingServer(false);
+            setPvpWaitingForOpponentSpeaking(false);
+            setPvpTurnBanner(msg.message || 'Không thể kết nối vào trận PvP.');
             break;
           }
 
