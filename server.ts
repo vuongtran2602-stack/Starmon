@@ -760,7 +760,7 @@ interface PvpMatchState {
   seed: number;
   boardVersion: number;
   runtimeRevision?: number;
-  runtimeOwnerId?: string;
+  runtimeOwnerId?: string | null;
   runtimeOwnerLastSeenAt?: number;
   board?: { element: string }[][];
   sharedBoard?: {
@@ -818,6 +818,22 @@ function generateServerBoard(): { element: string }[][] {
   return generateBoardFromSeed(generateRandomSeed());
 }
 
+function normalizePvpBoard(input: any): { element: string }[][] | null {
+  if (!Array.isArray(input) || input.length !== 8) return null;
+  const normalized: { element: string }[][] = [];
+  for (const row of input) {
+    if (!Array.isArray(row) || row.length !== 8) return null;
+    const normalizedRow: { element: string }[] = [];
+    for (const cell of row) {
+      const element = typeof cell === 'string' ? cell : cell?.element;
+      if (!SERVER_BOARD_ELEMENTS.includes(element)) return null;
+      normalizedRow.push({ element });
+    }
+    normalized.push(normalizedRow);
+  }
+  return normalized;
+}
+
 function initializeSharedBoard(state: PvpMatchState, seed: number) {
   const grid = generateBoardFromSeed(seed);
   state.seed = seed;
@@ -835,8 +851,11 @@ function initializeSharedBoard(state: PvpMatchState, seed: number) {
 }
 
 function serializeBoard(state: PvpMatchState) {
-  if (!state.board || !Array.isArray(state.board) || state.board.length !== 8) {
+  const normalizedBoard = normalizePvpBoard(state.board);
+  if (!normalizedBoard) {
     state.board = generateBoardFromSeed(state.seed || computeSeedFromRoomCode(state.roomCode));
+  } else {
+    state.board = normalizedBoard;
   }
   return {
     seed: state.seed,
@@ -942,7 +961,7 @@ function mutateBoard(
   }
 
   const snapshot = serializeBoard(state);
-  const patch = broadcastPayload ?? {
+  const patch = broadcastPayload ? { ...broadcastPayload, grid: state.board } : {
     grid: state.board,
     starmons: snapshot.starmons,
   };
@@ -1017,7 +1036,8 @@ function applySerializedMatchState(state: PvpMatchState, snapshot: any) {
   }
   state.player1 = state.players[1];
   state.player2 = state.players[2];
-  if (Array.isArray(snapshot.board) && snapshot.board.length === 8) state.board = snapshot.board;
+  const normalizedBoard = normalizePvpBoard(snapshot.board);
+  if (normalizedBoard) state.board = normalizedBoard;
   if (state.sharedBoard) {
     state.sharedBoard.seed = state.seed;
     state.sharedBoard.grid = state.board || state.sharedBoard.grid;
@@ -1036,6 +1056,7 @@ function applySerializedMatchState(state: PvpMatchState, snapshot: any) {
 }
 
 const pvpSnapshotWrites = new Map<string, Promise<void>>();
+const pvpRuntimeLeaseRefreshAt = new Map<string, number>();
 let pvpRealtimeBusReady = false;
 const pvpRealtimeBus = serverSupabase?.channel('starmon-pvp-runtime', { config: { private: true } });
 
@@ -1067,6 +1088,39 @@ function applyRemotePvpRuntimeEnvelope(roomCodeInput: string, snapshot: any, eve
   broadcastToRoom(roomCode, syncEvent, undefined, false);
 }
 
+async function ensurePvpRuntimeOwner(match: PvpMatchState): Promise<boolean> {
+  if (!serverSupabase) {
+    if (!match.runtimeOwnerId) match.runtimeOwnerId = PVP_SERVER_INSTANCE_ID;
+    match.runtimeOwnerLastSeenAt = Date.now();
+    return match.runtimeOwnerId === PVP_SERVER_INSTANCE_ID;
+  }
+
+  const now = Date.now();
+  const candidate = {
+    ...serializeMatchState(match),
+    runtimeOwnerId: PVP_SERVER_INSTANCE_ID,
+    runtimeOwnerLastSeenAt: now,
+    runtimeRevision: Math.max(1, match.runtimeRevision || 0),
+  };
+  const { data, error } = await serverSupabase.rpc('persist_pvp_runtime_state', {
+    p_room_code: match.roomCode,
+    p_instance_id: PVP_SERVER_INSTANCE_ID,
+    p_candidate_state: candidate,
+    p_now_ms: now,
+    p_lease_ms: 12_000,
+  });
+  if (error || !data) {
+    console.error(`[PvP] Could not claim shared match runtime (${match.roomCode}):`, error?.message || 'empty state');
+    return false;
+  }
+  const persistedRevision = Number(data.runtimeRevision) || 0;
+  const localRevision = Number(match.runtimeRevision) || 0;
+  if (data.runtimeOwnerId !== PVP_SERVER_INSTANCE_ID || persistedRevision >= localRevision) {
+    applySerializedMatchState(match, data);
+  }
+  return match.runtimeOwnerId === PVP_SERVER_INSTANCE_ID;
+}
+
 function forwardPvpActionToRuntimeOwner(roomCode: string, playerSlot: 1 | 2, data: any) {
   if (!pvpRealtimeBusReady || !pvpRealtimeBus) return false;
   void pvpRealtimeBus.send({
@@ -1080,8 +1134,8 @@ function forwardPvpActionToRuntimeOwner(roomCode: string, playerSlot: 1 | 2, dat
 }
 
 function publishPvpRuntimeState(roomCode: string, event: any, match: PvpMatchState) {
+  if (match.runtimeOwnerId !== PVP_SERVER_INSTANCE_ID) return;
   match.runtimeRevision = (match.runtimeRevision || 0) + 1;
-  match.runtimeOwnerId = PVP_SERVER_INSTANCE_ID;
   match.runtimeOwnerLastSeenAt = Date.now();
   const snapshot = serializeMatchState(match);
   const envelope = { origin: PVP_SERVER_INSTANCE_ID, roomCode, event, snapshot };
@@ -1089,10 +1143,47 @@ function publishPvpRuntimeState(roomCode: string, event: any, match: PvpMatchSta
   if (serverSupabase) {
     const previousWrite = pvpSnapshotWrites.get(roomCode) || Promise.resolve();
     const write = previousWrite.catch(() => undefined).then(async () => {
-      const { error } = await serverSupabase.from('pvp_rooms')
-        .update({ match_state: snapshot, updated_at: Date.now() })
-        .eq('room_code', roomCode);
-      if (error) console.warn(`[PvP] Could not persist shared match state (${roomCode}):`, error.message);
+      const { data, error } = await serverSupabase.rpc('persist_pvp_runtime_state', {
+        p_room_code: roomCode,
+        p_instance_id: PVP_SERVER_INSTANCE_ID,
+        p_candidate_state: snapshot,
+        p_now_ms: Date.now(),
+        p_lease_ms: 12_000,
+      });
+      if (error || !data) {
+        console.warn(`[PvP] Could not persist shared match state (${roomCode}):`, error?.message || 'empty state');
+        return;
+      }
+      if (data.runtimeOwnerId !== PVP_SERVER_INSTANCE_ID) {
+        applySerializedMatchState(match, data);
+        const boardSnapshot = serializeBoard(match);
+        broadcastToRoom(roomCode, {
+          type: 'board_full_sync',
+          phase: match.phase,
+          turn: match.turn,
+          subPhase: match.subPhase,
+          attackerSlot: match.attackerSlot,
+          targetSlot: match.targetSlot,
+          boardVersion: match.boardVersion,
+          version: match.boardVersion,
+          board: match.board,
+          boardSnapshot,
+          p1_hp: match.players[1].starmons.map(mon => mon.hp),
+          p2_hp: match.players[2].starmons.map(mon => mon.hp),
+          p1_mana: match.players[1].starmons.map(mon => mon.mana),
+          p2_mana: match.players[2].starmons.map(mon => mon.mana),
+        }, undefined, false);
+        return;
+      }
+      const persistedRevision = Number(data.runtimeRevision) || 0;
+      if (persistedRevision < (Number(match.runtimeRevision) || 0)) return;
+      applySerializedMatchState(match, data);
+      if (persistedRevision < (Number(match.runtimeRevision) || 0)) return;
+      const persistedEnvelope = { origin: PVP_SERVER_INSTANCE_ID, roomCode, event, snapshot: data };
+      if (pvpRealtimeBusReady && pvpRealtimeBus) {
+        const status = await pvpRealtimeBus.send({ type: 'broadcast', event: 'match_state', payload: persistedEnvelope });
+        if (status !== 'ok') console.warn(`[PvP] Cross-instance state broadcast failed (${roomCode}):`, status);
+      }
     });
     pvpSnapshotWrites.set(roomCode, write);
     void write.catch(error => {
@@ -1102,7 +1193,7 @@ function publishPvpRuntimeState(roomCode: string, event: any, match: PvpMatchSta
     });
   }
 
-  if (pvpRealtimeBusReady && pvpRealtimeBus) {
+  if (!serverSupabase && pvpRealtimeBusReady && pvpRealtimeBus) {
     void pvpRealtimeBus.send({ type: 'broadcast', event: 'match_state', payload: envelope })
       .then((status: string) => {
         if (status !== 'ok') console.warn(`[PvP] Cross-instance state broadcast failed (${roomCode}):`, status);
@@ -1125,8 +1216,30 @@ if (pvpRealtimeBus) {
       const match = activeMatchStates.get(roomCode);
       if (!match || match.runtimeOwnerId !== PVP_SERVER_INSTANCE_ID) return;
       const command = payload.data;
-      if (!command || !Number.isInteger(command.starmonIndex) || !['physical_attack', 'use_ability'].includes(command.actionType)) return;
-      onStarmonAction(match, roomCode, payload.playerSlot === 2 ? 2 : 1, command, undefined);
+      const slot: 1 | 2 = payload.playerSlot === 2 ? 2 : 1;
+      if (command?.commandType === 'answer_submit' && Array.isArray(command.results)) {
+        onAnswerSubmit(match, roomCode, slot, command.results, Boolean(command.isTimeout));
+      } else if (command?.commandType === 'resync_request') {
+        broadcastToRoom(roomCode, {
+          type: 'board_full_sync',
+          phase: match.phase,
+          turn: match.turn,
+          subPhase: match.subPhase,
+          step: match.step,
+          attackerSlot: match.attackerSlot,
+          targetSlot: match.targetSlot,
+          boardVersion: match.boardVersion,
+          version: match.boardVersion,
+          board: match.board,
+          boardSnapshot: serializeBoard(match),
+          p1_hp: match.players[1].starmons.map(mon => mon.hp),
+          p2_hp: match.players[2].starmons.map(mon => mon.hp),
+          p1_mana: match.players[1].starmons.map(mon => mon.mana),
+          p2_mana: match.players[2].starmons.map(mon => mon.mana),
+        });
+      } else if (command && Number.isInteger(command.starmonIndex) && ['physical_attack', 'use_ability'].includes(command.actionType)) {
+        onStarmonAction(match, roomCode, slot, command, undefined);
+      }
     })
     .on('broadcast', { event: 'match_state' }, ({ payload }) => {
       if (!payload || payload.origin === PVP_SERVER_INSTANCE_ID || typeof payload.roomCode !== 'string') return;
@@ -1157,6 +1270,10 @@ const pvpRuntimeHeartbeat = setInterval(() => {
   for (const [roomCode, match] of activeMatchStates) {
     if (match.runtimeOwnerId === PVP_SERVER_INSTANCE_ID) {
       match.runtimeOwnerLastSeenAt = now;
+      if (serverSupabase && now - (pvpRuntimeLeaseRefreshAt.get(roomCode) || 0) >= 5_000) {
+        pvpRuntimeLeaseRefreshAt.set(roomCode, now);
+        void ensurePvpRuntimeOwner(match);
+      }
       if (pvpRealtimeBusReady && pvpRealtimeBus) {
         void pvpRealtimeBus.send({
           type: 'broadcast',
@@ -1164,13 +1281,14 @@ const pvpRuntimeHeartbeat = setInterval(() => {
           payload: { origin: PVP_SERVER_INSTANCE_ID, roomCode, heartbeat: true },
         }).catch(error => console.warn(`[PvP] Runtime heartbeat failed (${roomCode}):`, error));
       }
-    } else if (now - (match.runtimeOwnerLastSeenAt || 0) > 10_000) {
-      match.runtimeOwnerId = PVP_SERVER_INSTANCE_ID;
-      match.runtimeOwnerLastSeenAt = now;
-      match.runtimeRevision = (match.runtimeRevision || 0) + 1;
-      schedulePhaseEnd(match, roomCode);
-      publishPvpRuntimeState(roomCode, { type: 'board_full_sync' }, match);
-      console.warn(`[PvP] Took over stale match runtime (${roomCode})`);
+    } else if (now - (match.runtimeOwnerLastSeenAt || 0) > 12_000) {
+      void ensurePvpRuntimeOwner(match).then(ownsRuntime => {
+        if (!ownsRuntime) return;
+        pvpRuntimeLeaseRefreshAt.set(roomCode, Date.now());
+        schedulePhaseEnd(match, roomCode);
+        publishPvpRuntimeState(roomCode, { type: 'board_full_sync' }, match);
+        console.warn(`[PvP] Took over stale match runtime (${roomCode})`);
+      });
     }
   }
 }, 2_000);
@@ -1306,7 +1424,7 @@ function initializeMatchForRoom(room: PvpRoom): PvpMatchState {
     seed,
     boardVersion: 1,
     runtimeRevision: 1,
-    runtimeOwnerId: PVP_SERVER_INSTANCE_ID,
+    runtimeOwnerId: null,
     runtimeOwnerLastSeenAt: Date.now(),
     board,
   };
@@ -2183,9 +2301,8 @@ function onStarmonAction(
         starmon.mana = Math.min(200, (starmon.mana ?? starmon.currentMana ?? 0) + manaGain);
         starmon.currentMana = starmon.mana;
 
-        if (payload.newBoard && Array.isArray(payload.newBoard) && payload.newBoard.length === 8) {
-          state.board = payload.newBoard;
-        }
+        const nextBoard = normalizePvpBoard(payload.newBoard);
+        if (nextBoard) state.board = nextBoard;
       } else if (actionType === 'use_ability') {
         const ability = getAbility(starmon, payload.abilityId, payload)!;
         const currentMana = starmon.mana ?? starmon.currentMana ?? 0;
@@ -2432,6 +2549,11 @@ wss.on('connection', (ws) => {
             room.updatedAt = Date.now();
             saveRooms(activeRooms);
             const match = initializeMatchForRoom(room);
+            const ownsRuntime = await ensurePvpRuntimeOwner(match);
+            if (!ownsRuntime && !match.runtimeOwnerId) {
+              ws.send(JSON.stringify({ type: 'ERROR', message: 'PvP chưa thể khởi động: cần triển khai hàm persist_pvp_runtime_state trong Supabase.' }));
+              break;
+            }
             const startPayload = {
               type: 'match_start',
               seed: match.seed,
@@ -2447,9 +2569,11 @@ wss.on('connection', (ws) => {
             broadcastToRoom(targetCode, startPayload);
             broadcastToRoom(targetCode, { ...startPayload, type: 'MATCH_STARTED' });
             broadcastRoomList();
-            setTimeout(() => {
-              startTurn(match, targetCode, 1);
-            }, 1000);
+            if (ownsRuntime) {
+              setTimeout(() => {
+                startTurn(match, targetCode, 1);
+              }, 1000);
+            }
           }
           break;
         }
@@ -2544,6 +2668,11 @@ wss.on('connection', (ws) => {
             const sharedSnapshot = (authenticatedRoom as any).matchState;
             if (sharedSnapshot && Number(sharedSnapshot.runtimeRevision) > Number(match.runtimeRevision || 0)) {
               applySerializedMatchState(match, sharedSnapshot);
+            }
+            const ownsRuntime = await ensurePvpRuntimeOwner(match);
+            if (!ownsRuntime && !match.runtimeOwnerId) {
+              ws.send(JSON.stringify({ type: 'ERROR', message: 'PvP chưa thể đồng bộ: cần triển khai hàm persist_pvp_runtime_state trong Supabase.' }));
+              break;
             }
 
             if (match) {
@@ -2791,6 +2920,12 @@ wss.on('connection', (ws) => {
           }
           if (!match) break;
 
+          const ownsRuntime = await ensurePvpRuntimeOwner(match);
+          if (!ownsRuntime && (match.runtimeOwnerId === PVP_SERVER_INSTANCE_ID || !match.runtimeOwnerId)) {
+            ws.send(JSON.stringify({ type: 'PVP_ACTION_REJECTED', reason: 'Máy chủ trận đấu chưa khóa được state dùng chung.' }));
+            break;
+          }
+
           if (msg.round_number != null && Number(msg.round_number) !== match.turn) {
             sendCurrentCombatPhaseToSocket(match, ws, socketAuth.slot);
             break;
@@ -2807,6 +2942,27 @@ wss.on('connection', (ws) => {
             ? msg.unlocked_positions
             : [false, false, false];
 
+          if (match.runtimeOwnerId && match.runtimeOwnerId !== PVP_SERVER_INSTANCE_ID) {
+            if (!pvpRealtimeBusReady || !pvpRealtimeBus) {
+              ws.send(JSON.stringify({ type: 'PVP_ACTION_REJECTED', reason: 'Đang đồng bộ trận đấu; vui lòng thử lại.' }));
+              break;
+            }
+            const status = await pvpRealtimeBus.send({
+              type: 'broadcast',
+              event: 'match_command',
+              payload: {
+                roomCode: targetCode,
+                ownerId: match.runtimeOwnerId,
+                playerSlot: slot,
+                data: { commandType: 'answer_submit', results, isTimeout: Boolean(msg.is_timeout) },
+              },
+            });
+            if (status !== 'ok') {
+              ws.send(JSON.stringify({ type: 'PVP_ACTION_REJECTED', reason: 'Không gửi được câu trả lời tới máy chủ trận đấu.' }));
+            }
+            break;
+          }
+
           onAnswerSubmit(match, targetCode, slot, results, Boolean(msg.is_timeout), ws);
           break;
         }
@@ -2818,8 +2974,31 @@ wss.on('connection', (ws) => {
           const targetCode = normalizeRoomCode(msg.room_code || currentRoomCode || '');
           const match = activeMatchStates.get(targetCode);
           if (match && ws.readyState === WebSocket.OPEN) {
+            const ownsRuntime = await ensurePvpRuntimeOwner(match);
+            if (!ownsRuntime && (match.runtimeOwnerId === PVP_SERVER_INSTANCE_ID || !match.runtimeOwnerId)) {
+              ws.send(JSON.stringify({ type: 'PVP_ACTION_REJECTED', reason: 'Máy chủ trận đấu đang khôi phục state dùng chung.' }));
+              break;
+            }
             const rawSlot = msg.slot ?? msg.actor_slot;
             const playerSlot: 1 | 2 = (rawSlot === 2 || rawSlot === '2') ? 2 : 1;
+            if (match.runtimeOwnerId && match.runtimeOwnerId !== PVP_SERVER_INSTANCE_ID) {
+              if (pvpRealtimeBusReady && pvpRealtimeBus) {
+                const status = await pvpRealtimeBus.send({
+                  type: 'broadcast',
+                  event: 'match_command',
+                  payload: {
+                    roomCode: targetCode,
+                    ownerId: match.runtimeOwnerId,
+                    playerSlot,
+                    data: { commandType: 'resync_request' },
+                  },
+                });
+                if (status !== 'ok') ws.send(JSON.stringify({ type: 'PVP_ACTION_REJECTED', reason: 'Không thể đồng bộ trạng thái trận đấu.' }));
+              } else {
+                ws.send(JSON.stringify({ type: 'PVP_ACTION_REJECTED', reason: 'Máy chủ trận đấu đang kết nối lại.' }));
+              }
+              break;
+            }
             const snapshot = serializeBoard(match);
             ws.send(JSON.stringify({
               type: 'resync',
@@ -2926,6 +3105,12 @@ wss.on('connection', (ws) => {
             newBoard: msg.action?.newBoard,
           };
 
+          const ownsRuntime = await ensurePvpRuntimeOwner(match);
+          if (!ownsRuntime && (match.runtimeOwnerId === PVP_SERVER_INSTANCE_ID || !match.runtimeOwnerId)) {
+            ws.send(JSON.stringify({ type: 'PVP_ACTION_REJECTED', reason: 'Máy chủ trận đấu chưa khóa được state dùng chung.' }));
+            break;
+          }
+
           if (match.runtimeOwnerId && match.runtimeOwnerId !== PVP_SERVER_INSTANCE_ID) {
             const forwarded = forwardPvpActionToRuntimeOwner(targetCode, playerSlot, {
               starmonIndex: starmonIdx,
@@ -2943,36 +3128,6 @@ wss.on('connection', (ws) => {
             actionType,
             payload: actionPayload,
           }, ws);
-          break;
-        }
-
-        case 'PVP_SYNC_BOARD': {
-          const targetCode = normalizeRoomCode(msg.room_code || currentRoomCode || '');
-          if (targetCode && msg.board) {
-            const match = activeMatchStates.get(targetCode);
-            if (match && match.runtimeOwnerId === PVP_SERVER_INSTANCE_ID) {
-              match.board = msg.board;
-              match.boardVersion = (match.boardVersion || 0) + 1;
-              broadcastToRoom(targetCode, {
-                type: 'board_update',
-                board: match.board,
-                boardSnapshot: match.board,
-                boardVersion: match.boardVersion,
-                version: match.boardVersion,
-                sender_id: msg.player_id,
-                p1_hp: match.players[1].starmons.map(s => s.hp),
-                p2_hp: match.players[2].starmons.map(s => s.hp),
-              });
-              broadcastToRoom(targetCode, {
-                type: 'PVP_BOARD_UPDATED',
-                board: match.board,
-                boardSnapshot: match.board,
-                boardVersion: match.boardVersion,
-                version: match.boardVersion,
-                sender_id: msg.player_id,
-              }, ws);
-            }
-          }
           break;
         }
 
@@ -3567,12 +3722,16 @@ app.post('/api/rooms/join', async (req, res) => {
       }
     }
   }
+  const ownsRuntime = await ensurePvpRuntimeOwner(match);
+  if (!ownsRuntime && !match.runtimeOwnerId) {
+    return res.status(503).json({ error: 'PvP chưa thể khởi động. Hãy triển khai hàm persist_pvp_runtime_state trong Supabase.', code: 'PVP_RUNTIME_LOCK_UNAVAILABLE' });
+  }
   broadcastRoomList();
   broadcastToRoom(normCode, { type: 'ROOM_STATE_UPDATED', room });
   broadcastToRoom(normCode, { type: 'MATCH_STARTED', room, matchState: serializeMatchState(match), boardSnapshot: serializeBoard(match), board: match.board });
   broadcastToRoom(normCode, { type: 'match_start', room, matchState: serializeMatchState(match), boardSnapshot: serializeBoard(match), board: match.board });
 
-  if (isNewMatch) {
+  if (isNewMatch && ownsRuntime) {
     startTurn(match, normCode, 1);
   }
 
@@ -3645,10 +3804,14 @@ app.post('/api/rooms/start', async (req, res) => {
   saveRooms(activeRooms);
   const isNewMatch = !activeMatchStates.has(normalizedInput);
   const match = isNewMatch ? initializeMatchForRoom(room) : activeMatchStates.get(normalizedInput)!;
+  const ownsRuntime = await ensurePvpRuntimeOwner(match);
+  if (!ownsRuntime && !match.runtimeOwnerId) {
+    return res.status(503).json({ error: 'PvP chưa thể khởi động. Hãy triển khai hàm persist_pvp_runtime_state trong Supabase.', code: 'PVP_RUNTIME_LOCK_UNAVAILABLE' });
+  }
   broadcastRoomList();
   broadcastToRoom(normalizedInput, { type: 'MATCH_STARTED', room, matchState: serializeMatchState(match), boardSnapshot: serializeBoard(match), board: match.board });
   broadcastToRoom(normalizedInput, { type: 'match_start', room, matchState: serializeMatchState(match), boardSnapshot: serializeBoard(match), board: match.board });
-  if (isNewMatch) {
+  if (isNewMatch && ownsRuntime) {
     startTurn(match, normalizedInput, 1);
   }
 

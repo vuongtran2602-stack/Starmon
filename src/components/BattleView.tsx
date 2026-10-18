@@ -443,7 +443,11 @@ export const BattleView: React.FC<Props> = ({
     if (!Array.isArray(p1_hp) || !Array.isArray(p2_hp)) return;
     // Board versions also version the HP/energy snapshot emitted after each
     // authoritative PvP action. Do not let a delayed sync restore old bars.
-    if (typeof incomingVersion === 'number' && incomingVersion > 0 && incomingVersion < boardVersionRef.current) return;
+    if (boardVersionRef.current > 0 && (
+      typeof incomingVersion !== 'number' ||
+      incomingVersion <= 0 ||
+      incomingVersion < boardVersionRef.current
+    )) return;
     const mySlot = pvpMySlotRef.current;
     if (mySlot === 1) {
       setPlayerTeam(prev => prev.map((s, i) => ({
@@ -621,7 +625,10 @@ export const BattleView: React.FC<Props> = ({
       : (typeof data.targetStarmonIndex === 'number' ? data.targetStarmonIndex : 0);
 
     const v = data.boardVersion ?? data.version ?? 0;
-    if (v === 0 || v >= boardVersionRef.current) {
+    const isFreshSnapshot = v > 0
+      ? v >= boardVersionRef.current
+      : boardVersionRef.current === 0;
+    if (isFreshSnapshot) {
       if (v > 0) boardVersionRef.current = v;
       const snapshot = data.boardSnapshot || data.board || data.payload?.newBoard || data.action?.newBoard;
       if (snapshot) {
@@ -629,11 +636,13 @@ export const BattleView: React.FC<Props> = ({
       }
     }
 
-    if (typeof data.targetHpAfter === 'number') {
+    // The per-target shortcut is part of the same authoritative snapshot as
+    // the board. Ignore it when an older action arrives after a newer state.
+    if (isFreshSnapshot && typeof data.targetHpAfter === 'number') {
       updateStarmonHp(targetSlot, defIndex, data.targetHpAfter);
     }
 
-    if (typeof data.attackerManaAfter === 'number') {
+    if (isFreshSnapshot && typeof data.attackerManaAfter === 'number') {
       if (attackerSlot === pvpMySlotRef.current) {
         setPlayerTeam(prev =>
           prev.map((s, idx) => (idx === atkIndex ? { ...s, currentMana: data.attackerManaAfter } : s))
@@ -646,31 +655,9 @@ export const BattleView: React.FC<Props> = ({
     }
 
     if (Array.isArray(data.p1_hp) && Array.isArray(data.p2_hp)) {
-      if (pvpMySlotRef.current === 1) {
-        setPlayerTeam(prev => prev.map((s, i) => ({
-          ...s,
-          currentHp: data.p1_hp[i] ?? s.currentHp,
-          currentMana: Array.isArray(data.p1_mana) && data.p1_mana[i] !== undefined ? data.p1_mana[i] : s.currentMana,
-        })));
-        setEnemyTeam(prev => prev.map((s, i) => ({
-          ...s,
-          currentHp: data.p2_hp[i] ?? s.currentHp,
-          currentMana: Array.isArray(data.p2_mana) && data.p2_mana[i] !== undefined ? data.p2_mana[i] : s.currentMana,
-        })));
-      } else {
-        setPlayerTeam(prev => prev.map((s, i) => ({
-          ...s,
-          currentHp: data.p2_hp[i] ?? s.currentHp,
-          currentMana: Array.isArray(data.p2_mana) && data.p2_mana[i] !== undefined ? data.p2_mana[i] : s.currentMana,
-        })));
-        setEnemyTeam(prev => prev.map((s, i) => ({
-          ...s,
-          currentHp: data.p1_hp[i] ?? s.currentHp,
-          currentMana: Array.isArray(data.p1_mana) && data.p1_mana[i] !== undefined ? data.p1_mana[i] : s.currentMana,
-        })));
-      }
+      updateHpsFromArrays(data.p1_hp, data.p2_hp, data.p1_mana, data.p2_mana, v);
     }
-  }, [updateStarmonHp]);
+  }, [updateHpsFromArrays, updateStarmonHp]);
 
   // Single Source of Truth: Express WebSocket governs all battle phases and turns.
   // Supabase is used exclusively for archiving match records and speaking submissions.
@@ -1774,6 +1761,13 @@ export const BattleView: React.FC<Props> = ({
 
           case 'PVP_ACTION_REJECTED': {
             setIsActionPendingServer(false);
+            // Actions update some local UI optimistically. Pull the server's
+            // full snapshot after a rejection to restore board, HP, mana and turn.
+            sendPvpMessage({
+              type: 'request_resync',
+              room_code: pvpRoomInfo?.code,
+              slot: pvpMySlotRef.current,
+            });
             sound.playWrong();
             setTurnAnnouncement(`Lượt đi không hợp lệ: ${msg.reason || 'Chưa tới lượt của bạn'}`);
             break;
@@ -3621,7 +3615,6 @@ export const BattleView: React.FC<Props> = ({
 
     // FIX LỖI 1: Tính toán ngọc refill đồng bộ để simplifiedNewBoard không bao giờ bị undefined
     const nextBoard = computeRefilledBoard(board, matches);
-    setBoard(nextBoard);
 
     if (isPvP && pvpRoomInfo?.code) {
       const simplifiedNewBoard = nextBoard.map(row => row.map(tile => ({ element: tile.element })));
@@ -3640,16 +3633,11 @@ export const BattleView: React.FC<Props> = ({
         newBoard: simplifiedNewBoard,
       });
 
-      sendPvpMessage({
-        type: 'PVP_SYNC_BOARD',
-        room_code: pvpRoomInfo.code,
-        board: simplifiedNewBoard,
-        player_id: pvpRoomInfo.myPlayerId,
-        slot: pvpMySlotRef.current,
-      });
       // Trong chế độ PvP, việc trừ HP của target và chuyển lượt do hàm resolveAttackByPhase trên server quyết định thông qua sự kiện "attack_resolved"
       return;
     }
+
+    setBoard(nextBoard);
 
     setEnemyTeam(prev =>
       prev.map((e, idx) => {
