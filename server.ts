@@ -998,6 +998,7 @@ const activeMatchStates = new Map<string, PvpMatchState>();
 const PVP_STATEFUL_BROADCAST_TYPES = new Set([
   'board_update', 'PVP_BOARD_UPDATED', 'board_full_sync', 'phase_start', 'phase_changed',
   'phase_ended', 'PVP_PHASE_START_ANSWER', 'PVP_PHASE_START_SPEAKING', 'step_started',
+  'your_starmon_turn', 'your_attack_turn', 'PVP_YOUR_ATTACK_TURN',
   'step_skipped', 'starmon_action_resolved', 'attack_resolved', 'PVP_ANSWER_SUBMITTED',
   'PVP_ANSWER_RESULT', 'PVP_ACTION_REJECTED', 'all_starmons_done', 'PVP_MATCH_FINISHED', 'game_over',
 ]);
@@ -1267,7 +1268,7 @@ if (pvpRealtimeBus) {
       } else if (command?.commandType === 'phase_sync_request') {
         const request = command.request || {};
         if (Date.now() >= match.phaseEndsAt) {
-          handlePhaseEnd(match, roomCode, match.phase, match.phaseEndsAt, match.phaseTimerGeneration || 0);
+          advanceExpiredPhase(match, roomCode);
         } else if (
           request.phase !== match.phase ||
           ((request.battlePhase === 'phase1_quiz' || request.battlePhase === 'phase2_combat') &&
@@ -1671,8 +1672,18 @@ function retryFailedPhaseTransition(
   }, 1000);
 }
 
-function advanceIfPhaseExpired(state: PvpMatchState, roomCode: string): boolean {
+function advanceExpiredPhase(state: PvpMatchState, roomCode: string): boolean {
   if (Date.now() < state.phaseEndsAt) return false;
+  if (state.finished) return true;
+  // Recover if a previous owner persisted the end marker and stopped before
+  // changing phase. Keep this shared by watchdog, timeout, and sync paths.
+  if (state.lastEndedPhase === state.phase) {
+    console.warn(`[PvP] Recovering stalled phase transition (${roomCode}, ${state.phase})`);
+    state.lastEndedPhase = undefined;
+    if (state.phaseTimerHandle) clearTimeout(state.phaseTimerHandle);
+    state.phaseTimerHandle = null;
+    state.phaseTimerGeneration = (state.phaseTimerGeneration || 0) + 1;
+  }
   handlePhaseEnd(
     state,
     roomCode,
@@ -1681,6 +1692,10 @@ function advanceIfPhaseExpired(state: PvpMatchState, roomCode: string): boolean 
     state.phaseTimerGeneration || 0
   );
   return true;
+}
+
+function advanceIfPhaseExpired(state: PvpMatchState, roomCode: string): boolean {
+  return advanceExpiredPhase(state, roomCode);
 }
 
 // Recover a missed timeout callback and ensure an expired phase always advances.
@@ -1693,28 +1708,7 @@ const phaseDeadlineWatchdog = setInterval(() => {
       advanceToNextTurn(state, roomCode, state.phase, state.turn, state.pendingNextTurnAt);
       continue;
     }
-    if (now >= state.phaseEndsAt) {
-      // A previous owner can persist the "phase ended" marker and disappear
-      // before committing the next phase. In that case handlePhaseEnd's
-      // idempotency guard would reject every watchdog retry forever. Recover
-      // only while the current phase itself is still unchanged; startPhase
-      // updates state.phase synchronously, so this cannot replay a completed
-      // transition.
-      if (state.lastEndedPhase === state.phase) {
-        console.warn(`[PvP] Recovering stalled phase transition (${roomCode}, ${state.phase})`);
-        state.lastEndedPhase = undefined;
-        if (state.phaseTimerHandle) clearTimeout(state.phaseTimerHandle);
-        state.phaseTimerHandle = null;
-        state.phaseTimerGeneration = (state.phaseTimerGeneration || 0) + 1;
-      }
-      handlePhaseEnd(
-        state,
-        roomCode,
-        state.phase,
-        state.phaseEndsAt,
-        state.phaseTimerGeneration || 0
-      );
-    }
+    if (now >= state.phaseEndsAt) advanceExpiredPhase(state, roomCode);
   }
 }, 1000);
 phaseDeadlineWatchdog.unref?.();
@@ -2270,13 +2264,7 @@ function onStepTimeout(state: PvpMatchState, roomCode: string, playerSlot: 1 | 2
       starmon_name: starmon?.name,
       reason: 'timeout',
     });
-    handlePhaseEnd(
-      state,
-      roomCode,
-      state.phase,
-      state.phaseEndsAt,
-      state.phaseTimerGeneration || 0
-    );
+    advanceExpiredPhase(state, roomCode);
     return;
   }
 
@@ -3426,13 +3414,7 @@ wss.on('connection', (ws) => {
             }
             if (Date.now() >= match.phaseEndsAt) {
               const expiredPhase = match.phase;
-              handlePhaseEnd(
-                match,
-                targetCode,
-                match.phase,
-                match.phaseEndsAt,
-                match.phaseTimerGeneration || 0
-              );
+              advanceExpiredPhase(match, targetCode);
               if (match.phase !== expiredPhase) {
                 sendCurrentCombatPhaseToSocket(match, ws, auth.slot);
               }
@@ -3489,13 +3471,7 @@ wss.on('connection', (ws) => {
           // makes duplicate reports safe.
           if (msg.phase && msg.phase !== match.phase) break;
           if (Date.now() >= match.phaseEndsAt) {
-            handlePhaseEnd(
-              match,
-              targetCode,
-              match.phase,
-              match.phaseEndsAt,
-              match.phaseTimerGeneration || 0
-            );
+            advanceExpiredPhase(match, targetCode);
           } else if (!match.phaseTimerHandle) {
             schedulePhaseEnd(match, targetCode);
           }

@@ -1635,7 +1635,9 @@ export const BattleView: React.FC<Props> = ({
             const turnNum = parseInt(phaseParts[0], 10) || pvpTurnNumberRef.current || 1;
             const subPhase = (parseInt(phaseParts[1], 10) === 3 ? 3 : 2) as 2 | 3;
 
-            const attackerSlot: 1 | 2 = (subPhase - 1) as 1 | 2; // n.2 -> 1, n.3 -> 2
+            const attackerSlot: 1 | 2 = msg.attackerSlot === 1 || msg.attackerSlot === 2
+              ? msg.attackerSlot
+              : ((subPhase - 1) as 1 | 2); // server assignment; phase is a compatibility fallback
             const targetSlot: 1 | 2 = (3 - attackerSlot) as 1 | 2; // 1 <-> 2
 
             setPvpTurnNumber(turnNum);
