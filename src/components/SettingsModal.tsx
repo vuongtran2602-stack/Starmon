@@ -918,6 +918,13 @@ export const SettingsModal: React.FC<Props> = ({
                 <span className="text-[10px] text-amber-400 font-mono">Redeem</span>
               </div>
               <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-3.5 space-y-2.5 shadow-sm">
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs font-bold text-amber-200 font-mono">Vietthongminh</span>
+                    <span className="text-[10px] font-bold text-emerald-300">+2.000 Gems</span>
+                  </div>
+                  <p className="mt-1 text-[10px] text-slate-300">Mỗi tài khoản chỉ nhận được một lần.</p>
+                </div>
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-white">Nhập Mã Code Quà Tặng</span>
                   {isUnitTestActive ? (

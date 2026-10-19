@@ -144,6 +144,7 @@ export interface PlayerProfile {
   activeCompanionId: string;
   battleParty?: string[]; // IDs of 1 to 3 Starmons currently in the battle lineup
   unitTestExpiry?: number; // timestamp when UnitTest 0-cost mode expires
+  redeemedCodes?: string[]; // Gift codes already claimed by this player account
   equipmentInventory?: { itemId: string; count: number; level?: number; enhancement?: number }[];
   craftingJobs?: CraftingJob[];
   techResearchLevels?: ResearchTechLevels;

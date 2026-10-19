@@ -26,11 +26,13 @@ import { EQUIPMENT_ITEMS_CATALOG } from './data/itemsData';
 import { EventsModal } from './components/EventsModal';
 import { getDailyRewardStatus } from './data/dailyRewards';
 import { testSupabaseConnection } from './services/supabase';
+import { serverApiUrl } from './services/serverApi';
 import { getResearchLevel, getUnlockedItemSlots, RESEARCH_NODES, ResearchNodeId, isResearchNodeUnlocked, getResearchStatBonuses } from './data/techResearch';
 
 const STORAGE_KEY = 'starmon_game_save_v4'; // v4: Quests start strictly at 0, chat empty at start, new epic quests, 2 starter packs, 0 Starmon
 
 export default function App() {
+  const redeemedGiftCodesRef = useRef<Set<string>>(new Set());
   // Fullscreen state
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -410,7 +412,7 @@ export default function App() {
 
       if (targetSearch && targetSearch !== 'Guest Adventurer' && targetSearch !== 'Player') {
         try {
-          const res = await fetch(`/api/accounts/${encodeURIComponent(targetSearch)}`);
+          const res = await fetch(serverApiUrl(`/api/accounts/${encodeURIComponent(targetSearch)}`));
           if (res.ok) {
             const acc = await res.json();
             if (acc && acc.player) {
@@ -1362,7 +1364,7 @@ export default function App() {
     let acc = accounts[username.toLowerCase()];
     if (!acc) {
       try {
-        const sRes = await fetch(`/api/accounts/${encodeURIComponent(username)}`);
+        const sRes = await fetch(serverApiUrl(`/api/accounts/${encodeURIComponent(username)}`));
         if (sRes.ok) {
           acc = await sRes.json();
         }
@@ -1437,7 +1439,7 @@ export default function App() {
 
       // Reset through the backend, which uses the project service role.
       try {
-        await fetch('/api/accounts/reset', {
+        await fetch(serverApiUrl('/api/accounts/reset'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username: u, googleId: gid }),
@@ -1473,6 +1475,26 @@ export default function App() {
   // Redeem Code Handler
   const handleRedeemCode = (rawCode: string): { success: boolean; message: string } => {
     const code = rawCode.trim().toLowerCase();
+
+    if (code === 'vietthongminh') {
+      const claimKey = `${(player.googleId || player.googleEmail || player.username || getCurrentUsername() || 'guest').toLowerCase()}:vietthongminh`;
+      const claimedCodes = player.redeemedCodes || [];
+      if (claimedCodes.includes('vietthongminh') || redeemedGiftCodesRef.current.has(claimKey)) {
+        return { success: false, message: 'Tài khoản này đã sử dụng mã Vietthongminh.' };
+      }
+
+      redeemedGiftCodesRef.current.add(claimKey);
+      setPlayer(prev => {
+        const currentClaims = prev.redeemedCodes || [];
+        if (currentClaims.includes('vietthongminh')) return prev;
+        return {
+          ...prev,
+          gems: prev.gems + 2000,
+          redeemedCodes: [...currentClaims, 'vietthongminh'],
+        };
+      });
+      return { success: true, message: 'Đã nhận +2.000 Gems từ mã Vietthongminh!' };
+    }
 
     // Resource test codes are intentionally not listed in the interface.
     const resourceTestCodes: Record<string, string> = {

@@ -3,6 +3,7 @@ import { PlayerProfile, Starmon, StarmonSaveFile, UserAccount, QuestItem } from 
 import { GOLD_IMAGE, GEM_IMAGE } from '../data/itemsData';
 import { INITIAL_QUESTS } from '../data/questsData';
 import { sound } from '../services/sound';
+import { reportAccountApiIssue, serverApiUrl } from '../services/serverApi';
 import {
   SUPABASE_PROJECT_ID,
 } from '../services/supabase';
@@ -78,11 +79,15 @@ export function saveAccount(account: UserAccount) {
     localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(accounts));
 
     // Sync private game-account data through the backend service role.
-    fetch('/api/accounts/sync', {
+    fetch(serverApiUrl('/api/accounts/sync'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(account),
-    }).catch(e => console.warn('Account server sync notice:', e));
+    }).then(async response => {
+      if (!response.ok) throw new Error(`Account sync returned HTTP ${response.status}`);
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) throw new Error('The configured API origin did not return the account API response.');
+    }).catch(reportAccountApiIssue);
   } catch (e) {
     console.warn('Failed to save account:', e);
   }
@@ -94,8 +99,11 @@ export async function syncAccountsFromServer(): Promise<Record<string, UserAccou
     const merged = { ...local };
 
     // Game account records are private and are fetched through the backend.
-    const res = await fetch('/api/accounts');
+    const res = await fetch(serverApiUrl('/api/accounts'));
     if (res.ok) {
+      if (!(res.headers.get('content-type') || '').includes('application/json')) {
+        throw new Error('The configured API origin did not return the account API response.');
+      }
       const data = await res.json();
       if (data && typeof data === 'object') {
         const incomingAccounts: UserAccount[] = Array.isArray(data.accounts)
@@ -114,7 +122,7 @@ export async function syncAccountsFromServer(): Promise<Record<string, UserAccou
     localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(merged));
     return merged;
   } catch (err) {
-    console.warn('Sync accounts from server error:', err);
+    reportAccountApiIssue(err);
   }
   return getAllAccounts();
 }
@@ -220,7 +228,7 @@ export const AuthAndSaveModal: React.FC<Props> = ({
     setSuccessMessage('');
 
     try {
-      const res = await fetch('/api/accounts/google-auth', {
+      const res = await fetch(serverApiUrl('/api/accounts/google-auth'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -442,7 +450,7 @@ export const AuthAndSaveModal: React.FC<Props> = ({
     // Try to fetch from central server if not in local storage
     if (!account) {
       try {
-        const sRes = await fetch(`/api/accounts/${encodeURIComponent(cleanUsername)}`);
+        const sRes = await fetch(serverApiUrl(`/api/accounts/${encodeURIComponent(cleanUsername)}`));
         if (sRes.ok) {
           account = await sRes.json();
           accounts[key] = account;

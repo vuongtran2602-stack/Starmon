@@ -4,6 +4,7 @@ import { STARMON_ROSTER } from '../data/starmons';
 import { StarmonAsset } from './StarmonAsset';
 import { ARENA_MAPS, getArenaMap } from '../data/arenaMaps';
 import { sound } from '../services/sound';
+import { serverApiUrl } from '../services/serverApi';
 import {
   subscribeToPvpRoom,
   subscribeToActivePvpRooms,
@@ -234,7 +235,7 @@ export const PvpLobbyModal: React.FC<Props> = ({
 
   // Load all centralized accounts on mount
   useEffect(() => {
-    fetch('/api/accounts')
+    fetch(serverApiUrl('/api/accounts'))
       .then(res => res.json())
       .then(data => {
         const list = Array.isArray(data.accounts)
