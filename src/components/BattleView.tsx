@@ -383,6 +383,13 @@ export const BattleView: React.FC<Props> = ({
     attackerSlot: 1 | 2;
     reason?: string;
   } | null>(null);
+  const lastLostTurnSoundPhaseRef = useRef<string | null>(null);
+  const playLostTurnSoundOnce = useCallback((phase?: string) => {
+    const phaseKey = `${pvpRoomInfo?.code || ''}:${phase || pvpFlowPhaseRef.current}`;
+    if (lastLostTurnSoundPhaseRef.current === phaseKey) return;
+    lastLostTurnSoundPhaseRef.current = phaseKey;
+    sound.playWrong();
+  }, [pvpRoomInfo?.code]);
 
   // 6. Client chỉ enable input khi attackerSlot == mySlot và đang trong lượt your_starmon_turn của mình
   const isMyTurnInPvP = !isPvP || (pvpAttackerSlot === pvpMySlot && pvpActionMenu !== null && !isActionPendingServer);
@@ -576,8 +583,8 @@ export const BattleView: React.FC<Props> = ({
     sound.playRewardFanfare();
   }, []);
 
-  const showLostTurnEffect = useCallback((starmonIndex: number, attackerSlot: 1 | 2, reason?: string) => {
-    sound.playWrong();
+  const showLostTurnEffect = useCallback((starmonIndex: number, attackerSlot: 1 | 2, reason?: string, phase?: string) => {
+    playLostTurnSoundOnce(phase);
     const isMyMon = attackerSlot === pvpMySlotRef.current;
     if (isMyMon) {
       setPvpActionMenu(null);
@@ -590,16 +597,7 @@ export const BattleView: React.FC<Props> = ({
       );
     }, 1400);
 
-    const monName = isMyMon
-      ? (playerTeamRef.current[starmonIndex]?.name || `Starmon #${starmonIndex + 1}`)
-      : `Starmon #${starmonIndex + 1}`;
-    const reasonText = reason === 'timeout' ? 'hết 30s không hành động' : 'trả lời sai câu hỏi tương ứng';
-    setTurnAnnouncement(
-      isMyMon
-        ? `❌ ${monName} mất lượt (${reasonText})!`
-        : `🛡️ ${monName} của đối thủ mất lượt (${reasonText})!`
-    );
-  }, []);
+  }, [playLostTurnSoundOnce]);
 
   const playActionAnim = useCallback((data: any) => {
     const attackerSlot: 1 | 2 = data.attackerSlot === 2 ? 2 : 1;
@@ -777,7 +775,7 @@ export const BattleView: React.FC<Props> = ({
         });
       }
       if (pvpAttackerSlotRef.current === pvpMySlotRef.current && pvpActionMenu !== null) {
-        sound.playWrong();
+        playLostTurnSoundOnce(pvpFlowPhaseRef.current);
         setPvpActionMenu(null);
         sendPvpMessage({
           type: 'PVP_TURN_END',
@@ -800,7 +798,7 @@ export const BattleView: React.FC<Props> = ({
     }, 1000);
 
     return () => clearInterval(t);
-  }, [isPvP, phase, pvpTurnTimer, pvpActionMenu, pvpWaitingForPhaseTransition, pvpRoomInfo?.myPlayerId, pvpRoomInfo?.code, actingStepIndex, sendPvpMessage]);
+  }, [isPvP, phase, pvpTurnTimer, pvpActionMenu, pvpWaitingForPhaseTransition, pvpRoomInfo?.myPlayerId, pvpRoomInfo?.code, actingStepIndex, sendPvpMessage, playLostTurnSoundOnce]);
 
   // Phase n.3 -> (n+1).1 is a server-side transition. Periodically compare
   // the local phase with the server so a missed websocket broadcast cannot
@@ -1746,18 +1744,7 @@ export const BattleView: React.FC<Props> = ({
               ? msg.starmonIndex
               : (typeof msg.starmon_index === 'number' ? msg.starmon_index : (msg.index ?? 0));
             // Hiện hiệu ứng "mất lượt" cho starmon đó, KHÔNG hiện thông báo step
-            showLostTurnEffect(monIdx, skipSlot, msg.reason);
-            const isMyMon = skipSlot === pvpMySlotRef.current;
-            const monName = msg.starmon_name || (isMyMon ? playerTeamRef.current[monIdx]?.name : `Starmon #${monIdx + 1}`) || 'Starmon';
-            addBattleLog({
-              phase: 'combat',
-              source: isMyMon ? 'player' : 'enemy',
-              unitName: monName,
-              actionType: 'status',
-              message: msg.reason === 'timeout'
-                ? `⏱️ [Phase ${msg.phase || pvpFlowPhaseRef.current}] ${monName} mất lượt do hết 30s!`
-                : `❌ [Phase ${msg.phase || pvpFlowPhaseRef.current}] ${monName} mất lượt do trả lời sai câu hỏi tương ứng!`,
-            });
+            showLostTurnEffect(monIdx, skipSlot, msg.reason, msg.phase);
             break;
           }
 
