@@ -1281,10 +1281,7 @@ if (pvpRealtimeBus) {
           broadcastToRoom(roomCode, buildCurrentPhaseSyncPayload(match));
           if (match.subPhase === 2 || match.subPhase === 3) {
             if (match.step > 3) {
-              broadcastToRoom(roomCode, {
-                type: 'all_starmons_done', phase: match.phase, turn: match.turn,
-                subPhase: match.subPhase, phaseEndsAt: match.phaseEndsAt, serverTime: Date.now(),
-              });
+              signalCombatStepsComplete(match, roomCode);
             } else {
               broadcastToRoom(roomCode, buildCurrentStepSyncPayload(match));
             }
@@ -1527,14 +1524,13 @@ function initializeMatchForRoom(room: PvpRoom): PvpMatchState {
 
 // =========================================================
 // 1. BẢNG THỜI GIAN CỐ ĐỊNH & SERVER ĐỒNG HỒ TUYỆT ĐỐI
-// Phase 1 (Answer)   : ĐÚNG 120s — dù cả 2 xong sớm vẫn phải chờ
-// Phase 2 (P1 attack): ĐÚNG 30s  — dù cả 3 starmon xong sớm vẫn phải chờ
-// Phase 3 (P2 attack): ĐÚNG 30s  — dù cả 3 starmon xong sớm vẫn phải chờ
-// Tổng 1 turn: ĐÚNG 180s.
-// Quy tắc duy nhất: Phase CHỈ kết thúc khi serverNow() >= phaseEndsAt. Không có ngoại lệ.
+// Phase 1 (Answer)   : 120s trả lời + tối đa 15s đồng bộ kết quả.
+// Phase 2/3 (Attack): tối đa 30s; kết thúc sớm khi cả 3 Starmon đã được xử lý.
+// Phase end remains server-authoritative at phaseEndsAt.
 // =========================================================
 const ANSWER_DURATION_MS = 120_000;
 const ANSWER_ANALYSIS_BUFFER_MS = 15_000;
+const COMPLETED_COMBAT_PHASE_GRACE_MS = 500;
 const PHASE_DURATION: Record<1 | 2 | 3, number> = {
   1: ANSWER_DURATION_MS + ANSWER_ANALYSIS_BUFFER_MS,
   2: 30_000,  // 30s cho Phase 2 (P1 attack)
@@ -1558,6 +1554,31 @@ function schedulePhaseEnd(state: PvpMatchState, roomCode: string) {
   state.phaseTimerHandle = setTimeout(() => {
     handlePhaseEnd(state, roomCode, expectedPhase, expectedPhaseEndsAt, generation);
   }, delay);
+}
+
+function signalCombatStepsComplete(state: PvpMatchState, roomCode: string): boolean {
+  if (state.finished || state.pendingNextTurnAt || state.step <= 3 || (state.subPhase !== 2 && state.subPhase !== 3)) {
+    return false;
+  }
+
+  const now = Date.now();
+  if (state.phaseEndsAt - now > COMPLETED_COMBAT_PHASE_GRACE_MS) {
+    state.phaseEndsAt = now + COMPLETED_COMBAT_PHASE_GRACE_MS;
+    state.lastEndedPhase = undefined;
+    schedulePhaseEnd(state, roomCode);
+  }
+
+  broadcastToRoom(roomCode, {
+    type: 'all_starmons_done',
+    phase: state.phase,
+    turn: state.turn,
+    subPhase: state.subPhase,
+    step: state.step,
+    phaseEndsAt: state.phaseEndsAt,
+    serverTime: now,
+    time_limit: Math.max(0, Math.ceil((state.phaseEndsAt - now) / 1000)),
+  });
+  return true;
 }
 
 function handlePhaseEnd(
@@ -1926,14 +1947,7 @@ function sendCurrentCombatPhaseToSocket(state: PvpMatchState, ws: WebSocket, myS
     }));
 
     if (state.subPhase >= 2 && state.step > 3) {
-      ws.send(JSON.stringify({
-        type: 'all_starmons_done',
-        phase: state.phase,
-        turn: state.turn,
-        subPhase: state.subPhase,
-        phaseEndsAt: state.phaseEndsAt,
-        serverTime: now,
-      }));
+      signalCombatStepsComplete(state, state.roomCode);
     } else if (state.subPhase >= 2) {
       ws.send(JSON.stringify({
         type: 'step_started',
@@ -2036,6 +2050,12 @@ function onAnswerSubmit(
 
   P.hasSubmittedAnswer = true;
   P.answeredCount = aliveStarmonIndices(P).length;
+  const allPlayersSubmitted = state.players[1].hasSubmittedAnswer && state.players[2].hasSubmittedAnswer;
+  if (allPlayersSubmitted && state.phaseEndsAt - Date.now() > COMPLETED_COMBAT_PHASE_GRACE_MS) {
+    state.phaseEndsAt = Date.now() + COMPLETED_COMBAT_PHASE_GRACE_MS;
+    state.lastEndedPhase = undefined;
+    schedulePhaseEnd(state, roomCode);
+  }
 
   broadcastToRoom(roomCode, {
     type: 'PVP_ANSWER_SUBMITTED',
@@ -2046,6 +2066,7 @@ function onAnswerSubmit(
     answered_count: P.answeredCount,
     results: P.results,
     phaseEndsAt: state.phaseEndsAt,
+    all_submitted: allPlayersSubmitted,
   });
 
   if (ws && ws.readyState === WebSocket.OPEN) {
@@ -2058,7 +2079,8 @@ function onAnswerSubmit(
     }));
   }
 
-  // Keep Phase 1 open through its full deadline so both clients stay synchronized.
+  // Both authoritative answer submissions are ready, so the unused answer
+  // timer can be skipped and the phase can end after a short sync grace.
 }
 
 // =========================================================
@@ -2102,14 +2124,8 @@ function runStep(state: PvpMatchState, roomCode: string) {
     });
     state.step++;
     if (state.step > 3) {
-      broadcastToRoom(roomCode, {
-        type: 'all_starmons_done',
-        phase: state.phase,
-        subPhase: state.subPhase,
-        phaseEndsAt: state.phaseEndsAt,
-        serverTime: Date.now(),
-      });
-      return; // Vẫn chờ phase timer 30s!
+      signalCombatStepsComplete(state, roomCode);
+      return;
     }
     return runStep(state, roomCode);
   }
@@ -2135,14 +2151,8 @@ function runStep(state: PvpMatchState, roomCode: string) {
     });
     state.step++;
     if (state.step > 3) {
-      broadcastToRoom(roomCode, {
-        type: 'all_starmons_done',
-        phase: state.phase,
-        subPhase: state.subPhase,
-        phaseEndsAt: state.phaseEndsAt,
-        serverTime: Date.now(),
-      });
-      return; // Vẫn chờ phase timer 30s!
+      signalCombatStepsComplete(state, roomCode);
+      return;
     }
     state.stepTimerHandle = setTimeout(() => {
       runStep(state, roomCode);
@@ -2229,14 +2239,7 @@ function endStep(state: PvpMatchState, roomCode: string, _skipped: boolean = fal
 
   state.step += 1;
   if (state.step > 3) {
-    // Hết 3 step nhưng VẪN CHỜ đến hết phase timer (30s)
-    broadcastToRoom(roomCode, {
-      type: 'all_starmons_done',
-      phase: state.phase,
-      subPhase: state.subPhase,
-      phaseEndsAt: state.phaseEndsAt,
-      serverTime: Date.now(),
-    });
+    signalCombatStepsComplete(state, roomCode);
     return;
   }
 
@@ -2626,7 +2629,7 @@ function checkWinAndContinue(state: PvpMatchState, roomCode: string) {
   } else {
     const endedPhase = state.phase;
     const endedTurn = state.turn;
-    const nextTurnAt = Date.now() + 1000;
+    const nextTurnAt = Date.now() + 300;
     state.pendingNextTurnAt = nextTurnAt;
     setTimeout(() => {
       advanceToNextTurn(state, roomCode, endedPhase, endedTurn, nextTurnAt);

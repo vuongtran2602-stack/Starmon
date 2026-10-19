@@ -336,6 +336,8 @@ export const BattleView: React.FC<Props> = ({
 
   const [pvpTurnBanner, setPvpTurnBanner] = useState<string | null>(null);
   const [pvpTurnTimer, setPvpTurnTimer] = useState<number | null>(null);
+  const [pvpWaitingForPhaseTransition, setPvpWaitingForPhaseTransition] = useState(false);
+  const pvpTimeoutRequestedPhaseRef = useRef<string | null>(null);
   const [isActionPendingServer, setIsActionPendingServer] = useState<boolean>(false);
   const [actingStepIndex, setActingStepIndex] = useState<number>(0);
   const [selectedEnemyIndex, setSelectedEnemyIndex] = useState<number>(0);
@@ -554,6 +556,7 @@ export const BattleView: React.FC<Props> = ({
     options: string[];
     validTargets: number[];
     timer: number;
+    actorName?: string;
   }) => {
     setActingStepIndex(config.starmonIndex);
     setPvpTurnTimer(config.timer);
@@ -569,7 +572,7 @@ export const BattleView: React.FC<Props> = ({
       selectedMode: 'physical_attack',
     });
     const monName = playerTeamRef.current[config.starmonIndex]?.name || `Starmon #${config.starmonIndex + 1}`;
-    setTurnAnnouncement(`Lượt của ${monName}: Chọn Đánh vật lý (Hoán đổi ngọc) hoặc Dùng Kỹ năng (${config.timer}s)`);
+    setTurnAnnouncement(`Đến Lượt ${config.actorName || 'Bạn'}'s ${monName}`);
     sound.playRewardFanfare();
   }, []);
 
@@ -753,20 +756,26 @@ export const BattleView: React.FC<Props> = ({
 
   // PvP Battle Step Countdown Timer (30s per step)
   useEffect(() => {
-    if (!isPvP || phase !== 'phase2_combat' || pvpTurnTimer === null) return;
+    if (!isPvP || phase !== 'phase2_combat' || pvpTurnTimer === null || pvpWaitingForPhaseTransition) return;
     if (pvpTurnTimer <= 0) {
-      sendPvpMessage({
-        type: 'PVP_PHASE_TIMEOUT',
-        room_code: pvpRoomInfo?.code,
-        player_id: pvpRoomInfo?.myPlayerId,
-        phase: pvpFlowPhaseRef.current,
-      });
-      sendPvpMessage({
-        type: 'PVP_REQUEST_PHASE_SYNC',
-        room_code: pvpRoomInfo?.code,
-        phase: pvpFlowPhaseRef.current,
-        timerExpired: true,
-      });
+      setPvpWaitingForPhaseTransition(true);
+      setTurnAnnouncement('Đang kết nối, vui lòng đợi');
+      const timeoutKey = `${pvpRoomInfo?.code || ''}:${pvpFlowPhaseRef.current}`;
+      if (pvpTimeoutRequestedPhaseRef.current !== timeoutKey) {
+        pvpTimeoutRequestedPhaseRef.current = timeoutKey;
+        sendPvpMessage({
+          type: 'PVP_PHASE_TIMEOUT',
+          room_code: pvpRoomInfo?.code,
+          player_id: pvpRoomInfo?.myPlayerId,
+          phase: pvpFlowPhaseRef.current,
+        });
+        sendPvpMessage({
+          type: 'PVP_REQUEST_PHASE_SYNC',
+          room_code: pvpRoomInfo?.code,
+          phase: pvpFlowPhaseRef.current,
+          timerExpired: true,
+        });
+      }
       if (pvpAttackerSlotRef.current === pvpMySlotRef.current && pvpActionMenu !== null) {
         sound.playWrong();
         setPvpActionMenu(null);
@@ -781,7 +790,7 @@ export const BattleView: React.FC<Props> = ({
           starmon_index: actingStepIndex,
         });
         setTurnStatusType('missed');
-        setTurnAnnouncement('HẾT 30 GIÂY! Mất lượt hành động...');
+        setTurnAnnouncement('Đang kết nối, vui lòng đợi');
       }
       return;
     }
@@ -791,7 +800,7 @@ export const BattleView: React.FC<Props> = ({
     }, 1000);
 
     return () => clearInterval(t);
-  }, [isPvP, phase, pvpTurnTimer, pvpActionMenu, pvpRoomInfo?.myPlayerId, pvpRoomInfo?.code, actingStepIndex, sendPvpMessage]);
+  }, [isPvP, phase, pvpTurnTimer, pvpActionMenu, pvpWaitingForPhaseTransition, pvpRoomInfo?.myPlayerId, pvpRoomInfo?.code, actingStepIndex, sendPvpMessage]);
 
   // Phase n.3 -> (n+1).1 is a server-side transition. Periodically compare
   // the local phase with the server so a missed websocket broadcast cannot
@@ -1352,6 +1361,8 @@ export const BattleView: React.FC<Props> = ({
             pvpSyncedStepRef.current = sub === 1 ? 1 : null;
             setPvpFlowPhaseString(phaseStr);
             pvpFlowPhaseRef.current = phaseStr;
+            pvpTimeoutRequestedPhaseRef.current = null;
+            setPvpWaitingForPhaseTransition(false);
 
             if (sub === 1) {
               setIsActionPendingServer(false);
@@ -1561,19 +1572,22 @@ export const BattleView: React.FC<Props> = ({
             pvpSyncedStepRef.current = typeof msg.step === 'number' ? msg.step : starmonIdx + 1;
             const stepTimeoutSec = msg.time_limit || 30;
             setPvpTurnTimer(stepTimeoutSec);
+            setPvpWaitingForPhaseTransition(false);
+            pvpTimeoutRequestedPhaseRef.current = null;
+            const actorName = msg.actor_name || (attackerSlot === 1 ? 'Player 1' : 'Player 2');
+            const starmonName = msg.starmon_name || playerTeamRef.current[starmonIdx]?.name || `Starmon #${starmonIdx + 1}`;
 
             if (mySlot !== attackerSlot) {
               // Target: inspect mode!
               setPvpActionMenu(null);
               setActiveEnemyAttackerIndex(starmonIdx);
               setTurnStatusType('enemy');
-              const actorName = msg.actor_name || (attackerSlot === 1 ? 'Player 1 (TRÁI)' : 'Player 2 (PHẢI)');
-              const starmonName = msg.starmon_name || `Starmon #${starmonIdx + 1}`;
-              setTurnAnnouncement(`Phase ${phaseStr} ➔ ${actorName} đang điều khiển ${starmonName}... (Chế độ xem & quan sát)`);
+              setTurnAnnouncement(`Đến Lượt ${actorName}'s ${starmonName}`);
             } else {
               // Attacker: action enabled
               setActingStepIndex(starmonIdx);
               setTurnStatusType('normal');
+              setTurnAnnouncement(`Đến Lượt ${actorName}'s ${starmonName}`);
             }
             break;
           }
@@ -1623,6 +1637,8 @@ export const BattleView: React.FC<Props> = ({
             const phaseStr = msg.phase || `${nextRound}.1`;
             setPvpFlowPhaseString(phaseStr);
             pvpFlowPhaseRef.current = phaseStr;
+            pvpTimeoutRequestedPhaseRef.current = null;
+            setPvpWaitingForPhaseTransition(false);
             setPhase('phase1_quiz');
 
             const incomingV = msg.boardVersion ?? msg.version ?? 0;
@@ -1695,6 +1711,8 @@ export const BattleView: React.FC<Props> = ({
             pvpSyncedStepRef.current = typeof msg.step === 'number' ? msg.step : starmonIdx + 1;
             const stepTimeoutSec = msg.time_limit || 30;
             setPvpTurnTimer(stepTimeoutSec);
+            setPvpWaitingForPhaseTransition(false);
+            pvpTimeoutRequestedPhaseRef.current = null;
 
             if (mySlot !== attackerSlot) {
               setPvpActionMenu(null);
@@ -1702,7 +1720,7 @@ export const BattleView: React.FC<Props> = ({
               setTurnStatusType('enemy');
               const actorName = msg.actor_name || (attackerSlot === 1 ? 'Player 1 (TRÁI)' : 'Player 2 (PHẢI)');
               const starmonName = msg.starmon_name || `Starmon #${starmonIdx + 1}`;
-              setTurnAnnouncement(`Phase ${phaseStr} ➔ ${actorName} đang hành động với ${starmonName} (${stepTimeoutSec}s)...`);
+              setTurnAnnouncement(`Đến Lượt ${actorName}'s ${starmonName}`);
               break;
             }
 
@@ -1712,6 +1730,7 @@ export const BattleView: React.FC<Props> = ({
               options: msg.options || ['physical_attack', 'use_ability'],
               validTargets: Array.isArray(msg.validTargetIndices) ? msg.validTargetIndices : [0, 1, 2],
               timer: stepTimeoutSec,
+              actorName: msg.actor_name || pvpRoomInfo?.myPlayerName,
             });
             break;
           }
@@ -1820,11 +1839,22 @@ export const BattleView: React.FC<Props> = ({
             break;
           }
 
+          case 'PVP_ANSWER_SUBMITTED': {
+            if (msg.all_submitted) {
+              setPvpWaitingForOpponentSpeaking(true);
+              setPvpWaitingForPhaseTransition(true);
+              setTurnAnnouncement('Đang kết nối, vui lòng đợi');
+            }
+            break;
+          }
+
           case 'all_starmons_done': {
             pvpSyncedStepRef.current = 4;
             setIsActionPendingServer(false);
             setPvpActionMenu(null);
-            setTurnAnnouncement(`Các đòn đánh của Phase ${msg.phase || pvpFlowPhaseRef.current} đã hoàn tất. Đang chờ hết thời gian (30s)...`);
+            setPvpTurnTimer(0);
+            setPvpWaitingForPhaseTransition(true);
+            setTurnAnnouncement('Đang kết nối, vui lòng đợi');
             break;
           }
 
@@ -1902,6 +1932,8 @@ export const BattleView: React.FC<Props> = ({
 
   const submitPvPSpeakingFinish = (finalUnlocks: boolean[], isTimeout: boolean = false) => {
     if (!isPvP || !pvpRoomInfo?.code) return;
+    setPvpWaitingForOpponentSpeaking(true);
+    if (isTimeout) setPvpWaitingForPhaseTransition(true);
     const timeTaken = isTimeout ? QUESTION_TIME_LIMIT : Math.max(1, Math.round(QUESTION_TIME_LIMIT - questionTimer));
     const myId = pvpRoomInfo.myPlayerId || 'player';
     const myName = pvpRoomInfo.myPlayerName || pvpRoomInfo.hostName || 'Player';
@@ -7070,18 +7102,24 @@ export const BattleView: React.FC<Props> = ({
                 Phase 1: Bạn có tổng cộng 2 phút để trả lời 3 câu hỏi. Nếu hết giờ, những câu chưa được trả lời sẽ bị tính là 0 điểm
               </p>
               <p className="text-xs md:text-sm text-slate-300 max-w-md leading-relaxed mb-4">
-                Sau 120 giây trả lời, hệ thống có tối đa 15 giây để chấm, lưu và đồng bộ kết quả bài nói cuối cùng. Hai người chơi sẽ cùng chuyển phase khi hết thời gian này.
+                {pvpWaitingForPhaseTransition
+                  ? 'Đã nhận đủ kết quả. Đang đồng bộ để cả hai người chơi cùng chuyển phase.'
+                  : 'Sau 120 giây, hệ thống có tối đa 15 giây để đồng bộ kết quả. Nếu cả hai nộp sớm, trận đấu sẽ chuyển phase ngay.'}
               </p>
 
-                {/* 120-second answer window; the server keeps a 15-second result-sync buffer afterward. */}
+              {/* 120-second answer window; early completion skips the unused wait. */}
               <div className="w-full max-w-sm bg-slate-900/95 border-2 border-amber-400/80 rounded-2xl p-4 shadow-xl mb-4 flex flex-col items-center gap-2">
                 <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">
                   Thời gian đếm ngược còn lại của 120 giây:
                 </span>
                 <div className="flex items-center gap-2 text-3xl md:text-4xl font-black font-mono text-amber-300">
                   <Clock className="w-7 h-7 md:w-8 md:h-8 text-amber-400 animate-pulse" />
-                  <span>{Math.floor(questionTimer / 60)}:{String(questionTimer % 60).padStart(2, '0')}</span>
-                  <span className="text-sm md:text-base text-amber-100/80">({questionTimer}s / 120s)</span>
+                  {pvpWaitingForPhaseTransition || questionTimer <= 0
+                    ? <span className="text-base md:text-lg font-sans">Đang kết nối, vui lòng đợi</span>
+                    : <>
+                        <span>{Math.floor(questionTimer / 60)}:{String(questionTimer % 60).padStart(2, '0')}</span>
+                        <span className="text-sm md:text-base text-amber-100/80">({questionTimer}s / 120s)</span>
+                      </>}
                 </div>
                 <div className="w-full h-3 bg-slate-950 rounded-full border border-amber-400/60 p-0.5 overflow-hidden">
                   <div
@@ -7094,7 +7132,7 @@ export const BattleView: React.FC<Props> = ({
               {/* Chờ đối thủ status button (replaces buggy Vào chiến đấu ngay button) */}
               <div className="px-6 py-3 bg-slate-900 border-2 border-amber-400/80 text-amber-300 font-black font-game text-sm md:text-base rounded-xl shadow-xl flex items-center gap-2.5">
                 <RefreshCw className="w-4 h-4 text-amber-300 animate-spin" />
-                <span>{questionTimer > 0 ? `ĐANG CHỜ HẾT PHASE 1 (${questionTimer}s)` : 'ĐANG ĐỒNG BỘ KẾT QUẢ...'}</span>
+                <span>{pvpWaitingForPhaseTransition || questionTimer <= 0 ? 'Đang kết nối, vui lòng đợi' : `ĐANG CHỜ HẾT PHASE 1 (${questionTimer}s)`}</span>
               </div>
             </div>
           )}
@@ -7845,7 +7883,7 @@ export const BattleView: React.FC<Props> = ({
         <div
           className="flex-1 flex flex-col justify-between p-2 md:p-3 relative overflow-hidden bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950"
           style={{
-            backgroundImage: `linear-gradient(180deg, rgba(2,6,23,.82), rgba(15,23,42,.72), rgba(2,6,23,.84)), url("${currentArenaMap.background}")`,
+            backgroundImage: `linear-gradient(180deg, rgba(2,6,23,.68), rgba(15,23,42,.48), rgba(2,6,23,.72)), url("${currentArenaMap.preview}")`,
             backgroundSize: 'cover',
             backgroundPosition: 'center',
           }}
@@ -7862,7 +7900,7 @@ export const BattleView: React.FC<Props> = ({
               ? 'bg-purple-950/90 border-purple-600 text-purple-200'
               : 'bg-slate-900/90 border-slate-800 text-amber-300'
           }`}>
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 flex-1 items-center gap-2">
               {isPvP ? (
                 isMyTurnInPvP ? (
                   <Swords className="w-4 h-4 text-emerald-400 animate-bounce" />
@@ -7874,7 +7912,7 @@ export const BattleView: React.FC<Props> = ({
               ) : (
                 <Sparkles className="w-4 h-4 text-amber-400" />
               )}
-              <span className="text-xs md:text-sm font-black font-game tracking-wide">
+              <span className="min-w-0 text-xs md:text-sm font-black font-game tracking-wide break-words">
                 {isPvP
                   ? (turnAnnouncement ||
                       (isMyTurnInPvP
@@ -7885,15 +7923,17 @@ export const BattleView: React.FC<Props> = ({
             </div>
             <div className="flex items-center gap-3">
               {isPvP && pvpTurnTimer !== null && (
-                <span className={`text-xs font-mono font-black px-2.5 py-0.5 rounded-lg border ${
+                <span className={`shrink-0 text-xl md:text-2xl font-mono font-black px-3 py-1 rounded-lg border ${
                   pvpTurnTimer <= 5
                     ? 'bg-rose-950 border-rose-500 text-rose-300 animate-pulse'
                     : 'bg-slate-950 border-amber-400/60 text-amber-300'
                 }`}>
-                  ⏱️ {pvpTurnTimer}s
+                  {pvpWaitingForPhaseTransition || pvpTurnTimer <= 0
+                    ? <span className="text-sm md:text-base font-sans">Đang kết nối, vui lòng đợi</span>
+                    : <>⏱️ {pvpTurnTimer}s</>}
                 </span>
               )}
-              <span className="text-[11px] text-slate-400">
+              <span className="hidden sm:inline text-[11px] text-slate-400">
                 {isPvP ? 'Đối thủ:' : 'Target:'} <strong className="text-rose-400">{enemyTeam[selectedEnemyIndex]?.name} (#{selectedEnemyIndex + 1})</strong>
               </span>
             </div>
@@ -8552,9 +8592,8 @@ export const BattleView: React.FC<Props> = ({
                     : 'bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950'
                 }`}>
                   {isPvP
-                    ? (!isMyTurnInPvP
-                        ? `LƯỢT ĐỐI THỦ: ${pvpCurrentTurnPlayerName || 'Đối thủ'} đang thao tác...`
-                        : 'LƯỢT CỦA BẠN: HOÁN ĐỔI NGỌC ĐỂ TẤN CÔNG!')
+                    ? (turnAnnouncement ||
+                        `Đến Lượt ${pvpCurrentTurnPlayerName || 'Đối thủ'}'s ${playerTeam[actingStepIndex]?.name || 'Starmon'}`)
                     : turnStatusType === 'enemy'
                     ? 'OPPONENT MATCH-3 & ABILITY PHASE'
                     : 'SWAP MATCH-3 ORBS (+5 MANA / ORB)'}
