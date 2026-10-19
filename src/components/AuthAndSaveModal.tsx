@@ -406,18 +406,12 @@ export const AuthAndSaveModal: React.FC<Props> = ({
     };
 
     saveAccount(newAccount);
-    setCurrentUsername(cleanUsername);
 
     sound.playRewardFanfare();
-    setSuccessMessage(`Account "${cleanUsername}" created successfully with 2 Starter Packs & fresh inventory!`);
-    setUsernameInput('');
+    setSuccessMessage('Tạo tài khoản thành công. Hãy ấn đăng nhập để tiếp tục.');
+    setAuthMode('login');
+    setUsernameInput(cleanUsername);
     setPinInput('');
-
-    setTimeout(() => {
-      onRestoreSave(newPlayerProfile, freshStarmons, cleanUsername, freshQuests);
-      setActiveTab('profile');
-      setSuccessMessage('');
-    }, 1200);
   };
 
   // ==========================================

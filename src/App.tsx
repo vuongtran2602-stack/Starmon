@@ -31,6 +31,7 @@ import { getResearchLevel, getUnlockedItemSlots, RESEARCH_NODES, ResearchNodeId,
 const STORAGE_KEY = 'starmon_game_save_v4'; // v4: Quests start strictly at 0, chat empty at start, new epic quests, 2 starter packs, 0 Starmon
 
 export default function App() {
+  const redeemedGiftCodesRef = useRef<Set<string>>(new Set());
   // Fullscreen state
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -1473,6 +1474,26 @@ export default function App() {
   // Redeem Code Handler
   const handleRedeemCode = (rawCode: string): { success: boolean; message: string } => {
     const code = rawCode.trim().toLowerCase();
+
+    if (code === 'vietthongminh') {
+      const accountKey = (player.googleId || player.googleEmail || player.username || getCurrentUsername() || 'guest').toLowerCase();
+      const claimKey = `${accountKey}:vietthongminh`;
+      if ((player.redeemedCodes || []).includes('vietthongminh') || redeemedGiftCodesRef.current.has(claimKey)) {
+        return { success: false, message: 'Mã quà tặng này đã được sử dụng trên tài khoản.' };
+      }
+
+      redeemedGiftCodesRef.current.add(claimKey);
+      setPlayer(prev => {
+        const redeemedCodes = prev.redeemedCodes || [];
+        if (redeemedCodes.includes('vietthongminh')) return prev;
+        return {
+          ...prev,
+          gems: prev.gems + 2000,
+          redeemedCodes: [...redeemedCodes, 'vietthongminh'],
+        };
+      });
+      return { success: true, message: 'Bạn đã nhận được +2.000 Gems!' };
+    }
 
     // Resource test codes are intentionally not listed in the interface.
     const resourceTestCodes: Record<string, string> = {

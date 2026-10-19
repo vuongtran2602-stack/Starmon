@@ -7112,8 +7112,8 @@ export const BattleView: React.FC<Props> = ({
                 <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">
                   Thời gian đếm ngược còn lại của 120 giây:
                 </span>
-                <div className="flex items-center gap-2 text-3xl md:text-4xl font-black font-mono text-amber-300">
-                  <Clock className="w-7 h-7 md:w-8 md:h-8 text-amber-400 animate-pulse" />
+                <div className="flex items-center gap-2 text-4xl md:text-5xl font-black font-mono text-amber-300">
+                  <Clock className="w-9 h-9 md:w-10 md:h-10 text-amber-400 animate-pulse" />
                   {pvpWaitingForPhaseTransition || questionTimer <= 0
                     ? <span className="text-base md:text-lg font-sans">Đang kết nối, vui lòng đợi</span>
                     : <>
@@ -7923,7 +7923,7 @@ export const BattleView: React.FC<Props> = ({
             </div>
             <div className="flex items-center gap-3">
               {isPvP && pvpTurnTimer !== null && (
-                <span className={`shrink-0 text-xl md:text-2xl font-mono font-black px-3 py-1 rounded-lg border ${
+                <span className={`shrink-0 text-3xl md:text-4xl font-mono font-black px-4 py-1.5 rounded-lg border ${
                   pvpTurnTimer <= 5
                     ? 'bg-rose-950 border-rose-500 text-rose-300 animate-pulse'
                     : 'bg-slate-950 border-amber-400/60 text-amber-300'

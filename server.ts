@@ -4326,6 +4326,13 @@ app.post('/api/accounts/reset', (req, res) => {
   const { username, googleId } = req.body || {};
   serverAccounts = loadAccounts();
   const searchKey = (googleId || username || '').trim().toLowerCase();
+  const existingAccount = serverAccounts[searchKey] || Object.values(serverAccounts).find(a =>
+    (googleId && a.googleId?.toLowerCase() === googleId.toLowerCase()) ||
+    (username && a.username?.toLowerCase() === username.toLowerCase())
+  );
+  const redeemedCodes = Array.isArray(existingAccount?.player?.redeemedCodes)
+    ? existingAccount.player.redeemedCodes
+    : [];
   const uname = username || 'Player';
   const cleanAccount: ServerUserAccount = {
     username: uname,
@@ -4348,6 +4355,7 @@ app.post('/api/accounts/reset', (req, res) => {
       hasCompletedOnboardingTutorial: false,
       hasClaimedTutorial1Reward: false,
       completedTutorialStages: [],
+      redeemedCodes,
       activeCompanionId: '',
       battleParty: [],
       mailUnreadCount: 0,
