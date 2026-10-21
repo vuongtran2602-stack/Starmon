@@ -163,6 +163,7 @@ export interface PlayerProfile {
 export interface DailyRewardProgress {
   cycleStartedOn: string;
   claimedDays: number[];
+  allRewardsUnlocked?: boolean;
   lastClaimedOn?: string;
   cardRewardStarmonId?: string;
 }

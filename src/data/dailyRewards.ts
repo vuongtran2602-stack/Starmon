@@ -16,15 +16,22 @@ export function getDailyRewardStatus(progress?: DailyRewardProgress, now = new D
   const today = localDateKey(now);
   const hasValidStart = !!progress?.cycleStartedOn && /^\d{4}-\d{2}-\d{2}$/.test(progress.cycleStartedOn);
   const elapsedDays = hasValidStart ? localDateNumber(today) - localDateNumber(progress!.cycleStartedOn) : 0;
-  const resetCycle = !hasValidStart || elapsedDays < 0 || elapsedDays >= 7;
+  const allRewardsUnlocked = Boolean(progress?.allRewardsUnlocked);
+  const resetCycle = !allRewardsUnlocked && (!hasValidStart || elapsedDays < 0 || elapsedDays >= 7);
   const cycleStartedOn = resetCycle ? today : progress!.cycleStartedOn;
-  const day = resetCycle ? 1 : elapsedDays + 1;
+  const day = resetCycle ? 1 : allRewardsUnlocked
+    ? Math.max(1, Math.min(7, elapsedDays + 1))
+    : elapsedDays + 1;
   const claimedDays = resetCycle ? [] : (progress?.claimedDays || []);
+  const canClaimToday = allRewardsUnlocked
+    ? ![1, 2, 3, 4, 5, 6, 7].every(rewardDay => claimedDays.includes(rewardDay))
+    : !claimedDays.includes(day);
   return {
     today,
     cycleStartedOn,
     day,
     claimedDays,
-    canClaimToday: !claimedDays.includes(day),
+    canClaimToday,
+    allRewardsUnlocked,
   };
 }

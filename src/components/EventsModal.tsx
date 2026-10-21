@@ -59,7 +59,7 @@ const BOARD_SLOTS: Record<number, { left: string; top: string; width: string; he
   4: { left: '32.8%', top: '68.4%', width: '14.1%', height: '15.6%' },
   5: { left: '49%', top: '68.4%', width: '14.1%', height: '15.6%' },
   6: { left: '65.1%', top: '68.4%', width: '14.1%', height: '15.6%' },
-  7: { left: '85%', top: '55%', width: '14.5%', height: '19.5%' },
+  7: { left: '83.4%', top: '54%', width: '14.5%', height: '19.5%' },
 };
 
 function rollMysteryReward(): { category: PrizeCategory; reward: MysteryReward; midpoint: number } {
@@ -210,7 +210,10 @@ export const EventsModal: React.FC<Props> = ({ player, ownedStarmons, onClose, o
             {DAILY_REWARDS.map(entry => {
               const claimed = progress.claimedDays.includes(entry.day);
               const canReceiveCards = entry.day !== 3 || ownedStarmons.length > 0;
-              const available = entry.day === progress.day && progress.canClaimToday && canReceiveCards;
+              const available = (progress.allRewardsUnlocked || entry.day === progress.day)
+                && !claimed
+                && progress.canClaimToday
+                && canReceiveCards;
               const locked = !claimed && !available;
               const image = entry.day === 7 ? (claimed ? chestOpened : chestClosed) : entry.image;
               const slot = BOARD_SLOTS[entry.day];
@@ -226,7 +229,7 @@ export const EventsModal: React.FC<Props> = ({ player, ownedStarmons, onClose, o
                 style={slotStyle}
               >
                 <span className={`absolute inset-0 flex flex-col items-center justify-center ${locked ? 'bg-black/35' : claimed ? 'bg-emerald-950/20' : 'bg-amber-950/15'}`}>
-                  <img src={image} alt="" draggable={false} style={{ height: entry.day === 7 ? '96%' : '64%', width: entry.day === 7 ? '150%' : '74%' }} className={`absolute left-1/2 top-[3%] max-w-none -translate-x-1/2 object-contain drop-shadow ${locked ? 'opacity-40 grayscale-[30%]' : ''}`} />
+                  <img src={image} alt="" draggable={false} style={{ height: entry.day === 7 ? '67.2%' : '64%', width: entry.day === 7 ? '105%' : '74%' }} className={`absolute left-1/2 top-1/2 max-w-none -translate-x-1/2 -translate-y-1/2 object-contain drop-shadow ${locked ? 'opacity-40 grayscale-[30%]' : ''}`} />
                   {claimed ? <span className="absolute bottom-[8%] flex items-center gap-[2px] rounded-full bg-emerald-950/95 px-[5%] py-[1%] text-[clamp(5px,0.75vw,9px)] font-black leading-none text-emerald-200"><CheckCircle2 className="h-[1em] w-[1em]" />CLAIMED</span>
                     : locked ? <><img src={lockedIcon} alt="" draggable={false} className="absolute left-1/2 top-[16%] h-[52%] w-[52%] max-w-none -translate-x-1/2 scale-[2.5] object-contain drop-shadow-lg" /><span className="absolute bottom-[8%] rounded-full bg-black/90 px-[7%] py-[1%] text-[clamp(5px,0.75vw,9px)] font-black leading-none text-slate-200">LOCKED</span></>
                     : <img src={claimButton} alt="Claim now" draggable={false} className="absolute bottom-[8%] h-[31%] w-[86%] object-contain drop-shadow-md" />}
@@ -235,8 +238,8 @@ export const EventsModal: React.FC<Props> = ({ player, ownedStarmons, onClose, o
             })}
           </div>
           <div className="mt-1 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-center text-[10px] text-slate-300 sm:text-xs">
-            <span>Day {progress.day} of 7{progress.canClaimToday ? ' · ready to claim' : ' · claimed today'}</span>
-            <span className="inline-flex items-center gap-1"><Clock3 className="h-3.5 w-3.5" />Next reward unlocks tomorrow</span>
+            <span>{progress.allRewardsUnlocked ? 'All unclaimed rewards are available' : `Day ${progress.day} of 7${progress.canClaimToday ? ' · ready to claim' : ' · claimed today'}`}</span>
+            <span className="inline-flex items-center gap-1"><Clock3 className="h-3.5 w-3.5" />{progress.allRewardsUnlocked ? 'Claim each unlocked reward once' : 'Next reward unlocks tomorrow'}</span>
           </div>
           {progress.day === 3 && progress.canClaimToday && ownedStarmons.length === 0 && <p className="mt-1 text-center text-[10px] text-amber-200">Unlock at least one Starmon to receive Day 3 cards.</p>}
         </div>

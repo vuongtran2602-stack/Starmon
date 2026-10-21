@@ -312,6 +312,7 @@ export const BattleView: React.FC<Props> = ({
   const lastPvpSocketAckAtRef = useRef(0);
   const currentRoundNumberRef = useRef(currentRoundNumber);
   currentRoundNumberRef.current = currentRoundNumber;
+  const phase1TimeoutHandledKeyRef = useRef<string | null>(null);
   const syncBoardRef = useRef<((grid: any) => void) | null>(null);
   const playerTeamRef = useRef<Starmon[]>([]);
 
@@ -775,7 +776,6 @@ export const BattleView: React.FC<Props> = ({
         });
       }
       if (pvpAttackerSlotRef.current === pvpMySlotRef.current && pvpActionMenu !== null) {
-        playLostTurnSoundOnce(pvpFlowPhaseRef.current);
         setPvpActionMenu(null);
         sendPvpMessage({
           type: 'PVP_TURN_END',
@@ -787,7 +787,6 @@ export const BattleView: React.FC<Props> = ({
           step: actingStepIndex + 1,
           starmon_index: actingStepIndex,
         });
-        setTurnStatusType('missed');
         setTurnAnnouncement('Đang kết nối, vui lòng đợi');
       }
       return;
@@ -798,7 +797,7 @@ export const BattleView: React.FC<Props> = ({
     }, 1000);
 
     return () => clearInterval(t);
-  }, [isPvP, phase, pvpTurnTimer, pvpActionMenu, pvpWaitingForPhaseTransition, pvpRoomInfo?.myPlayerId, pvpRoomInfo?.code, actingStepIndex, sendPvpMessage, playLostTurnSoundOnce]);
+  }, [isPvP, phase, pvpTurnTimer, pvpActionMenu, pvpWaitingForPhaseTransition, pvpRoomInfo?.myPlayerId, pvpRoomInfo?.code, actingStepIndex, sendPvpMessage]);
 
   // Phase n.3 -> (n+1).1 is a server-side transition. Periodically compare
   // the local phase with the server so a missed websocket broadcast cannot
@@ -2070,9 +2069,15 @@ export const BattleView: React.FC<Props> = ({
 
   // 120s countdown timer for Phase 1 and opponent wait.
   useEffect(() => {
-    if (phase !== 'phase1_quiz') return;
+    if (phase !== 'phase1_quiz') {
+      phase1TimeoutHandledKeyRef.current = null;
+      return;
+    }
 
     if (questionTimer <= 0) {
+      const timeoutKey = `${pvpRoomInfo?.code || 'solo'}:${currentRoundNumberRef.current}`;
+      if (phase1TimeoutHandledKeyRef.current === timeoutKey) return;
+      phase1TimeoutHandledKeyRef.current = timeoutKey;
       sound.playWrong();
       if (isRecording) {
         setIsRecording(false);
@@ -8088,7 +8093,9 @@ export const BattleView: React.FC<Props> = ({
                 const isCurrentAttacker = isPvP
                   ? (isMyTurnInPvP && pvpActionMenu?.starmonIndex === idx && mon.currentHp > 0)
                   : (actingStepIndex === idx && unlockedPositions[idx] && mon.currentHp > 0);
-                const isMissed = !unlockedPositions[idx];
+                // PvP score eligibility is not itself proof that this Starmon
+                // actually lost its combat turn. The server event drives PvP loss UI.
+                const isMissed = !isPvP && !unlockedPositions[idx];
                 const isLostTurnNow = isPvP && pvpLostTurnEffect?.attackerSlot === pvpMySlot && pvpLostTurnEffect?.starmonIndex === idx;
                 const isDead = mon.currentHp <= 0;
                 const isTidecrush = mon.id === 'tidecrush';

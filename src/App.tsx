@@ -500,7 +500,10 @@ export default function App() {
 
   const handleClaimDailyReward = (day: number, mysteryReward?: MysteryReward) => {
     const status = getDailyRewardStatus(player.dailyRewardProgress, new Date());
-    if (day !== status.day || !status.canClaimToday) return { success: false, message: 'This reward is not available today.' };
+    const rewardIsAvailable = status.allRewardsUnlocked
+      ? day >= 1 && day <= 7 && !status.claimedDays.includes(day)
+      : day === status.day && status.canClaimToday;
+    if (!rewardIsAvailable) return { success: false, message: 'This reward is not available today.' };
     const claimKey = `${player.username || player.name}:${status.cycleStartedOn}:${day}`;
     if (dailyRewardClaimsInFlight.current.has(claimKey)) return { success: false, message: 'This daily reward has already been claimed.' };
     const owned = starmons.filter(mon => mon.unlocked);
@@ -511,12 +514,17 @@ export default function App() {
     const rewardText = day === 3 ? `20 ${cardTarget?.name} Cards` : day === 7 ? 'Mystery Chest reward claimed!' : 'Daily reward claimed!';
     setPlayer(prev => {
       const current = getDailyRewardStatus(prev.dailyRewardProgress, new Date());
-      if (day !== current.day || !current.canClaimToday) return prev;
+      const rewardIsAvailable = current.allRewardsUnlocked
+        ? day >= 1 && day <= 7 && !current.claimedDays.includes(day)
+        : day === current.day && current.canClaimToday;
+      if (!rewardIsAvailable) return prev;
+      const claimedDays = [...current.claimedDays, day];
       const next: PlayerProfile = {
         ...prev,
         dailyRewardProgress: {
           cycleStartedOn: current.cycleStartedOn,
-          claimedDays: [...current.claimedDays, day],
+          claimedDays,
+          ...(current.allRewardsUnlocked ? { allRewardsUnlocked: claimedDays.length < 7 } : {}),
           lastClaimedOn: current.today,
           ...(cardTarget ? { cardRewardStarmonId: cardTarget.id } : {}),
         },
@@ -1493,6 +1501,33 @@ export default function App() {
         };
       });
       return { success: true, message: 'Bạn đã nhận được +2.000 Gems!' };
+    }
+
+    if (code === 'dailyrewards') {
+      const accountKey = (player.googleId || player.googleEmail || player.username || getCurrentUsername() || 'guest').toLowerCase();
+      const claimKey = `${accountKey}:dailyrewards`;
+      if ((player.redeemedCodes || []).includes('dailyrewards') || redeemedGiftCodesRef.current.has(claimKey)) {
+        return { success: false, message: 'Mã quà tặng này đã được sử dụng trên tài khoản.' };
+      }
+
+      redeemedGiftCodesRef.current.add(claimKey);
+      setPlayer(prev => {
+        const redeemedCodes = prev.redeemedCodes || [];
+        if (redeemedCodes.includes('dailyrewards')) return prev;
+        const status = getDailyRewardStatus(prev.dailyRewardProgress, new Date());
+        return {
+          ...prev,
+          redeemedCodes: [...redeemedCodes, 'dailyrewards'],
+          dailyRewardProgress: {
+            cycleStartedOn: status.cycleStartedOn,
+            claimedDays: status.claimedDays,
+            allRewardsUnlocked: true,
+            ...(prev.dailyRewardProgress?.lastClaimedOn ? { lastClaimedOn: prev.dailyRewardProgress.lastClaimedOn } : {}),
+            ...(prev.dailyRewardProgress?.cardRewardStarmonId ? { cardRewardStarmonId: prev.dailyRewardProgress.cardRewardStarmonId } : {}),
+          },
+        };
+      });
+      return { success: true, message: 'Đã mở khóa các phần thưởng Daily Rewards chưa nhận.' };
     }
 
     // Resource test codes are intentionally not listed in the interface.
