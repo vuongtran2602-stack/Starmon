@@ -158,6 +158,9 @@ export const AuthAndSaveModal: React.FC<Props> = ({
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [switchingAccountUsername, setSwitchingAccountUsername] = useState('');
+  const [switchPasswordInput, setSwitchPasswordInput] = useState('');
+  const [switchAccountError, setSwitchAccountError] = useState('');
   const [googleEmailInput, setGoogleEmailInput] = useState(player.googleEmail || '');
   const [googleIdInput, setGoogleIdInput] = useState(player.googleId || '');
   const [syncedAccounts, setSyncedAccounts] = useState<UserAccount[]>(() => getAccountsArray());
@@ -862,8 +865,8 @@ export const AuthAndSaveModal: React.FC<Props> = ({
                     const accStarmons = (acc.starmons || []).filter(s => s.unlocked).length;
 
                     return (
+                      <React.Fragment key={acc.googleId || acc.email || acc.username}>
                       <div
-                        key={acc.googleId || acc.email || acc.username}
                         className={`p-2.5 rounded-xl border transition-all flex items-center justify-between ${
                           isActive
                             ? 'bg-indigo-950/80 border-amber-400 shadow-md ring-1 ring-amber-400/40'
@@ -902,19 +905,9 @@ export const AuthAndSaveModal: React.FC<Props> = ({
                           <button
                             type="button"
                             onClick={() => {
-                              sound.playRewardFanfare();
-                              setCurrentUsername(acc.username);
-                              if (acc.googleId) {
-                                try {
-                                  localStorage.setItem('starmon_pvp_uid', acc.googleId);
-                                  localStorage.setItem('starmon_google_id', acc.googleId);
-                                } catch {}
-                              }
-                              setSuccessMessage(`Đã chuyển sang tài khoản: ${acc.username}!`);
-                              setTimeout(() => {
-                                onRestoreSave(acc.player, acc.starmons || starmons, acc.username, acc.quests || quests);
-                                setSuccessMessage('');
-                              }, 600);
+                              setSwitchingAccountUsername(acc.username);
+                              setSwitchPasswordInput('');
+                              setSwitchAccountError('');
                             }}
                             className="px-3 py-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-black text-[10px] font-game rounded-lg transition-transform active:scale-95 cursor-pointer shrink-0"
                           >
@@ -922,6 +915,59 @@ export const AuthAndSaveModal: React.FC<Props> = ({
                           </button>
                         )}
                       </div>
+                      {switchingAccountUsername === acc.username && !isActive && (
+                        <form
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            setSwitchAccountError('');
+                            const storedAccount = getAllAccounts()[acc.username.toLowerCase()] || acc;
+                            if (!storedAccount.pin) {
+                              setSwitchAccountError('Tài khoản này chưa cài mật khẩu. Hãy đăng nhập và đặt mật khẩu trước khi chuyển tài khoản.');
+                              sound.playWrong();
+                              return;
+                            }
+                            if (switchPasswordInput !== storedAccount.pin) {
+                              setSwitchAccountError('Mật khẩu không chính xác.');
+                              sound.playWrong();
+                              return;
+                            }
+
+                            sound.playRewardFanfare();
+                            setCurrentUsername(acc.username);
+                            if (acc.googleId) {
+                              try {
+                                localStorage.setItem('starmon_pvp_uid', acc.googleId);
+                                localStorage.setItem('starmon_google_id', acc.googleId);
+                              } catch {}
+                            }
+                            setSuccessMessage(`Đã chuyển sang tài khoản: ${acc.username}!`);
+                            setSwitchingAccountUsername('');
+                            setSwitchPasswordInput('');
+                            setTimeout(() => {
+                              onRestoreSave(acc.player, acc.starmons || starmons, acc.username, acc.quests || quests);
+                              setSuccessMessage('');
+                            }, 600);
+                          }}
+                          className="mt-2 p-2.5 rounded-xl bg-slate-950/90 border border-slate-700 space-y-2"
+                        >
+                          <label className="block text-[10px] font-bold text-slate-300">Nhập mật khẩu để chuyển sang {acc.username}</label>
+                          <div className="flex gap-2">
+                            <input
+                              type="password"
+                              value={switchPasswordInput}
+                              onChange={(event) => setSwitchPasswordInput(event.target.value)}
+                              autoComplete="current-password"
+                              placeholder="Mật khẩu tài khoản"
+                              required
+                              className="min-w-0 flex-1 px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-400"
+                            />
+                            <button type="submit" className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-black">XÁC NHẬN</button>
+                            <button type="button" onClick={() => { setSwitchingAccountUsername(''); setSwitchPasswordInput(''); setSwitchAccountError(''); }} className="px-2 py-2 rounded-lg bg-slate-800 text-slate-300 text-[10px] font-bold">HỦY</button>
+                          </div>
+                          {switchAccountError && <p role="alert" className="text-[10px] text-rose-300">{switchAccountError}</p>}
+                        </form>
+                      )}
+                      </React.Fragment>
                     );
                   })
                 )}

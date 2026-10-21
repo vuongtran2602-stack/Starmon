@@ -77,6 +77,7 @@ export const PvpLobbyModal: React.FC<Props> = ({
   const [authUsernameInput, setAuthUsernameInput] = useState('');
   const [authPasswordInput, setAuthPasswordInput] = useState('');
   const [authError, setAuthError] = useState('');
+  const [authSuccess, setAuthSuccess] = useState('');
   const [authBusy, setAuthBusy] = useState(false);
   const [pvpDeviceId] = useState(() => {
     try {
@@ -121,6 +122,7 @@ export const PvpLobbyModal: React.FC<Props> = ({
   const handlePvpAuthSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setAuthError('');
+    setAuthSuccess('');
     setAuthBusy(true);
     try {
       const response = await fetch(`/api/pvp-auth/${authMode}`, {
@@ -131,7 +133,8 @@ export const PvpLobbyModal: React.FC<Props> = ({
       if (!response.ok) throw new Error(data.error || 'Không thể đăng nhập PvP.');
       if (authMode === 'register') {
         setAuthMode('login');
-        setAuthError('Tài khoản đã tạo. Đăng nhập để tiếp tục.');
+        setAuthPasswordInput('');
+        setAuthSuccess('Tạo tài khoản thành công, Hãy ấn đăng nhập để tiếp tục.');
         return;
       }
       const session: PvpAuthSession = { username: data.username, deviceId: data.deviceId, sessionToken: data.sessionToken };
@@ -836,11 +839,12 @@ export const PvpLobbyModal: React.FC<Props> = ({
               ) : (
                 <>
                   <div className="grid grid-cols-2 gap-2">
-                    <button type="button" onClick={() => { setAuthMode('login'); setAuthError(''); }} className={`py-2 rounded-xl text-xs font-black ${authMode === 'login' ? 'bg-amber-400 text-slate-950' : 'bg-slate-800 text-slate-300'}`}>ĐĂNG NHẬP</button>
-                    <button type="button" onClick={() => { setAuthMode('register'); setAuthError(''); }} className={`py-2 rounded-xl text-xs font-black ${authMode === 'register' ? 'bg-amber-400 text-slate-950' : 'bg-slate-800 text-slate-300'}`}>TẠO TÀI KHOẢN</button>
+                    <button type="button" onClick={() => { setAuthMode('login'); setAuthError(''); setAuthSuccess(''); }} className={`py-2 rounded-xl text-xs font-black ${authMode === 'login' ? 'bg-amber-400 text-slate-950' : 'bg-slate-800 text-slate-300'}`}>ĐĂNG NHẬP</button>
+                    <button type="button" onClick={() => { setAuthMode('register'); setAuthError(''); setAuthSuccess(''); }} className={`py-2 rounded-xl text-xs font-black ${authMode === 'register' ? 'bg-amber-400 text-slate-950' : 'bg-slate-800 text-slate-300'}`}>TẠO TÀI KHOẢN</button>
                   </div>
                   <input value={authUsernameInput} onChange={e => setAuthUsernameInput(e.target.value)} autoComplete="username" placeholder="Tên đăng nhập" maxLength={24} required className="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white focus:outline-none focus:border-amber-400" />
                   <input value={authPasswordInput} onChange={e => setAuthPasswordInput(e.target.value)} type="password" autoComplete={authMode === 'login' ? 'current-password' : 'new-password'} placeholder="Mật khẩu" maxLength={256} required className="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white focus:outline-none focus:border-amber-400" />
+                  {authSuccess && <p role="status" className="text-xs text-emerald-200 bg-emerald-950/80 border border-emerald-500 rounded-lg p-2.5 font-semibold">{authSuccess}</p>}
                   {authError && <p className="text-xs text-rose-300 bg-rose-950/70 border border-rose-700 rounded-lg p-2">{authError}</p>}
                   <button type="submit" disabled={authBusy} className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-500 text-slate-950 font-black disabled:opacity-50">{authBusy ? 'ĐANG XỬ LÝ…' : authMode === 'login' ? 'ĐĂNG NHẬP VÀO PvP' : 'TẠO TÀI KHOẢN'}</button>
                   <button type="button" onClick={onClose} className="text-xs text-slate-400 hover:text-white">Quay lại</button>
