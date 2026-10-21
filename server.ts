@@ -4600,6 +4600,69 @@ function getSpeakingRatePenalty(wordCount: number, durationSeconds: number): num
   return wordsPerMinute < 60 ? 2 : wordsPerMinute < 70 ? 1.5 : wordsPerMinute < 80 ? 1 : wordsPerMinute < 90 ? 0.5 : 0;
 }
 
+function getGeminiApiKeys(): string[] {
+  const fallbackKeys = (process.env.GEMINI_FALLBACK_API_KEYS || '').split(',');
+  return [...new Set([process.env.GEMINI_API_KEY, ...fallbackKeys].map(key => key?.trim()).filter((key): key is string => Boolean(key)))];
+}
+
+function stripJsonFences(text: string): string {
+  return text.replace(/```json/gi, '').replace(/```/g, '').trim();
+}
+
+/** Use a separate provider when Gemini is unavailable or rate limited. */
+async function generateAiJson(prompt: string): Promise<string> {
+  let lastError: unknown;
+  for (const [index, apiKey] of getGeminiApiKeys().entries()) {
+    try {
+      const ai = new GoogleGenAI({ apiKey });
+      const response = await ai.models.generateContent({
+        model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
+        contents: prompt,
+      });
+      const text = response.text?.trim();
+      if (!text) throw new Error('Gemini returned an empty response');
+      if (index > 0) console.info(`[AI] Recovered with Gemini fallback key ${index + 1}`);
+      return stripJsonFences(text);
+    } catch (error) {
+      lastError = error;
+      console.warn(`[AI] Gemini provider ${index + 1} failed; trying the next configured provider.`);
+    }
+  }
+
+  const openAiKey = process.env.OPENAI_API_KEY?.trim();
+  if (openAiKey) {
+    try {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${openAiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: process.env.OPENAI_FALLBACK_MODEL || 'gpt-5-mini',
+          messages: [{ role: 'user', content: prompt }],
+          response_format: { type: 'json_object' },
+        }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (!response.ok) {
+        const providerError = await response.text();
+        throw new Error(`OpenAI fallback returned ${response.status}: ${providerError.slice(0, 300)}`);
+      }
+      const data = await response.json() as any;
+      const text = data?.choices?.[0]?.message?.content;
+      if (typeof text !== 'string' || !text.trim()) throw new Error('OpenAI returned an empty response');
+      console.info('[AI] Recovered with OpenAI fallback provider.');
+      return stripJsonFences(text);
+    } catch (error) {
+      lastError = error;
+      console.error('[AI] OpenAI fallback provider failed.');
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error('No AI provider is configured or available');
+}
+
 // API: Evaluate IELTS Speaking with Gemini API
 app.post('/api/evaluate-speaking', async (req, res) => {
   try {
@@ -4658,8 +4721,7 @@ app.post('/api/evaluate-speaking', async (req, res) => {
     const stutterCount = detectedStutters.length;
     const hesitationCount = detectedHesitations.length;
 
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
+    if (getGeminiApiKeys().length === 0 && !process.env.OPENAI_API_KEY) {
       // Precise Fallback Evaluation following the user's specific rules:
       // 1. Grammar: Default 6.5 to 7.5 if fairly natural and accurate.
       // Only penalize below 6.5 if severe errors (word form errors > 2 or missing subject/predicate).
@@ -4865,7 +4927,6 @@ app.post('/api/evaluate-speaking', async (req, res) => {
       });
     }
 
-    const ai = new GoogleGenAI({ apiKey });
     const systemPrompt = `You are a certified IELTS Speaking Senior Examiner and Referee.
 Analyze the candidate's spoken transcript accurately based on official IELTS Speaking criteria, with fairness and realistic expectations for spoken English.
 
@@ -4967,13 +5028,7 @@ Output STRICTLY a valid JSON object without markdown fences, conforming to this 
   "summary": "Overall examiner assessment in English"
 }`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: systemPrompt,
-    });
-
-    const text = response.text || '';
-    const cleanJson = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+    const cleanJson = await generateAiJson(systemPrompt);
     const result = JSON.parse(cleanJson);
 
     // Compute criteria bands and enforce strict floor-to-half rounding
@@ -5097,8 +5152,7 @@ app.post('/api/generate-bgm', async (req, res) => {
   try {
     const { prompt = 'Epic Fantasy Match-3 Battle with Orchestral Brass and Driving Pulse', mood = 'heroic' } = req.body;
 
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
+    if (getGeminiApiKeys().length === 0 && !process.env.OPENAI_API_KEY) {
       // High-quality fallback procedural loop if API key not available
       return res.json({
         title: 'Celestial Symphony (Synthesized)',
@@ -5185,15 +5239,6 @@ app.post('/api/generate-bgm', async (req, res) => {
       });
     }
 
-    const ai = new GoogleGenAI({
-      apiKey,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build',
-        },
-      },
-    });
-
     const musicPrompt = `You are an expert video game composer and audio programmer.
 Create a seamlessly looping 16-beat electronic/fantasy chiptune RPG game soundtrack score based on the user's prompt:
 Prompt: "${prompt}"
@@ -5226,13 +5271,7 @@ Rules:
   ]
 }`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: musicPrompt,
-    });
-
-    const text = response.text || '';
-    const cleanJson = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+    const cleanJson = await generateAiJson(musicPrompt);
     const result = JSON.parse(cleanJson);
 
     return res.json(result);
