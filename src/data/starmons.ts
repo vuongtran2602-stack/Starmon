@@ -4,13 +4,14 @@ import { getStarmonClass, getStatsForLevel, calculateCP } from './starmonStats';
 export function hydrateStarmonWithStats(s: Starmon): Starmon {
   const sClass = getStarmonClass(s.id);
   if (!sClass) {
-    return { ...s, cp: calculateCP(s.maxHp, s.baseAtk, s.def) };
+    return { ...s, battleBaseDef: s.def, cp: calculateCP(s.maxHp, s.baseAtk, s.def) };
   }
   const stats = getStatsForLevel(sClass, s.level || 1);
   return {
     ...s,
     starmonClass: sClass,
     maxHp: stats.hp,
+    battleBaseDef: stats.def,
     currentHp: s.currentHp !== undefined ? Math.min(s.currentHp, stats.hp) : stats.hp,
     baseAtk: stats.atk,
     def: stats.def,
@@ -875,6 +876,133 @@ const RAW_STARMON_ROSTER: Starmon[] = [
       cooldownTurns: 3,
     },
   },
+  {
+    id: 'cottontail',
+    name: 'Cottontail',
+    title: 'The Fluffy Wind Guardian',
+    element: 'Wind',
+    role: 'Support',
+    level: 1,
+    cards: 0,
+    baseAtk: 38,
+    maxHp: 550,
+    def: 45,
+    currentHp: 550,
+    currentMana: 20,
+    maxMana: 200,
+    avatarSeed: 'cottontail',
+    unlocked: false,
+    unlockedSlots: [false, false, false, false, false, false],
+    equippedItems: [null, null, null, null, null, null],
+    passive: {
+      name: 'Sweet Scent',
+      description: "When Cottontail is hit by an attack or ability, the attacker loses 5% ATK.",
+      tag: 'Sweet Scent · ATK -5%',
+    },
+    skill1: {
+      id: 'ear_whip',
+      name: 'Ear Whip',
+      description: "Deals Wind damage equal to 160% of Cottontail's ATK and removes the target's Shield.",
+      manaCost: 30,
+      damageMultiplier: 1.6,
+      targetType: 'single',
+      statusEffect: '160% Wind DMG & removes target Shield',
+    },
+    skill2: {
+      id: 'fluffy_hug',
+      name: 'Fluffy Hug',
+      description: 'For 3 turns, Cottontail gains Taunt and reduces all damage it takes by 15%.',
+      manaCost: 60,
+      damageMultiplier: 0,
+      targetType: 'self',
+      statusEffect: 'Taunt & 15% damage reduction (3 turns)',
+    },
+  },
+  {
+    id: 'dreadhorn',
+    name: 'Dreadhorn',
+    title: 'The Winged Steel Bulwark',
+    element: 'Wind',
+    secondaryElement: 'Metal',
+    role: 'Guardian',
+    level: 1,
+    cards: 0,
+    baseAtk: 30,
+    maxHp: 550,
+    def: 48,
+    currentHp: 550,
+    currentMana: 20,
+    maxMana: 200,
+    avatarSeed: 'dreadhorn',
+    unlocked: false,
+    unlockedSlots: [false, false, false, false, false, false],
+    equippedItems: [null, null, null, null, null, null],
+    passive: {
+      name: 'Unshakable',
+      description: 'Every time Dreadhorn is hit by an attack or ability, its base DEF increases by 5%.',
+      tag: 'Unshakable · DEF +5%',
+    },
+    skill1: {
+      id: 'shield_bash',
+      name: 'Shield Bash',
+      description: "Deals Steel damage equal to 50% of Dreadhorn's DEF.",
+      manaCost: 40,
+      damageMultiplier: 0,
+      targetType: 'single',
+      statusEffect: 'Steel DMG = 50% DEF',
+    },
+    skill2: {
+      id: 'winged_fortress',
+      name: 'Winged Fortress',
+      description: 'For 3 turns, Dreadhorn gains Taunt and increases its DEF by 20%.',
+      manaCost: 65,
+      damageMultiplier: 0,
+      targetType: 'self',
+      statusEffect: 'Taunt & DEF +20% (3 turns)',
+    },
+  },
+  {
+    id: 'bambloom',
+    name: 'Bambloom',
+    title: 'The Berrywood Blessing',
+    element: 'Earth',
+    role: 'Support',
+    level: 1,
+    cards: 0,
+    baseAtk: 42,
+    maxHp: 490,
+    def: 48,
+    currentHp: 490,
+    currentMana: 20,
+    maxMana: 200,
+    avatarSeed: 'bambloom',
+    unlocked: false,
+    unlockedSlots: [false, false, false, false, false, false],
+    equippedItems: [null, null, null, null, null, null],
+    passive: {
+      name: 'Berry Reserve',
+      description: "Once per battle per ally, when its or an ally's HP falls below 30%, restores 15% of that ally's base HP (30% for Bambloom itself).",
+      tag: 'Berry Reserve · emergency healing',
+    },
+    skill1: {
+      id: 'berry_bomb',
+      name: 'Berry Bomb',
+      description: "Deals Earth damage equal to 180% of Bambloom's ATK to all enemies.",
+      manaCost: 40,
+      damageMultiplier: 1.8,
+      targetType: 'aoe',
+      statusEffect: '180% Earth AoE DMG',
+    },
+    skill2: {
+      id: 'antler_blessing',
+      name: 'Antler Blessing',
+      description: 'Heals the ally with the lowest HP percentage for 50% of its missing HP.',
+      manaCost: 70,
+      damageMultiplier: 0,
+      targetType: 'self',
+      statusEffect: 'Heals lowest-HP ally for 50% missing HP',
+    },
+  },
 ];
 
 export const STARMON_ROSTER: Starmon[] = RAW_STARMON_ROSTER.map(hydrateStarmonWithStats);
@@ -972,7 +1100,7 @@ export function getBaseMultiplierForOrbs(count: number): number {
 
 export function getElementDisplayName(elem: ElementType, secondary?: ElementType, id?: string): string {
   const getSingleName = (e: ElementType) => {
-    if (e === 'Metal') return id === 'moltenback' ? 'Steel' : 'Metal';
+    if (e === 'Metal') return id === 'moltenback' || id === 'dreadhorn' ? 'Steel' : 'Metal';
     return e;
   };
 

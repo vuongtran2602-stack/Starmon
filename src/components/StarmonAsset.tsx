@@ -20,6 +20,9 @@ import mineacleImg from '../assets/images/mineacle.png';
 import zephyrionImg from '../assets/images/zephyrion.png';
 import mosslothImg from '../assets/images/mossloth.png';
 import khepriImg from '../assets/images/khepri.png';
+import cottontailImg from '../assets/images/cottontail.jpeg';
+import dreadhornImg from '../assets/images/dreadhorn.jpg';
+import bambloomImg from '../assets/images/bambloom.jpeg';
 import {
   AQUANYMPH_DA_PHUC_IMAGE,
   CYBORGNID_IMAGE,
@@ -307,6 +310,15 @@ function renderGraphic(id: string) {
           }}
         />
       );
+
+    case 'cottontail':
+      return <img src={cottontailImg} alt="Cottontail" className="w-full h-full object-contain drop-shadow-md select-none pointer-events-none" />;
+
+    case 'dreadhorn':
+      return <img src={dreadhornImg} alt="Dreadhorn" className="w-full h-full object-contain drop-shadow-md select-none pointer-events-none" />;
+
+    case 'bambloom':
+      return <img src={bambloomImg} alt="Bambloom" className="w-full h-full object-contain drop-shadow-md select-none pointer-events-none" />;
 
     case 'teslarion':
       // Pulse Robot

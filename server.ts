@@ -723,9 +723,19 @@ interface StarmonCombatant {
   alive: boolean;
   unlocked: boolean;
   baseAtk: number;
+  baseDef?: number;
+  element?: string;
+  secondaryElement?: string;
   def: number;
   mana: number;
   currentMana: number;
+  battleShieldPoints?: number;
+  battleTauntTurns?: number;
+  battleDamageReduction?: number;
+  battleDamageReductionTurns?: number;
+  battleDefenseBuffAmount?: number;
+  battleDefenseBuffTurns?: number;
+  berryReserveUsed?: boolean;
   avatarSeed?: string;
   skill1?: any;
   skill2?: any;
@@ -1422,7 +1432,16 @@ function createDefaultStarmonsForSlot(slot: 1 | 2, inputStarmons?: any[]): Starm
       alive: hp > 0,
       unlocked: true,
       baseAtk: input?.baseAtk || 45,
+      baseDef: input?.battleBaseDef || input?.def || 20,
+      secondaryElement: input?.secondaryElement,
       def: input?.def || 20,
+      battleShieldPoints: 0,
+      battleTauntTurns: 0,
+      battleDamageReduction: 0,
+      battleDamageReductionTurns: 0,
+      battleDefenseBuffAmount: 0,
+      battleDefenseBuffTurns: 0,
+      berryReserveUsed: false,
       mana: typeof input?.currentMana === 'number' ? input.currentMana : (slot === 1 ? 0 : 20),
       currentMana: typeof input?.currentMana === 'number' ? input.currentMana : (slot === 1 ? 0 : 20),
       avatarSeed: input?.avatarSeed || input?.id || defaultSeeds[idx],
@@ -1735,6 +1754,22 @@ const phaseDeadlineWatchdog = setInterval(() => {
 phaseDeadlineWatchdog.unref?.();
 
 function startTurn(state: PvpMatchState, roomCode: string, n: number) {
+  for (const slot of [1, 2] as const) {
+    for (const starmon of state.players[slot].starmons) {
+      starmon.battleTauntTurns = Math.max(0, (starmon.battleTauntTurns || 0) - 1);
+      if ((starmon.battleDamageReductionTurns || 0) > 0) {
+        starmon.battleDamageReductionTurns = Math.max(0, (starmon.battleDamageReductionTurns || 0) - 1);
+        if (starmon.battleDamageReductionTurns === 0) starmon.battleDamageReduction = 0;
+      }
+      if ((starmon.battleDefenseBuffTurns || 0) > 0) {
+        starmon.battleDefenseBuffTurns = Math.max(0, (starmon.battleDefenseBuffTurns || 0) - 1);
+        if (starmon.battleDefenseBuffTurns === 0) {
+          starmon.def = Math.max(0, starmon.def - (starmon.battleDefenseBuffAmount || 0));
+          starmon.battleDefenseBuffAmount = 0;
+        }
+      }
+    }
+  }
   state.turn = n;
   state.roundNumber = n;
   state.attackQueue = [];
@@ -2356,6 +2391,9 @@ function calcAbilityDamage(
   _targetStarmonIndex?: number,
   payload?: any
 ): number {
+  if (ability.id === 'shield_bash') {
+    return Math.max(0, Math.round((starmon.def || starmon.baseDef || 0) * 0.5));
+  }
   if (payload && typeof payload.damage === 'number' && payload.damage >= 0) {
     return payload.damage;
   }
@@ -2432,9 +2470,12 @@ function onStarmonAction(
 
   const target = state.players[state.targetSlot];
   const aliveTargets = aliveStarmonIndices(target);
+  const ability = actionType === 'use_ability' ? getAbility(starmon, payload.abilityId, payload) : null;
   let targetIdx = typeof payload.targetStarmonIndex === 'number'
     ? payload.targetStarmonIndex
     : (aliveTargets[0] ?? 0);
+  const taunterIndex = target.starmons.findIndex(s => s.hp > 0 && (s.battleTauntTurns || 0) > 0);
+  if (ability?.targetType !== 'aoe' && !payload.isAoE && taunterIndex >= 0) targetIdx = taunterIndex;
 
   let damage = 0;
 
@@ -2445,7 +2486,6 @@ function onStarmonAction(
     }
     damage = calcPhysicalDamage(starmon, target.starmons[targetIdx], payload.orbSwitches, payload);
   } else if (actionType === 'use_ability') {
-    const ability = getAbility(starmon, payload.abilityId, payload);
     if (ability == null) {
       return reject('ability không tồn tại');
     }
@@ -2457,9 +2497,17 @@ function onStarmonAction(
       targetIdx = aliveTargets[0];
     }
     payload.targetStarmonIndex = targetIdx;
-    damage = calcAbilityDamage(starmon, ability, targetIdx, payload);
+    const isSupportAbility = ability.id === 'fluffy_hug' || ability.id === 'winged_fortress' || ability.id === 'antler_blessing';
+    damage = isSupportAbility ? 0 : calcAbilityDamage(starmon, ability, targetIdx, payload);
   } else {
     return reject('action không hợp lệ');
+  }
+
+  const effectLines: string[] = [];
+  const passiveEvents: Array<{ starmonName: string; passiveName: string; line: string }> = [];
+  const damageElement = ability?.id === 'shield_bash' ? 'Steel' : (starmon.element || 'Physical');
+  if (actionType === 'use_ability' && damage > 0 && !['fluffy_hug', 'winged_fortress', 'antler_blessing'].includes(ability?.id || '')) {
+    effectLines.push(`Deals ${damage} ${damageElement} DMG`);
   }
 
   // Lock the step before mutating shared state; repeated or delayed client messages cannot apply damage twice.
@@ -2488,24 +2536,78 @@ function onStarmonAction(
         starmon.currentMana = starmon.mana;
       }
 
-      if (actionType === 'use_ability' && payload.isAoE) {
-        target.starmons.forEach(ts => {
-          if (ts != null && ts.hp > 0) {
-            ts.hp -= damage;
-            if (ts.hp <= 0) {
-              ts.hp = 0;
-              ts.alive = false;
-            }
-            ts.currentHp = ts.hp;
-          }
-        });
-      } else if (targetStarmon != null && targetStarmon.hp > 0) {
-        targetStarmon.hp -= damage;
-        if (targetStarmon.hp <= 0) {
-          targetStarmon.hp = 0;
-          targetStarmon.alive = false;
+      if (ability?.id === 'fluffy_hug') {
+        starmon.battleTauntTurns = 3;
+        starmon.battleDamageReduction = 0.15;
+        starmon.battleDamageReductionTurns = 3;
+        effectLines.push('Gain Taunt and 15% damage reduction for 3 turns');
+      } else if (ability?.id === 'winged_fortress') {
+        const defBonus = Math.round((starmon.baseDef || starmon.def) * 0.2);
+        starmon.battleTauntTurns = 3;
+        starmon.battleDefenseBuffAmount = defBonus;
+        starmon.battleDefenseBuffTurns = 3;
+        starmon.def += defBonus;
+        effectLines.push(`Gain Taunt and ${defBonus} DEF for 3 turns`);
+      } else if (ability?.id === 'antler_blessing') {
+        const healTarget = attacker.starmons
+          .filter(s => s.hp > 0 && s.hp < s.maxHp)
+          .sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp))[0];
+        if (healTarget) {
+          const healed = Math.round((healTarget.maxHp - healTarget.hp) * 0.5);
+          healTarget.hp = Math.min(healTarget.maxHp, healTarget.hp + healed);
+          healTarget.currentHp = healTarget.hp;
+          payload.healedStarmonIndex = healTarget.index;
+          payload.healAmount = healed;
+          effectLines.push(`Restore ${healed} HP to ${healTarget.name}`);
+        } else {
+          effectLines.push('No ally needs healing');
         }
-        targetStarmon.currentHp = targetStarmon.hp;
+      } else {
+        const applyHit = (ts: StarmonCombatant) => {
+          if (ability?.id === 'ear_whip' && ts.index === targetIdx) {
+            ts.battleShieldPoints = 0;
+            effectLines.push('Remove target Shield');
+          }
+          const hpBefore = ts.hp;
+          let hitDamage = Math.round(damage * (1 - ((ts.battleDamageReductionTurns || 0) > 0 ? (ts.battleDamageReduction || 0) : 0)));
+          const wasHit = hitDamage > 0;
+          const shield = Math.max(0, ts.battleShieldPoints || 0);
+          const absorbed = Math.min(shield, hitDamage);
+          ts.battleShieldPoints = shield - absorbed;
+          if (absorbed > 0) effectLines.push(`Shield absorbs ${absorbed} DMG`);
+          hitDamage -= absorbed;
+          ts.hp = Math.max(0, ts.hp - hitDamage);
+          ts.alive = ts.hp > 0;
+          ts.currentHp = ts.hp;
+
+          if (hpBefore >= ts.maxHp * 0.3 && ts.hp < ts.maxHp * 0.3 && !ts.berryReserveUsed) {
+            const bambloom = target.starmons.find(s => s.id === 'bambloom' && (s.hp > 0 || s === ts));
+            if (bambloom) {
+              const heal = Math.round(ts.maxHp * (ts.id === 'bambloom' ? 0.3 : 0.15));
+              ts.hp = Math.min(ts.maxHp, ts.hp + heal);
+              ts.alive = ts.hp > 0;
+              ts.currentHp = ts.hp;
+              ts.berryReserveUsed = true;
+              passiveEvents.push({ starmonName: ts.name, passiveName: 'Berry Reserve', line: `Restores ${heal} HP` });
+            }
+          }
+
+          if (wasHit && ts.id === 'cottontail') {
+            starmon.baseAtk = Math.round(starmon.baseAtk * 0.95);
+            passiveEvents.push({ starmonName: ts.name, passiveName: 'Sweet Scent', line: `${starmon.name}'s ATK falls by 5%` });
+          }
+          if (wasHit && ts.id === 'dreadhorn') {
+            const defGain = Math.round((ts.baseDef || ts.def) * 0.05);
+            ts.def += defGain;
+            passiveEvents.push({ starmonName: ts.name, passiveName: 'Unshakable', line: `Gains ${defGain} DEF` });
+          }
+        };
+
+        if (actionType === 'use_ability' && (ability?.targetType === 'aoe' || payload.isAoE)) {
+          target.starmons.forEach(ts => { if (ts != null && ts.hp > 0) applyHit(ts); });
+        } else if (targetStarmon != null && targetStarmon.hp > 0) {
+          applyHit(targetStarmon);
+        }
       }
     },
     {
@@ -2541,8 +2643,14 @@ function onStarmonAction(
     payload: {
       ...payload,
       targetStarmonIndex: targetIdx,
+      attackerName: starmon.name,
+      skillName: ability?.name || payload.skillName,
+      abilityName: ability?.name,
+      abilityNum: payload.abilityNum || (ability && starmon.skill2?.id === ability.id ? 2 : 1),
     },
     damage: damage,
+    effectLines,
+    passiveEvents,
     targetHpAfter: targetStarmon ? targetStarmon.hp : 0,
     attackerManaAfter: starmon.mana,
     board: state.board,
@@ -2553,6 +2661,7 @@ function onStarmonAction(
     p2_hp: state.players[2].starmons.map(s => s.hp),
     p1_mana: state.players[1].starmons.map(s => s.mana),
     p2_mana: state.players[2].starmons.map(s => s.mana),
+    state: serializeMatchState(state),
   });
 
   // ---- Check win ngay ----

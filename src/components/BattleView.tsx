@@ -288,6 +288,7 @@ export const BattleView: React.FC<Props> = ({
       ...entry,
       id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       turnNumber: logTurnRef.current,
+      phaseLabel: entry.phaseLabel || (isPvP ? pvpFlowPhaseRef.current : `${logTurnRef.current}.${entry.phase === 'quiz' ? 1 : 2}`),
       timestamp: timeStr,
     };
     setBattleLogs(prev => [newEntry, ...prev]);
@@ -994,6 +995,7 @@ export const BattleView: React.FC<Props> = ({
   const [enemyBurnTurns, setEnemyBurnTurns] = useState<Record<number, number>>({});
   const [playerPoisonTurns, setPlayerPoisonTurns] = useState<Record<number, number>>({});
   const [enemyPoisonTurns, setEnemyPoisonTurns] = useState<Record<number, number>>({});
+  const enemySweetScentStacksRef = useRef<Record<number, number>>({});
   const [vinedraCritBonusTurns, setVinedraCritBonusTurns] = useState<Record<number, number>>({});
   const [playerPiercingTurns, setPlayerPiercingTurns] = useState<Record<number, number>>({});
   const [teamShieldTurns, setTeamShieldTurns] = useState<number>(0);
@@ -1780,6 +1782,9 @@ export const BattleView: React.FC<Props> = ({
             setPvpActionMenu(null);
             playActionAnim(msg);
             updateBoardFromServer(msg);
+            if (msg.state || msg.matchState) {
+              applyAuthoritativeTeamsFromMatchState(msg.state || msg.matchState);
+            }
 
             const phaseStr = String(msg.phase || pvpFlowPhaseRef.current || '1.2');
             const attackerSlot: 1 | 2 = msg.attackerSlot === 2 ? 2 : 1;
@@ -1791,6 +1796,23 @@ export const BattleView: React.FC<Props> = ({
               ? (playerTeamRef.current[atkIdx]?.name || `Starmon #${atkIdx + 1}`)
               : (msg.payload?.attackerName || msg.action?.attackerName || `Starmon #${atkIdx + 1}`);
             const skillName = msg.payload?.skillName || msg.action?.skillName;
+            const abilityName = msg.payload?.abilityName || skillName || 'Ability';
+            const abilityNum = msg.payload?.abilityNum || 1;
+            const effectLines = Array.isArray(msg.effectLines) ? msg.effectLines.filter((line: unknown) => typeof line === 'string') : [];
+            const passiveEvents = Array.isArray(msg.passiveEvents) ? msg.passiveEvents : [];
+            const popupLines = [
+              ...effectLines,
+              ...passiveEvents.map((event: any) => `${event.passiveName}: ${event.line}`),
+            ];
+
+            if (msg.actionType === 'use_ability' || passiveEvents.length > 0) {
+              setFloatingDamage({
+                text: msg.actionType === 'use_ability' ? `${attackerName}'s Ability ${abilityNum}: ${abilityName}` : `${passiveEvents[0]?.starmonName || 'Starmon'}'s Passive: ${passiveEvents[0]?.passiveName || 'Passive'}`,
+                isEnemy: !isMyAction,
+                lines: popupLines,
+              });
+              setTimeout(() => setFloatingDamage(null), 3200);
+            }
 
             addBattleLog({
               phase: 'combat',
@@ -1798,9 +1820,18 @@ export const BattleView: React.FC<Props> = ({
               unitName: attackerName,
               actionType: msg.actionType === 'use_ability' || skillName ? 'skill' : 'match',
               message: msg.actionType === 'use_ability' || skillName
-                ? `⚡ [Phase ${phaseStr}] ${attackerName} (P${attackerSlot}) dùng kỹ năng "${skillName || 'Ability'}" gây ${damage} sát thương lên P${targetSlot}!`
+                ? `⚡ [Phase ${phaseStr}] ${attackerName} (P${attackerSlot}) dùng "${abilityName}" lên P${targetSlot}`
                 : `⚔️ [Phase ${phaseStr}] ${attackerName} (P${attackerSlot}) tấn công vật lý gây ${damage} sát thương lên P${targetSlot}!`,
+              effects: [...effectLines, ...passiveEvents.map((event: any) => `${event.starmonName} — ${event.passiveName}: ${event.line}`)],
             });
+            passiveEvents.forEach((event: any) => addBattleLog({
+              phase: 'combat',
+              source: isMyAction ? 'enemy' : 'player',
+              unitName: event.starmonName,
+              actionType: 'status',
+              message: `Passive activated: ${event.passiveName}`,
+              effects: [event.line],
+            }));
             break;
           }
 
@@ -3082,7 +3113,7 @@ export const BattleView: React.FC<Props> = ({
   const [board, setBoard] = useState<OrbTile[][]>([]);
   const [selectedTile, setSelectedTile] = useState<{ row: number; col: number } | null>(null);
   const [isSwapping, setIsSwapping] = useState<boolean>(false);
-  const [floatingDamage, setFloatingDamage] = useState<{ text: string; isEnemy: boolean } | null>(null);
+  const [floatingDamage, setFloatingDamage] = useState<{ text: string; isEnemy: boolean; lines?: string[] } | null>(null);
 
   // Finds a valid swap that STRICTLY forms a straight horizontal or vertical line of 3 matching orbs
   const findValidTutorialMatchMove = useCallback((
@@ -3477,6 +3508,8 @@ export const BattleView: React.FC<Props> = ({
 
     // Strictly ensure target is a living enemy (Dead Starmon cannot be targeted!)
     let targetIdx = selectedEnemyIndex;
+    const tauntingEnemyIndex = enemyTeam.findIndex(e => e.currentHp > 0 && (e.battleTauntTurns || 0) > 0);
+    if (tauntingEnemyIndex !== -1) targetIdx = tauntingEnemyIndex;
     if (!enemyTeam[targetIdx] || enemyTeam[targetIdx].currentHp <= 0) {
       targetIdx = enemyTeam.findIndex(e => e.currentHp > 0);
     }
@@ -5737,6 +5770,59 @@ export const BattleView: React.FC<Props> = ({
       return;
     }
 
+    const isCottontail = activeAttackingStarmon.id === 'cottontail' || activeAttackingStarmon.avatarSeed === 'cottontail';
+    const isDreadhorn = activeAttackingStarmon.id === 'dreadhorn' || activeAttackingStarmon.avatarSeed === 'dreadhorn';
+    const isBambloom = activeAttackingStarmon.id === 'bambloom' || activeAttackingStarmon.avatarSeed === 'bambloom';
+    const isSupportStatusSkill = (isCottontail && abilityNum === 2) || (isDreadhorn && abilityNum === 2) || (isBambloom && abilityNum === 2);
+
+    if (isSupportStatusSkill) {
+      if (activeAttackingStarmon.currentMana < skill.manaCost) {
+        sound.playWrong();
+        return;
+      }
+      const lowestHpAllyIndex = isBambloom
+        ? playerTeam.map((mon, idx) => ({ mon, idx })).filter(({ mon }) => mon.currentHp > 0 && mon.currentHp < mon.maxHp).sort((a, b) => a.mon.currentHp / a.mon.maxHp - b.mon.currentHp / b.mon.maxHp)[0]?.idx ?? -1
+        : -1;
+      const defBonus = isDreadhorn ? Math.round((activeAttackingStarmon.battleBaseDef || activeAttackingStarmon.def) * 0.2) : 0;
+      setPlayerTeam(prev => prev.map((mon, idx) => {
+        if (idx !== actingStepIndex && idx !== lowestHpAllyIndex) return mon;
+        const next = { ...mon };
+        if (idx === actingStepIndex) {
+          next.currentMana = Math.max(0, mon.currentMana - skill.manaCost);
+          if (isCottontail) {
+            next.battleTauntTurns = 3;
+            next.battleDamageReduction = 0.15;
+            next.battleDamageReductionTurns = 3;
+          }
+          if (isDreadhorn) {
+            const oldBonus = mon.battleDefenseBuffAmount || 0;
+            next.def = Math.max(0, mon.def - oldBonus) + defBonus;
+            next.battleTauntTurns = 3;
+            next.battleDefenseBuffAmount = defBonus;
+            next.battleDefenseBuffTurns = 3;
+          }
+        }
+        if (idx === lowestHpAllyIndex && isBambloom) {
+          next.currentHp = Math.min(mon.maxHp, mon.currentHp + Math.round((mon.maxHp - mon.currentHp) * 0.5));
+        }
+        return next;
+      }));
+      const detail = isCottontail
+        ? 'Cottontail gains Taunt and 15% damage reduction for 3 turns.'
+        : isDreadhorn
+          ? `Dreadhorn gains Taunt and ${defBonus} DEF for 3 turns.`
+          : lowestHpAllyIndex >= 0
+            ? `${playerTeam[lowestHpAllyIndex].name} recovers 50% of its missing HP.`
+            : 'The team is already at full HP.';
+      const supportEffects = detail.split('. ').filter(Boolean);
+      setFloatingDamage({ text: `${activeAttackingStarmon.name}'s Ability ${abilityNum}: ${skill.name}`, isEnemy: false, lines: supportEffects });
+      setTimeout(() => setFloatingDamage(null), 3200);
+      addBattleLog({ phase: 'combat', source: 'player', unitName: activeAttackingStarmon.name, actionType: 'skill', message: `${activeAttackingStarmon.name} cast "${skill.name}" (-${skill.manaCost} Mana)!`, effects: supportEffects });
+      syncCurrentSkill(0, false, selectedEnemyIndex);
+      if (!isPvP) setTimeout(() => advanceToNextUnit(actingStepIndex + 1), 700);
+      return;
+    }
+
     // Standard Direct Damage Skill
     const isGlidronSkill2 = (activeAttackingStarmon.id === 'glidron' || activeAttackingStarmon.avatarSeed === 'glidron') && abilityNum === 2;
     const glidronHpSacrifice = isGlidronSkill2 ? Math.max(1, Math.round(activeAttackingStarmon.currentHp * 0.3)) : 0;
@@ -5750,7 +5836,7 @@ export const BattleView: React.FC<Props> = ({
         abilityCritChance += 0.25; // Lightning Paw +25% inherent bonus
       }
     }
-    const isAbilityCrit = Math.random() < abilityCritChance;
+    const isAbilityCrit = skill.id === 'shield_bash' ? false : Math.random() < abilityCritChance;
     let abilityCritMult = 1.0;
     if (isAbilityCrit) {
       // Base crit 1.5x. For Voltlynx: critical attacks & abilities deal extra 25% DMG -> 1.5 * 1.25 = 1.875x!
@@ -5758,7 +5844,9 @@ export const BattleView: React.FC<Props> = ({
     }
 
     const voltlynxAbilityBuff = isVoltlynxAbility ? 1.25 : 1.0;
-    let dmg = Math.round(activeAttackingStarmon.baseAtk * skill.damageMultiplier * voltlynxAbilityBuff * abilityCritMult);
+    let dmg = skill.id === 'shield_bash'
+      ? Math.round(activeAttackingStarmon.def * 0.5)
+      : Math.round(activeAttackingStarmon.baseAtk * skill.damageMultiplier * voltlynxAbilityBuff * abilityCritMult);
     if ((playerFrostbiteTurns[actingStepIndex] || 0) > 0) {
       dmg = Math.round(dmg * 0.9); // Frostbite reduces Attack by 10%
     }
@@ -5791,14 +5879,19 @@ export const BattleView: React.FC<Props> = ({
         ? `⚡ CRIT! -${dmg} HP [+25% Voltlynx DMG]`
         : `💥 CRIT! -${dmg} HP`
       : `💥 -${dmg} HP`;
-    setFloatingDamage({ text: abilityFloatText, isEnemy: true });
-    setTimeout(() => setFloatingDamage(null), 1200);
+    const abilityEffects = [`Deals ${dmg} ${skill.id === 'shield_bash' ? 'Steel' : activeAttackingStarmon.element} DMG`];
+    if (isAbilityCrit) abilityEffects.push('Critical hit');
+    if (skill.id === 'ear_whip') abilityEffects.push('Removes target Shield');
+    setFloatingDamage({ text: `${activeAttackingStarmon.name}'s Ability ${abilityNum}: ${skill.name}`, isEnemy: true, lines: abilityEffects });
+    setTimeout(() => setFloatingDamage(null), 3200);
 
     let effectiveTarget = selectedEnemyIndex;
     if (enemyStoneGolemTauntTurns > 0) {
       const golemIdx = enemyTeam.findIndex(e => (e.id === 'enemy_golem' || e.avatarSeed === 'stone_golem') && e.currentHp > 0);
       if (golemIdx !== -1) effectiveTarget = golemIdx;
     }
+    const newTauntTarget = enemyTeam.findIndex(e => e.currentHp > 0 && (e.battleTauntTurns || 0) > 0);
+    if (newTauntTarget !== -1) effectiveTarget = newTauntTarget;
     // Dead enemies CANNOT be targeted!
     if (!enemyTeam[effectiveTarget] || enemyTeam[effectiveTarget].currentHp <= 0) {
       effectiveTarget = enemyTeam.findIndex(e => e.currentHp > 0);
@@ -5808,6 +5901,9 @@ export const BattleView: React.FC<Props> = ({
       return;
     }
     setSelectedEnemyIndex(effectiveTarget);
+    if (skill.id === 'ear_whip') {
+      setEnemyTeam(prev => prev.map((e, idx) => idx === effectiveTarget ? { ...e, battleShieldPoints: 0 } : e));
+    }
 
     addBattleLog({
       phase: 'combat',
@@ -5815,7 +5911,8 @@ export const BattleView: React.FC<Props> = ({
       unitName: activeAttackingStarmon.name,
       actionType: 'skill',
       message: `⚡ ${activeAttackingStarmon.name} cast "${skill.name}" (-${skill.manaCost} Mana)!`,
-      detail: `Dealt ${dmg} DMG${skill.targetType === 'aoe' ? ' to ALL enemies!' : ` to ${enemyTeam[effectiveTarget].name}!`}`,
+      effects: abilityEffects,
+      detail: `Target: ${skill.targetType === 'aoe' ? 'all enemies' : enemyTeam[effectiveTarget].name}`,
     });
 
     // Check Frostmoth Absolute Zero passive:
@@ -6111,6 +6208,8 @@ export const BattleView: React.FC<Props> = ({
         if (attacker.element === 'Fire') finalDmg = Math.round(finalDmg * 1.20);
         else if (attacker.element === 'Water') finalDmg = Math.round(finalDmg * 0.80);
       }
+      const scentStacks = enemySweetScentStacksRef.current[attackerIdx] || 0;
+      if (scentStacks > 0) finalDmg = Math.round(finalDmg * Math.pow(0.95, scentStacks));
 
       // Coralus Passive: When Coralus HP is above 50%, reduces all incoming damage by 15% for itself and all allies!
       const coralusMon = prevPlayers.find(p => (p.id === 'coralus' || p.avatarSeed === 'coralus') && p.currentHp > 0);
@@ -6131,15 +6230,31 @@ export const BattleView: React.FC<Props> = ({
 
       let updated = [...prevPlayers];
       if (isAoE) {
-        updated = updated.map(p => ({
-          ...p,
-          currentHp: p.currentHp > 0 ? Math.max(0, p.currentHp - finalDmg) : 0,
-        }));
+        const hasBambloom = prevPlayers.some(mon => (mon.id === 'bambloom' || mon.avatarSeed === 'bambloom') && mon.currentHp > 0);
+        const cottontailWasHit = prevPlayers.some(mon => (mon.id === 'cottontail' || mon.avatarSeed === 'cottontail') && mon.currentHp > 0);
+        if (cottontailWasHit && finalDmg > 0) enemySweetScentStacksRef.current[attackerIdx] = scentStacks + 1;
+        updated = updated.map((p, idx) => {
+          if (p.currentHp <= 0) return p;
+          const personalReduction = (p.battleDamageReductionTurns || 0) > 0 ? (p.battleDamageReduction || 0) : 0;
+          const unitDamage = Math.max(0, Math.round(finalDmg * (1 - personalReduction)));
+          const nextHp = Math.max(0, p.currentHp - unitDamage);
+          const next: Starmon = { ...p, currentHp: nextHp };
+          if (unitDamage > 0 && (p.id === 'dreadhorn' || p.avatarSeed === 'dreadhorn')) {
+            next.def = p.def + Math.max(1, Math.round((p.battleBaseDef || p.def) * 0.05));
+          }
+          if (hasBambloom && !p.berryReserveUsed && p.currentHp >= p.maxHp * 0.3 && nextHp < p.maxHp * 0.3) {
+            const selfBerry = p.id === 'bambloom' || p.avatarSeed === 'bambloom';
+            next.currentHp = Math.min(p.maxHp, nextHp + Math.round(p.maxHp * (selfBerry ? 0.3 : 0.15)));
+            next.berryReserveUsed = true;
+          }
+          return next;
+        });
       } else {
         // Single target hit: If player Mossloth, Mineacle or Stone Golem has active taunt, force target to them!
         const mosslothIdx = updated.findIndex(p => (p.id === 'mossloth' || p.avatarSeed === 'mossloth') && p.currentHp > 0);
         const mineacleIdx = updated.findIndex(p => (p.id === 'mineacle' || p.avatarSeed === 'mineacle') && p.currentHp > 0);
         const golemIdx = updated.findIndex(p => (p.id === 'stone_golem' || p.avatarSeed === 'stone_golem') && p.currentHp > 0);
+        const newTauntIdx = updated.findIndex(p => p.currentHp > 0 && (p.battleTauntTurns || 0) > 0);
 
         let targetPIdx = -1;
         if (playerMosslothTauntTurns > 0 && mosslothIdx !== -1) {
@@ -6148,12 +6263,17 @@ export const BattleView: React.FC<Props> = ({
           targetPIdx = mineacleIdx;
         } else if (playerStoneGolemTauntTurns > 0 && golemIdx !== -1) {
           targetPIdx = golemIdx;
+        } else if (newTauntIdx !== -1) {
+          targetPIdx = newTauntIdx;
         } else {
           targetPIdx = updated.findIndex(p => p.currentHp > 0);
         }
 
         if (targetPIdx !== -1 && finalDmg > 0) {
           const targetMon = updated[targetPIdx];
+          if (targetMon.battleDamageReductionTurns && targetMon.battleDamageReductionTurns > 0) {
+            finalDmg = Math.max(0, Math.round(finalDmg * (1 - (targetMon.battleDamageReduction || 0))));
+          }
           if (isOrbMatch && targetMon.researchPhysicalDamageReduction) {
             finalDmg = Math.max(1, Math.round(finalDmg * (1 - targetMon.researchPhysicalDamageReduction)));
           }
@@ -6193,7 +6313,21 @@ export const BattleView: React.FC<Props> = ({
           }
 
           if (!dodged) {
-            updated[targetPIdx] = { ...targetMon, currentHp: Math.max(0, targetMon.currentHp - finalDmg) };
+            const nextHp = Math.max(0, targetMon.currentHp - finalDmg);
+            const nextTarget: Starmon = { ...targetMon, currentHp: nextHp };
+            if (finalDmg > 0 && (targetMon.id === 'cottontail' || targetMon.avatarSeed === 'cottontail')) {
+              enemySweetScentStacksRef.current[attackerIdx] = scentStacks + 1;
+            }
+            if (finalDmg > 0 && (targetMon.id === 'dreadhorn' || targetMon.avatarSeed === 'dreadhorn')) {
+              nextTarget.def = targetMon.def + Math.max(1, Math.round((targetMon.battleBaseDef || targetMon.def) * 0.05));
+            }
+            const hasBambloom = updated.some((mon, idx) => (mon.id === 'bambloom' || mon.avatarSeed === 'bambloom') && (mon.currentHp > 0 || idx === targetPIdx));
+            if (hasBambloom && !targetMon.berryReserveUsed && targetMon.currentHp >= targetMon.maxHp * 0.3 && nextHp < targetMon.maxHp * 0.3) {
+              const selfBerry = targetMon.id === 'bambloom' || targetMon.avatarSeed === 'bambloom';
+              nextTarget.currentHp = Math.min(targetMon.maxHp, nextHp + Math.round(targetMon.maxHp * (selfBerry ? 0.3 : 0.15)));
+              nextTarget.berryReserveUsed = true;
+            }
+            updated[targetPIdx] = nextTarget;
           }
         }
       }
@@ -6706,6 +6840,23 @@ export const BattleView: React.FC<Props> = ({
     }
   };
 
+  const tickNewStarmonEffects = (team: Starmon[]) => team.map(mon => {
+    const next = { ...mon };
+    if ((next.battleTauntTurns || 0) > 0) next.battleTauntTurns = Math.max(0, (next.battleTauntTurns || 0) - 1);
+    if ((next.battleDamageReductionTurns || 0) > 0) {
+      next.battleDamageReductionTurns = Math.max(0, (next.battleDamageReductionTurns || 0) - 1);
+      if (next.battleDamageReductionTurns === 0) next.battleDamageReduction = 0;
+    }
+    if ((next.battleDefenseBuffTurns || 0) > 0) {
+      next.battleDefenseBuffTurns = Math.max(0, (next.battleDefenseBuffTurns || 0) - 1);
+      if (next.battleDefenseBuffTurns === 0) {
+        next.def = Math.max(0, next.def - (next.battleDefenseBuffAmount || 0));
+        next.battleDefenseBuffAmount = 0;
+      }
+    }
+    return next;
+  });
+
   const finishEnemyTurn = (updatedPlayers: Starmon[]) => {
     if (isPvP) return; // ZERO BOT IN PVP MODE!
     if (enemyAttackerQueueRef.current.length > 0) {
@@ -6723,6 +6874,8 @@ export const BattleView: React.FC<Props> = ({
     setPlayerMosslothTauntTurns(prev => Math.max(0, prev - 1));
     setPlayerMosslothRegenTurns(prev => Math.max(0, prev - 1));
     setPlayerKhepriShroudTurns(prev => Math.max(0, prev - 1));
+    setPlayerTeam(prev => tickNewStarmonEffects(prev));
+    setEnemyTeam(prev => tickNewStarmonEffects(prev));
     setSunEffectTurns(prev => Math.max(0, prev - 1));
     setGolemDeathShieldTurns(prev => Math.max(0, prev - 1));
     setTidecrushBuffTurns(prev => Math.max(0, prev - 1));
@@ -8055,11 +8208,16 @@ export const BattleView: React.FC<Props> = ({
           {/* Floating Damage Popup */}
           {floatingDamage && (
             <div
-              className={`absolute top-16 z-30 font-black font-game text-xl md:text-2xl animate-bounce drop-shadow-xl ${
+              className={`absolute top-16 z-30 max-w-[min(90vw,30rem)] rounded-xl border border-white/15 bg-slate-950/90 px-4 py-3 shadow-2xl animate-in fade-in zoom-in duration-200 ${
                 floatingDamage.isEnemy ? 'right-28 text-yellow-300' : 'left-28 text-cyan-300'
               }`}
             >
-              {floatingDamage.text}
+              <div className="font-black font-game text-base md:text-lg">{floatingDamage.text}</div>
+              {!!floatingDamage.lines?.length && (
+                <ul className="mt-1 space-y-0.5 text-left text-xs md:text-sm font-semibold text-slate-100">
+                  {floatingDamage.lines.map((line, index) => <li key={`${index}-${line}`}>• {line}</li>)}
+                </ul>
+              )}
             </div>
           )}
 
@@ -8429,7 +8587,7 @@ export const BattleView: React.FC<Props> = ({
                             </span>
                             {mon.secondaryElement && (
                               <span className={`text-[9px] px-1 rounded font-bold ${ELEMENT_COLORS[mon.secondaryElement]?.bg || 'bg-slate-400'} text-slate-950`}>
-                                {mon.secondaryElement === 'Metal' ? (mon.id === 'moltenback' ? 'Steel' : 'Metal') : mon.secondaryElement}
+                                {mon.secondaryElement === 'Metal' ? ((mon.id === 'moltenback' || mon.id === 'dreadhorn') ? 'Steel' : 'Metal') : mon.secondaryElement}
                               </span>
                             )}
                           </div>
@@ -9003,7 +9161,7 @@ export const BattleView: React.FC<Props> = ({
                             </span>
                             {enemy.secondaryElement && (
                               <span className={`text-[9px] px-1 rounded font-bold ${ELEMENT_COLORS[enemy.secondaryElement]?.bg || 'bg-slate-400'} text-slate-950`}>
-                                {enemy.secondaryElement === 'Metal' ? (enemy.id === 'moltenback' ? 'Steel' : 'Metal') : enemy.secondaryElement}
+                                {enemy.secondaryElement === 'Metal' ? ((enemy.id === 'moltenback' || enemy.id === 'dreadhorn') ? 'Steel' : 'Metal') : enemy.secondaryElement}
                               </span>
                             )}
                           </div>
@@ -9567,13 +9725,21 @@ export const BattleView: React.FC<Props> = ({
                   );
                 }
 
-                return filtered.map(log => {
+                return filtered.map((log, index) => {
                   const isPlayer = log.source === 'player';
                   const isEnemy = log.source === 'enemy';
+                  const startsPhaseGroup = index === 0 || filtered[index - 1].phaseLabel !== log.phaseLabel;
 
                   return (
+                    <React.Fragment key={log.id}>
+                    {startsPhaseGroup && (
+                      <div className="sticky top-0 z-10 mt-3 mb-1 flex items-center gap-2 rounded-lg border border-amber-400/30 bg-slate-800/95 px-3 py-1.5 text-[11px] font-black tracking-wide text-amber-200 shadow">
+                        <span className="h-px flex-1 bg-amber-400/20" />
+                        TURN {log.phaseLabel || `${log.turnNumber}.${log.phase === 'quiz' ? 1 : 2}`}
+                        <span className="h-px flex-1 bg-amber-400/20" />
+                      </div>
+                    )}
                     <div
-                      key={log.id}
                       className={`p-2.5 rounded-2xl border text-xs flex flex-col gap-1 transition-all ${
                         isPlayer
                           ? 'bg-slate-950/80 border-sky-500/40 hover:border-sky-400/70'
@@ -9616,7 +9782,13 @@ export const BattleView: React.FC<Props> = ({
                           ↳ {log.detail}
                         </p>
                       )}
+                      {!!log.effects?.length && (
+                        <ul className="ml-1 space-y-0.5 text-[11px] text-slate-300">
+                          {log.effects.map((effect, effectIndex) => <li key={`${log.id}-effect-${effectIndex}`}>• {effect}</li>)}
+                        </ul>
+                      )}
                     </div>
+                    </React.Fragment>
                   );
                 });
               })()}
@@ -9686,7 +9858,7 @@ export const BattleView: React.FC<Props> = ({
                     </span>
                     {inspectingStarmon.mon.secondaryElement && (
                       <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold text-slate-950 ${ELEMENT_COLORS[inspectingStarmon.mon.secondaryElement]?.bg || 'bg-slate-300'}`}>
-                        {inspectingStarmon.mon.secondaryElement === 'Metal' ? (inspectingStarmon.mon.id === 'moltenback' ? 'Steel' : 'Metal') : inspectingStarmon.mon.secondaryElement}
+                        {inspectingStarmon.mon.secondaryElement === 'Metal' ? ((inspectingStarmon.mon.id === 'moltenback' || inspectingStarmon.mon.id === 'dreadhorn') ? 'Steel' : 'Metal') : inspectingStarmon.mon.secondaryElement}
                       </span>
                     )}
                   </div>

@@ -164,6 +164,9 @@ export const STARMON_CLASS_MAP: Record<string, StarmonClass> = {
   // Support 1 (Caster Support): Aquanymph, Teslarion
   aquanymph: 'Support 1 (Caster Support)',
   teslarion: 'Support 1 (Caster Support)',
+  bambloom: 'Support 1 (Caster Support)',
+  cottontail: 'Support 2 (Tank Support)',
+  dreadhorn: 'Tank 2',
 };
 
 /**

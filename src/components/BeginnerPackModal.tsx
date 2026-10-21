@@ -26,7 +26,7 @@ export const BeginnerPackModal: React.FC<Props> = ({
   const [showDetailCard, setShowDetailCard] = useState(false);
 
   // Pool of starter Starmons
-  const starterPoolIds = ['pyrokit', 'ignisaur', 'tidecrush', 'glidron', 'voltlynx', 'obsidus', 'coralus', 'stone_golem', 'zapwing', 'vinedra', 'bubbleboon', 'trojan_flare'];
+  const starterPoolIds = ['pyrokit', 'ignisaur', 'tidecrush', 'glidron', 'voltlynx', 'obsidus', 'coralus', 'stone_golem', 'zapwing', 'vinedra', 'bubbleboon', 'trojan_flare', 'cottontail', 'dreadhorn', 'bambloom'];
 
   const triggerOpen = () => {
     if (packState !== 'unopened') return;

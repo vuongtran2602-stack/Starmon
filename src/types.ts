@@ -89,6 +89,14 @@ export interface Starmon {
   researchCritChance?: number;
   researchPhysicalDamageReduction?: number;
   isDaPhucVersion?: boolean;
+  battleTauntTurns?: number;
+  battleDamageReduction?: number;
+  battleDamageReductionTurns?: number;
+  battleDefenseBuffAmount?: number;
+  battleDefenseBuffTurns?: number;
+  battleShieldPoints?: number;
+  battleBaseDef?: number;
+  berryReserveUsed?: boolean;
 }
 
 export type QuizQuestionMode = 'random' | 'part1_preference' | 'part3_forecast_2026' | 'mixed' | 'mcq_only' | 'speaking_only';
@@ -188,6 +196,8 @@ export interface BattleLogEntry {
   detail?: string;
   timestamp: string;
   badgeColor?: string;
+  phaseLabel?: string;
+  effects?: string[];
 }
 
 export interface GrammarErrorDetail {

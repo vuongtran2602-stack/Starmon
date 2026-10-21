@@ -437,7 +437,7 @@ export const StarmonManagement: React.FC<Props> = ({
                           </span>
                           {starmon.secondaryElement && (
                             <span className={`text-[9px] px-1 rounded font-bold ${ELEMENT_COLORS[starmon.secondaryElement].bg} text-slate-950`}>
-                              {starmon.secondaryElement === 'Metal' ? (starmon.id === 'moltenback' ? 'Steel' : 'Metal') : starmon.secondaryElement}
+                              {starmon.secondaryElement === 'Metal' ? ((starmon.id === 'moltenback' || starmon.id === 'dreadhorn') ? 'Steel' : 'Metal') : starmon.secondaryElement}
                             </span>
                           )}
                         </div>
@@ -531,7 +531,7 @@ export const StarmonManagement: React.FC<Props> = ({
                         </span>
                         {selectedStarmon.secondaryElement && (
                           <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${ELEMENT_COLORS[selectedStarmon.secondaryElement as ElementType]?.bg || 'bg-slate-500'} text-slate-950 shadow-sm`}>
-                            {selectedStarmon.secondaryElement === 'Metal' ? (selectedStarmon.id === 'moltenback' ? 'Steel' : 'Metal') : selectedStarmon.secondaryElement}
+                            {selectedStarmon.secondaryElement === 'Metal' ? ((selectedStarmon.id === 'moltenback' || selectedStarmon.id === 'dreadhorn') ? 'Steel' : 'Metal') : selectedStarmon.secondaryElement}
                           </span>
                         )}
                         <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-indigo-950/80 border border-indigo-500/50 text-indigo-300 font-mono shadow-sm">
