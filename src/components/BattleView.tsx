@@ -384,11 +384,17 @@ export const BattleView: React.FC<Props> = ({
     attackerSlot: 1 | 2;
     reason?: string;
   } | null>(null);
-  const lastLostTurnSoundPhaseRef = useRef<string | null>(null);
+  const lostTurnSoundKeysRef = useRef<Set<string>>(new Set());
   const playLostTurnSoundOnce = useCallback((phase?: string) => {
-    const phaseKey = `${pvpRoomInfo?.code || ''}:${phase || pvpFlowPhaseRef.current}`;
-    if (lastLostTurnSoundPhaseRef.current === phaseKey) return;
-    lastLostTurnSoundPhaseRef.current = phaseKey;
+    const phaseRound = Number.parseInt(String(phase || pvpFlowPhaseRef.current).split('.')[0], 10);
+    const round = Number.isFinite(phaseRound) && phaseRound > 0 ? phaseRound : pvpTurnNumberRef.current;
+    const roundKey = `${pvpRoomInfo?.code || ''}:${round}`;
+    if (lostTurnSoundKeysRef.current.has(roundKey)) return;
+    lostTurnSoundKeysRef.current.add(roundKey);
+    if (lostTurnSoundKeysRef.current.size > 64) {
+      const oldestKey = lostTurnSoundKeysRef.current.values().next().value;
+      if (oldestKey) lostTurnSoundKeysRef.current.delete(oldestKey);
+    }
     sound.playWrong();
   }, [pvpRoomInfo?.code]);
 
@@ -1318,6 +1324,7 @@ export const BattleView: React.FC<Props> = ({
         switch (msg.type) {
           case 'match_start':
           case 'MATCH_STARTED': {
+            lostTurnSoundKeysRef.current.clear();
             const v = msg.boardVersion ?? msg.version ?? 1;
             if (v >= boardVersionRef.current) {
               boardVersionRef.current = v;
