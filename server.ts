@@ -2069,12 +2069,14 @@ function onAnswerSubmit(
   const P = state.players[slot];
   if (!P) return;
 
-  // Những câu chưa trả lời (undefined / false) sẽ bị tính là 0 điểm (unlocked = false)
+  // Apply only explicit answers here. Missing entries keep any graded progress;
+  // the phase-end handler marks any still-unanswered entries as failed.
   P.starmons.forEach((s, idx) => {
     if (s.hp > 0) {
-      const unlocked = Array.isArray(results) && results[idx] !== undefined
-        ? Boolean(results[idx])
-        : Boolean(P.results[idx]);
+      const submittedResult = Array.isArray(results) ? results[idx] : undefined;
+      const unlocked = typeof submittedResult === 'boolean'
+        ? submittedResult
+        : P.results[idx] === true;
       P.results[idx] = unlocked;
       s.unlocked = unlocked;
     } else {
@@ -3167,8 +3169,12 @@ wss.on('connection', (ws) => {
           const P = match.players[slot];
           if (P && Array.isArray(msg.results)) {
             msg.results.forEach((val: any, idx: number) => {
-              if (val !== undefined && P.starmons[idx]) {
-                const isOk = Boolean(val) && P.starmons[idx].hp > 0;
+              // Partial answer progress includes holes/null for questions that
+              // have not been graded yet. Persist explicit outcomes only so a
+              // reconnect or a partially answered quiz cannot lock every
+              // Starmon before its own question is resolved.
+              if (typeof val === 'boolean' && P.starmons[idx]) {
+                const isOk = val && P.starmons[idx].hp > 0;
                 P.results[idx] = isOk;
                 P.starmons[idx].unlocked = isOk;
               }

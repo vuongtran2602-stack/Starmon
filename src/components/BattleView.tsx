@@ -1395,8 +1395,11 @@ export const BattleView: React.FC<Props> = ({
             }
 
             if (Array.isArray(msg.myResults)) {
-              pvpQuizAnswersRef.current = msg.myResults;
-              setUnlockedPositions(msg.myResults);
+              // The server's myResults are per-Starmon unlock flags, not the
+              // client's per-question grading results. Keep the two states
+              // separate so reconnect/resync cannot turn pending questions
+              // into failed answers.
+              setUnlockedPositions(msg.myResults.map((result: boolean | null) => result === true));
             }
 
             if (Array.isArray(msg.p1_hp) && Array.isArray(msg.p2_hp)) {
@@ -2105,6 +2108,33 @@ export const BattleView: React.FC<Props> = ({
     suggestedIdiom: 'broaden my horizons'
   };
 
+  const getQuizQuestionPassResult = (questionIndex: number): boolean => {
+    const question = currentQuizSet[questionIndex];
+    if (!question) return false;
+
+    if (question.type === 'mcq') {
+      return answeredState[questionIndex] === true;
+    }
+
+    const evaluation = ieltsResultsMap[questionIndex];
+    if (evaluation) {
+      const score = evaluation.overall_score ?? evaluation.overallBand;
+      return typeof score === 'number' && score >= requiredSpeakingBand;
+    }
+
+    if (questionIndex === activeQuestionIndex && ieltsAiResult) {
+      const score = ieltsAiResult.overall_score ?? ieltsAiResult.overallBand;
+      if (typeof score === 'number') return score >= requiredSpeakingBand;
+      if (typeof ieltsAiResult.passed === 'boolean') return ieltsAiResult.passed;
+      if (typeof ieltsAiResult.can_attack === 'boolean') return ieltsAiResult.can_attack;
+    }
+
+    // This ref is written only when a question has been explicitly graded.
+    // An attempted transcript without a completed grade is not a pass.
+    const gradedResult = pvpQuizAnswersRef.current[questionIndex];
+    return typeof gradedResult === 'boolean' ? gradedResult : false;
+  };
+
   // 120s countdown timer for Phase 1 and opponent wait.
   useEffect(() => {
     if (phase !== 'phase1_quiz') {
@@ -2130,15 +2160,7 @@ export const BattleView: React.FC<Props> = ({
       // If time runs out, any unanswered questions are counted as 0 points (false)
       const questionResults: boolean[] = [];
       for (let i = 0; i < currentQuizSet.length; i++) {
-        if (answeredState[i] !== undefined) {
-          questionResults.push(Boolean(answeredState[i]));
-        } else if (pvpQuizAnswersRef.current[i] !== undefined) {
-          questionResults.push(Boolean(pvpQuizAnswersRef.current[i]));
-        } else if (i === activeQuestionIndex && ieltsAiResult) {
-          questionResults.push(Boolean(ieltsAiResult.passed));
-        } else {
-          questionResults.push(false);
-        }
+        questionResults.push(getQuizQuestionPassResult(i));
       }
 
       const finalAns = mapQuizAnswersToStarmons(questionResults);
@@ -2927,9 +2949,7 @@ export const BattleView: React.FC<Props> = ({
     setIeltsAiResult(null);
 
     const questionResults = currentQuizSet.map((_, idx) => {
-      const res = ieltsResultsMap[idx];
-      if (res) return Boolean(res.overall_score !== undefined && res.overall_score >= requiredSpeakingBand);
-      return Boolean(pvpQuizAnswersRef.current[idx] ?? answeredState[idx]);
+      return getQuizQuestionPassResult(idx);
     });
     const finalResults = mapQuizAnswersToStarmons(questionResults);
 
