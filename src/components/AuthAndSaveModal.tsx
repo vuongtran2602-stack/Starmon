@@ -740,9 +740,9 @@ export const AuthAndSaveModal: React.FC<Props> = ({
         )}
 
         {successMessage && (
-          <div className="mb-3 px-3 py-2 bg-emerald-950/80 border border-emerald-500/50 rounded-xl text-emerald-200 text-xs flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span>{successMessage}</span>
+          <div className="mb-3 px-4 py-3 bg-emerald-900/80 border-2 border-emerald-400/80 rounded-xl text-emerald-100 text-sm font-semibold flex items-center gap-2.5 shadow-lg shadow-emerald-950/40">
+            <CheckCircle2 className="w-5 h-5 text-emerald-300 shrink-0" />
+            <span className="leading-relaxed">{successMessage}</span>
           </div>
         )}
 
