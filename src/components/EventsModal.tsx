@@ -246,29 +246,40 @@ export const EventsModal: React.FC<Props> = ({ player, ownedStarmons, onClose, o
         <p className="mt-2 text-center text-[9px] text-slate-500">A new 7-day cycle starts after Day 7.</p>
       </div> : null}
 
-      {view === 'spin' ? <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
-        {notice && <div role="status" className="mb-3 rounded-xl border border-rose-300/30 bg-rose-950/70 px-4 py-2 text-center text-xs text-rose-100">{notice}</div>}
-        <div className="mx-auto grid max-w-3xl gap-5 lg:grid-cols-[1fr_280px] lg:items-center">
-          <div className="flex flex-col items-center rounded-3xl border border-amber-300/30 bg-slate-950/70 p-4 sm:p-6">
-            <img src={chestOpened} alt="Opened mystery chest" className="mb-2 h-24 w-36 object-contain drop-shadow-xl" />
-            <div className="relative my-3 h-64 w-64 sm:h-72 sm:w-72">
-              <div className="absolute -top-2 left-1/2 z-30 -translate-x-1/2 border-x-[11px] border-t-[20px] border-x-transparent border-t-rose-400 drop-shadow" />
-              <div className="h-full w-full rounded-full border-[8px] border-amber-300 shadow-[0_0_30px_rgba(251,191,36,.35)]" style={{ background: `conic-gradient(${gradient})`, transform: `rotate(${wheelRotation}deg)`, transition: isSpinning ? 'transform 4.3s cubic-bezier(.12,.72,.12,1)' : 'none' }}>
+      {view === 'spin' ? <div className="min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(ellipse_at_top,rgba(124,58,237,.18),transparent_55%)] p-4 sm:p-6">
+        {notice && <div role="status" className="mx-auto mb-3 max-w-3xl rounded-xl border border-rose-300/30 bg-rose-950/80 px-4 py-2 text-center text-xs text-rose-100">{notice}</div>}
+        <div className="mx-auto grid max-w-4xl gap-5 lg:grid-cols-[1fr_290px] lg:items-center">
+          <div className="relative flex flex-col items-center overflow-hidden rounded-3xl border border-amber-200/30 bg-gradient-to-b from-indigo-950/90 via-slate-950/90 to-amber-950/30 p-4 shadow-[0_18px_60px_rgba(2,6,23,.55)] sm:p-6">
+            <div className="pointer-events-none absolute -left-12 -top-16 h-48 w-48 rounded-full bg-fuchsia-500/10 blur-3xl" />
+            <div className="pointer-events-none absolute -bottom-20 -right-10 h-48 w-48 rounded-full bg-amber-400/10 blur-3xl" />
+            <div className="relative z-10 mb-1 flex items-center gap-2 rounded-full border border-amber-200/25 bg-amber-300/10 px-3 py-1 text-[9px] font-black tracking-[.22em] text-amber-100 shadow-lg sm:text-[10px]">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-300" /> DAY 7 · MYSTERY CHEST
+            </div>
+            <p className="relative z-10 mb-1 text-center text-[11px] text-slate-300 sm:text-xs">One spin, one surprise. What will you win?</p>
+            <img src={chestOpened} alt="Opened mystery chest" className="relative z-10 mb-1 h-20 w-32 object-contain drop-shadow-[0_8px_14px_rgba(251,191,36,.25)] sm:h-24 sm:w-36" />
+            <div className="relative z-10 my-3 h-64 w-64 rounded-full bg-amber-300/10 p-[5px] shadow-[0_0_0_1px_rgba(253,230,138,.35),0_0_35px_rgba(251,191,36,.28)] sm:h-80 sm:w-80 sm:p-[7px]">
+              <div className="absolute -top-2 left-1/2 z-30 -translate-x-1/2 border-x-[13px] border-t-[23px] border-x-transparent border-t-rose-400 drop-shadow-[0_2px_5px_rgba(0,0,0,.8)] sm:-top-3 sm:border-x-[15px] sm:border-t-[27px]" />
+              <div className="relative h-full w-full overflow-hidden rounded-full border-[5px] border-amber-100/90 shadow-[inset_0_0_18px_rgba(15,23,42,.65)] sm:border-[7px]" style={{ background: `conic-gradient(${gradient})`, transform: `rotate(${wheelRotation}deg)`, transition: isSpinning ? 'transform 4.3s cubic-bezier(.12,.72,.12,1)' : 'none' }}>
+                <div className="pointer-events-none absolute inset-0 rounded-full bg-[radial-gradient(circle,transparent_35%,rgba(15,23,42,.28)_100%)]" />
                 {WHEEL_SECTIONS.map((section, index) => {
                   const angle = WHEEL_SECTIONS.slice(0, index).reduce((sum, entry) => sum + entry.weight, 0) * 3.6 + section.weight * 1.8;
-                  return <div key={section.category} className="absolute left-1/2 top-1/2 h-[118px] w-16 origin-bottom text-center text-[8px] font-black leading-tight text-slate-950 drop-shadow" style={{ transform: `translate(-50%,-100%) rotate(${angle}deg) translateY(-35px)` }}><span className="rounded bg-white/80 px-1 py-0.5">{section.label}</span></div>;
+                  return <div key={section.category} className="absolute left-1/2 top-1/2 h-[118px] w-16 origin-bottom text-center text-[8px] font-black leading-tight text-slate-950 drop-shadow sm:text-[9px]" style={{ transform: `translate(-50%,-100%) rotate(${angle}deg) translateY(-35px)` }}><span className="rounded-md border border-white/80 bg-white/90 px-1 py-0.5 shadow-sm">{section.label}</span></div>;
                 })}
               </div>
-              <div className="absolute inset-0 z-20 m-auto flex h-20 w-20 items-center justify-center rounded-full border-4 border-amber-100 bg-gradient-to-br from-amber-300 to-yellow-500 shadow-xl">
-                {wonReward ? <img src={rewardIcon(wonReward)} alt="Prize" className="h-12 w-12 object-contain" /> : <button onClick={spin} disabled={isSpinning} className="h-full w-full rounded-full font-game text-[10px] font-black text-slate-950 disabled:animate-pulse disabled:opacity-70">{isSpinning ? 'SPIN…' : 'SPIN'}</button>}
+              <div className="absolute inset-0 z-20 m-auto flex h-[76px] w-[76px] items-center justify-center rounded-full border-[5px] border-amber-50 bg-gradient-to-br from-yellow-200 via-amber-400 to-orange-500 shadow-[0_0_0_4px_rgba(120,53,15,.55),0_5px_18px_rgba(0,0,0,.6)] sm:h-24 sm:w-24 sm:border-[6px]">
+                {wonReward ? <img src={rewardIcon(wonReward)} alt="Prize" className="h-12 w-12 object-contain drop-shadow sm:h-14 sm:w-14" /> : <button onClick={spin} disabled={isSpinning} aria-label={isSpinning ? 'Wheel spinning' : 'Spin for Day 7 reward'} className="h-full w-full rounded-full font-game text-[11px] font-black tracking-wider text-amber-950 transition hover:brightness-110 focus-visible:outline focus-visible:outline-4 focus-visible:outline-white disabled:animate-pulse disabled:opacity-80 sm:text-sm">{isSpinning ? 'SPIN…' : 'SPIN'}</button>}
               </div>
             </div>
-            {wonReward ? <div className="mt-2 text-center"><p className="font-game text-base font-black text-amber-200">{spinMessage || rewardMessage(wonReward)}</p><button onClick={() => { setView('rewards'); setNotice(''); }} className="mt-3 rounded-xl bg-gradient-to-r from-cyan-300 to-sky-400 px-6 py-2 text-xs font-black text-slate-950">CONTINUE</button></div> : <p className="mt-2 text-center text-xs text-slate-300">Press the center button to spin for your Day 7 prize.</p>}
+            {wonReward ? <div className="relative z-10 mt-2 text-center"><p className="font-game text-base font-black text-amber-200 drop-shadow sm:text-lg">{spinMessage || rewardMessage(wonReward)}</p><button onClick={() => { setView('rewards'); setNotice(''); }} className="mt-3 rounded-xl bg-gradient-to-r from-cyan-300 to-sky-400 px-7 py-2.5 text-xs font-black text-slate-950 shadow-lg transition hover:brightness-110">CONTINUE</button></div> : <p className="relative z-10 mt-2 text-center text-[11px] text-slate-300 sm:text-xs">{isSpinning ? 'Good luck! Your reward is on its way…' : 'Tap the golden button to spin the wheel.'}</p>}
             {wheelReward && isSpinning && <p className="sr-only">Spinning for {rewardMessage(wheelReward)}</p>}
           </div>
-          <div className="rounded-2xl border border-white/10 bg-slate-950/75 p-4"><h3 className="mb-3 font-game text-sm font-black text-amber-200">PRIZE ODDS</h3><ul className="space-y-2 text-[10px] text-slate-200">{[
-            ['Starmon Pack · one of 6 elements', '1% each'], ['70 Gems', '14%'], ['1 Golden Anvil', '5%'], ['1 Common Item Pack', '5%'], ['20 Star Shards', '10%'], ['10 Omni-Starmon Cards', '10%'], ['50 Gems', '35%'], ['1,000 Gold', '15%'],
-          ].map(([prize, chance]) => <li key={prize} className="flex items-start justify-between gap-2 border-b border-white/5 pb-1.5"><span>{prize}</span><b className="shrink-0 text-cyan-200">{chance}</b></li>)}</ul><p className="mt-3 text-[9px] leading-relaxed text-slate-500">The six elemental packs each have a 1% chance. All listed prize probabilities add up to 100%.</p></div>
+          <aside className="rounded-3xl border border-white/10 bg-gradient-to-b from-slate-900/95 to-indigo-950/90 p-4 shadow-xl sm:p-5">
+            <div className="mb-3 flex items-center justify-between"><div><p className="text-[9px] font-black tracking-[.2em] text-cyan-300">YOUR CHANCES</p><h3 className="font-game text-sm font-black text-amber-100">PRIZE ODDS</h3></div><span className="rounded-lg border border-amber-300/20 bg-amber-300/10 px-2 py-1 text-[9px] font-bold text-amber-200">100% TOTAL</span></div>
+            <ul className="space-y-1.5 text-[10px] text-slate-200">{[
+              ['Starmon Pack · one of 6 elements', '1% each', '#fb923c'], ['70 Gems', '14%', '#38bdf8'], ['1 Golden Anvil', '5%', '#a78bfa'], ['1 Common Item Pack', '5%', '#a16207'], ['20 Star Shards', '10%', '#f472b6'], ['10 Omni-Starmon Cards', '10%', '#818cf8'], ['50 Gems', '35%', '#0ea5e9'], ['1,000 Gold', '15%', '#facc15'],
+            ].map(([prize, chance, color]) => <li key={prize} className="flex items-center justify-between gap-2 rounded-xl border border-white/[.06] bg-white/[.035] px-2.5 py-2"><span className="flex min-w-0 items-center gap-2"><i className="h-2.5 w-2.5 shrink-0 rounded-full ring-2 ring-white/10" style={{ backgroundColor: color }} /><span className="leading-tight">{prize}</span></span><b className="shrink-0 rounded-md bg-cyan-300/10 px-1.5 py-1 text-cyan-200">{chance}</b></li>)}</ul>
+            <p className="mt-3 rounded-xl border border-white/5 bg-black/20 p-2.5 text-[9px] leading-relaxed text-slate-400">Each of the six elemental packs has a 1% chance. Every spin awards one prize.</p>
+          </aside>
         </div>
       </div> : null}
     </section>
