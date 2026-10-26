@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ArrowLeft, CalendarDays, CheckCircle2, Clock3, X } from 'lucide-react';
 import { ElementType, MysteryReward, PlayerProfile, Starmon } from '../types';
 import { getDailyRewardStatus } from '../data/dailyRewards';
@@ -7,6 +7,7 @@ import dailyRewardsBanner from '../assets/images/rewards/daily_rewards.png';
 import lockedIcon from '../assets/images/rewards/locked_icon.png';
 import chestClosed from '../assets/images/rewards/chest_closed.jpg';
 import chestOpened from '../assets/images/rewards/chest_opened.jpg';
+import day7GachaWheel from '../assets/images/rewards/day7_gacha_wheel.png';
 import claimButton from '../assets/images/rewards/claim_button.png';
 import eventsIcon from '../assets/images/rewards/events_icon.png';
 import starmonIcon from '../assets/icons/starmon_icon.png';
@@ -66,17 +67,16 @@ function rollMysteryReward(): { category: PrizeCategory; reward: MysteryReward; 
   const roll = Math.random() * 100;
   let cumulative = 0;
   let selected = WHEEL_SECTIONS[WHEEL_SECTIONS.length - 1];
-  let start = 0;
   for (const section of WHEEL_SECTIONS) {
     if (roll < cumulative + section.weight) {
       selected = section;
-      start = cumulative;
       break;
     }
     cumulative += section.weight;
   }
 
-  const midpoint = (start + selected.weight / 2) * 3.6;
+  // The supplied wheel artwork centers the first (6%) reward at 12 o'clock.
+  const midpoint = WHEEL_SECTIONS.indexOf(selected) * 45;
   switch (selected.category) {
     case 'elementalPack':
       return { category: selected.category, midpoint, reward: { type: 'elementalPack', element: ELEMENTS[Math.floor(Math.random() * ELEMENTS.length)] } };
@@ -124,15 +124,6 @@ export const EventsModal: React.FC<Props> = ({ player, ownedStarmons, onClose, o
   const [wonReward, setWonReward] = useState<MysteryReward | null>(null);
   const [wheelReward, setWheelReward] = useState<MysteryReward | null>(null);
   const progress = getDailyRewardStatus(player.dailyRewardProgress, now);
-  const gradient = useMemo(() => {
-    let cursor = 0;
-    return WHEEL_SECTIONS.map(section => {
-      const start = cursor;
-      cursor += section.weight;
-      return `${section.color} ${start}% ${cursor}%`;
-    }).join(', ');
-  }, []);
-
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 30_000);
     return () => window.clearInterval(timer);
@@ -156,7 +147,7 @@ export const EventsModal: React.FC<Props> = ({ player, ownedStarmons, onClose, o
       } else {
         setNotice(claim.message || 'This daily reward has already been claimed.');
       }
-    }, 4300);
+    }, 5000);
   };
 
   const claimDay = (day: number) => {
@@ -256,21 +247,11 @@ export const EventsModal: React.FC<Props> = ({ player, ownedStarmons, onClose, o
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-300" /> DAY 7 · MYSTERY CHEST
             </div>
             <p className="relative z-10 mb-1 text-center text-[11px] text-slate-300 sm:text-xs">One spin, one surprise. What will you win?</p>
-            <img src={chestOpened} alt="Opened mystery chest" className="relative z-10 mb-1 h-20 w-32 object-contain drop-shadow-[0_8px_14px_rgba(251,191,36,.25)] sm:h-24 sm:w-36" />
-            <div className="relative z-10 my-3 h-64 w-64 rounded-full bg-amber-300/10 p-[5px] shadow-[0_0_0_1px_rgba(253,230,138,.35),0_0_35px_rgba(251,191,36,.28)] sm:h-80 sm:w-80 sm:p-[7px]">
-              <div className="absolute -top-2 left-1/2 z-30 -translate-x-1/2 border-x-[13px] border-t-[23px] border-x-transparent border-t-rose-400 drop-shadow-[0_2px_5px_rgba(0,0,0,.8)] sm:-top-3 sm:border-x-[15px] sm:border-t-[27px]" />
-              <div className="relative h-full w-full overflow-hidden rounded-full border-[5px] border-amber-100/90 shadow-[inset_0_0_18px_rgba(15,23,42,.65)] sm:border-[7px]" style={{ background: `conic-gradient(${gradient})`, transform: `rotate(${wheelRotation}deg)`, transition: isSpinning ? 'transform 4.3s cubic-bezier(.12,.72,.12,1)' : 'none' }}>
-                <div className="pointer-events-none absolute inset-0 rounded-full bg-[radial-gradient(circle,transparent_35%,rgba(15,23,42,.28)_100%)]" />
-                {WHEEL_SECTIONS.map((section, index) => {
-                  const angle = WHEEL_SECTIONS.slice(0, index).reduce((sum, entry) => sum + entry.weight, 0) * 3.6 + section.weight * 1.8;
-                  return <div key={section.category} className="absolute left-1/2 top-1/2 h-[118px] w-16 origin-bottom text-center text-[8px] font-black leading-tight text-slate-950 drop-shadow sm:text-[9px]" style={{ transform: `translate(-50%,-100%) rotate(${angle}deg) translateY(-35px)` }}><span className="rounded-md border border-white/80 bg-white/90 px-1 py-0.5 shadow-sm">{section.label}</span></div>;
-                })}
-              </div>
-              <div className="absolute inset-0 z-20 m-auto flex h-[76px] w-[76px] items-center justify-center rounded-full border-[5px] border-amber-50 bg-gradient-to-br from-yellow-200 via-amber-400 to-orange-500 shadow-[0_0_0_4px_rgba(120,53,15,.55),0_5px_18px_rgba(0,0,0,.6)] sm:h-24 sm:w-24 sm:border-[6px]">
-                {wonReward ? <img src={rewardIcon(wonReward)} alt="Prize" className="h-12 w-12 object-contain drop-shadow sm:h-14 sm:w-14" /> : <button onClick={spin} disabled={isSpinning} aria-label={isSpinning ? 'Wheel spinning' : 'Spin for Day 7 reward'} className="h-full w-full rounded-full font-game text-[11px] font-black tracking-wider text-amber-950 transition hover:brightness-110 focus-visible:outline focus-visible:outline-4 focus-visible:outline-white disabled:animate-pulse disabled:opacity-80 sm:text-sm">{isSpinning ? 'SPIN…' : 'SPIN'}</button>}
-              </div>
+            <div className="relative z-10 my-3 aspect-square w-full max-w-[22rem] drop-shadow-[0_12px_28px_rgba(251,191,36,.22)]">
+              <img src={day7GachaWheel} alt="Day 7 prize wheel" draggable={false} className="h-full w-full select-none object-contain" style={{ transform: `rotate(${wheelRotation}deg)`, transition: isSpinning ? 'transform 5s cubic-bezier(.08,.78,.12,1)' : 'none' }} />
+              <button onClick={spin} disabled={isSpinning || Boolean(wonReward)} aria-label={isSpinning ? 'Wheel spinning' : 'Spin for Day 7 reward'} className="absolute left-1/2 top-1/2 flex h-[22%] w-[22%] -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-emerald-200/80 bg-emerald-900/35 font-game text-[11px] font-black tracking-wider text-white shadow-[inset_0_0_14px_rgba(16,185,129,.8),0_2px_10px_rgba(0,0,0,.6)] transition hover:bg-emerald-700/55 hover:shadow-[inset_0_0_18px_rgba(16,185,129,1),0_0_16px_rgba(16,185,129,.8)] focus-visible:outline focus-visible:outline-4 focus-visible:outline-white disabled:cursor-wait disabled:opacity-90 sm:text-sm">{isSpinning ? '…' : 'SPIN'}</button>
             </div>
-            {wonReward ? <div className="relative z-10 mt-2 text-center"><p className="font-game text-base font-black text-amber-200 drop-shadow sm:text-lg">{spinMessage || rewardMessage(wonReward)}</p><button onClick={() => { setView('rewards'); setNotice(''); }} className="mt-3 rounded-xl bg-gradient-to-r from-cyan-300 to-sky-400 px-7 py-2.5 text-xs font-black text-slate-950 shadow-lg transition hover:brightness-110">CONTINUE</button></div> : <p className="relative z-10 mt-2 text-center text-[11px] text-slate-300 sm:text-xs">{isSpinning ? 'Good luck! Your reward is on its way…' : 'Tap the golden button to spin the wheel.'}</p>}
+            <p className="relative z-10 mt-2 text-center text-[11px] text-slate-300 sm:text-xs">{isSpinning ? 'Good luck! Your reward is on its way…' : 'Tap the golden button to spin the wheel.'}</p>
             {wheelReward && isSpinning && <p className="sr-only">Spinning for {rewardMessage(wheelReward)}</p>}
           </div>
           <aside className="rounded-3xl border border-white/10 bg-gradient-to-b from-slate-900/95 to-indigo-950/90 p-4 shadow-xl sm:p-5">
@@ -281,6 +262,15 @@ export const EventsModal: React.FC<Props> = ({ player, ownedStarmons, onClose, o
             <p className="mt-3 rounded-xl border border-white/5 bg-black/20 p-2.5 text-[9px] leading-relaxed text-slate-400">Each of the six elemental packs has a 1% chance. Every spin awards one prize.</p>
           </aside>
         </div>
+        {wonReward && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="day7-reward-title">
+          <div className="w-full max-w-sm rounded-3xl border-2 border-amber-300/80 bg-gradient-to-b from-indigo-950 via-slate-950 to-amber-950/80 p-6 text-center shadow-[0_0_60px_rgba(251,191,36,.3)] animate-in zoom-in-95 duration-300">
+            <img src={chestOpened} alt="Opened mystery chest" className="mx-auto h-28 w-40 object-contain drop-shadow-[0_8px_18px_rgba(251,191,36,.35)]" />
+            <p className="mt-1 text-[10px] font-black tracking-[.25em] text-amber-300">DAY 7 GRAND PRIZE</p>
+            <h3 id="day7-reward-title" className="mt-2 font-game text-xl font-black text-amber-100">{spinMessage || rewardMessage(wonReward)}</h3>
+            <div className="mx-auto mt-4 flex h-20 w-20 items-center justify-center rounded-2xl border border-amber-200/40 bg-amber-300/10 p-3 shadow-inner"><img src={rewardIcon(wonReward)} alt={rewardMessage(wonReward)} className="h-full w-full object-contain" /></div>
+            <button onClick={() => { setView('rewards'); setNotice(''); }} className="mt-6 rounded-xl bg-gradient-to-r from-cyan-300 to-sky-400 px-8 py-3 text-xs font-black text-slate-950 shadow-lg transition hover:brightness-110">CLAIMED · CONTINUE</button>
+          </div>
+        </div>}
       </div> : null}
     </section>
   </div>;

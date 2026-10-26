@@ -747,6 +747,8 @@ interface PlayerSlotState {
   slot: 1 | 2; // 1 = Player 1 (Host / TRÁI), 2 = Player 2 (Guest / PHẢI)
   starmons: StarmonCombatant[];
   results: (boolean | null)[];
+  questionScores: (number | null)[];
+  questionTypes: ('mcq' | 'speaking' | null)[];
   hasSubmittedAnswer: boolean;
   answeredCount: number;
   socket?: WebSocket | null;
@@ -920,6 +922,8 @@ function serializeMatchState(state: PvpMatchState | null | undefined): any {
         slot: p1?.slot || 1,
         starmons: p1?.starmons ? p1.starmons.map(s => ({ ...s })) : [],
         results: p1?.results ? [...p1.results] : [null, null, null],
+        questionScores: p1?.questionScores ? [...p1.questionScores] : [null, null, null],
+        questionTypes: p1?.questionTypes ? [...p1.questionTypes] : [null, null, null],
         hasSubmittedAnswer: Boolean(p1?.hasSubmittedAnswer),
         answeredCount: p1?.answeredCount || 0,
       },
@@ -929,6 +933,8 @@ function serializeMatchState(state: PvpMatchState | null | undefined): any {
         slot: p2?.slot || 2,
         starmons: p2?.starmons ? p2.starmons.map(s => ({ ...s })) : [],
         results: p2?.results ? [...p2.results] : [null, null, null],
+        questionScores: p2?.questionScores ? [...p2.questionScores] : [null, null, null],
+        questionTypes: p2?.questionTypes ? [...p2.questionTypes] : [null, null, null],
         hasSubmittedAnswer: Boolean(p2?.hasSubmittedAnswer),
         answeredCount: p2?.answeredCount || 0,
       },
@@ -939,6 +945,8 @@ function serializeMatchState(state: PvpMatchState | null | undefined): any {
       slot: p1?.slot || 1,
       starmons: p1?.starmons ? p1.starmons.map(s => ({ ...s })) : [],
       results: p1?.results ? [...p1.results] : [null, null, null],
+      questionScores: p1?.questionScores ? [...p1.questionScores] : [null, null, null],
+      questionTypes: p1?.questionTypes ? [...p1.questionTypes] : [null, null, null],
       hasSubmittedAnswer: Boolean(p1?.hasSubmittedAnswer),
       answeredCount: p1?.answeredCount || 0,
     },
@@ -948,6 +956,8 @@ function serializeMatchState(state: PvpMatchState | null | undefined): any {
       slot: p2?.slot || 2,
       starmons: p2?.starmons ? p2.starmons.map(s => ({ ...s })) : [],
       results: p2?.results ? [...p2.results] : [null, null, null],
+      questionScores: p2?.questionScores ? [...p2.questionScores] : [null, null, null],
+      questionTypes: p2?.questionTypes ? [...p2.questionTypes] : [null, null, null],
       hasSubmittedAnswer: Boolean(p2?.hasSubmittedAnswer),
       answeredCount: p2?.answeredCount || 0,
     },
@@ -1494,6 +1504,8 @@ function initializeMatchForRoom(room: PvpRoom): PvpMatchState {
     slot: 1,
     starmons: createDefaultStarmonsForSlot(1, p1?.starmons),
     results: [null, null, null],
+    questionScores: [null, null, null],
+    questionTypes: [null, null, null],
     hasSubmittedAnswer: false,
     answeredCount: 0,
   };
@@ -1504,6 +1516,8 @@ function initializeMatchForRoom(room: PvpRoom): PvpMatchState {
     slot: 2,
     starmons: createDefaultStarmonsForSlot(2, p2?.starmons),
     results: [null, null, null],
+    questionScores: [null, null, null],
+    questionTypes: [null, null, null],
     hasSubmittedAnswer: false,
     answeredCount: 0,
   };
@@ -1804,6 +1818,8 @@ function startPhase(state: PvpMatchState, roomCode: string, subPhase: 1 | 2 | 3)
     for (const slot of [1, 2] as const) {
       const p = state.players[slot];
       p.results = p.starmons.map(() => null);
+      p.questionScores = [null, null, null];
+      p.questionTypes = [null, null, null];
       p.hasSubmittedAnswer = false;
       p.answeredCount = 0;
       p.starmons.forEach(s => {
@@ -1852,6 +1868,16 @@ function startPhase(state: PvpMatchState, roomCode: string, subPhase: 1 | 2 | 3)
     seed: state.seed,
     p1_hp: state.players[1].starmons.map(s => s.hp),
     p2_hp: state.players[2].starmons.map(s => s.hp),
+    p1_results: state.players[1].results.map(result => result === true),
+    p2_results: state.players[2].results.map(result => result === true),
+    p1_question_scores: state.players[1].questionScores || [],
+    p2_question_scores: state.players[2].questionScores || [],
+    p1_question_types: state.players[1].questionTypes || [],
+    p2_question_types: state.players[2].questionTypes || [],
+    p1_starmon_names: state.players[1].starmons.map(s => s.name),
+    p2_starmon_names: state.players[2].starmons.map(s => s.name),
+    p1_name: state.players[1].name,
+    p2_name: state.players[2].name,
     p1_mana: state.players[1].starmons.map(s => s.mana),
     p2_mana: state.players[2].starmons.map(s => s.mana),
   };
@@ -1902,6 +1928,16 @@ function buildCurrentPhaseSyncPayload(state: PvpMatchState) {
     version: state.boardVersion,
     p1_hp: state.players[1].starmons.map(mon => mon.hp),
     p2_hp: state.players[2].starmons.map(mon => mon.hp),
+    p1_results: state.players[1].results.map(result => result === true),
+    p2_results: state.players[2].results.map(result => result === true),
+    p1_question_scores: state.players[1].questionScores || [],
+    p2_question_scores: state.players[2].questionScores || [],
+    p1_question_types: state.players[1].questionTypes || [],
+    p2_question_types: state.players[2].questionTypes || [],
+    p1_starmon_names: state.players[1].starmons.map(mon => mon.name),
+    p2_starmon_names: state.players[2].starmons.map(mon => mon.name),
+    p1_name: state.players[1].name,
+    p2_name: state.players[2].name,
     p1_mana: state.players[1].starmons.map(mon => mon.mana),
     p2_mana: state.players[2].starmons.map(mon => mon.mana),
   };
@@ -3179,6 +3215,12 @@ wss.on('connection', (ws) => {
                 P.starmons[idx].unlocked = isOk;
               }
             });
+            if (Array.isArray(msg.question_scores)) {
+              P.questionScores = msg.question_scores.slice(0, 3).map((score: unknown) => typeof score === 'number' && Number.isFinite(score) ? score : null);
+            }
+            if (Array.isArray(msg.question_types)) {
+              P.questionTypes = msg.question_types.slice(0, 3).map((type: unknown) => type === 'mcq' || type === 'speaking' ? type : null);
+            }
           }
           break;
         }

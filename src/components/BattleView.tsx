@@ -339,6 +339,32 @@ export const BattleView: React.FC<Props> = ({
   const [pvpTurnBanner, setPvpTurnBanner] = useState<string | null>(null);
   const [pvpTurnTimer, setPvpTurnTimer] = useState<number | null>(null);
   const [pvpWaitingForPhaseTransition, setPvpWaitingForPhaseTransition] = useState(false);
+  const [phase1Recap, setPhase1Recap] = useState<{
+    turn: number;
+    players: { name: string; results: boolean[]; scores: (number | null)[]; questionTypes: ('mcq' | 'speaking' | null)[]; starmonNames: string[] }[];
+  } | null>(null);
+  const phase1RecapTurnRef = useRef<string | null>(null);
+  const openPhase1Recap = (message: any, turn: number) => {
+    const matchState = message.state || message.matchState;
+    const p1 = matchState?.players?.[1] || matchState?.player1;
+    const p2 = matchState?.players?.[2] || matchState?.player2;
+    const p1Results = message.p1_results || p1?.results;
+    const p2Results = message.p2_results || p2?.results;
+    const p1Scores = message.p1_question_scores || p1?.questionScores || [];
+    const p2Scores = message.p2_question_scores || p2?.questionScores || [];
+    const p1Types = message.p1_question_types || p1?.questionTypes || [];
+    const p2Types = message.p2_question_types || p2?.questionTypes || [];
+    const recapKey = `${pvpRoomInfo?.code || ''}:${turn}`;
+    if (!isPvP || phase1RecapTurnRef.current === recapKey || !Array.isArray(p1Results) || !Array.isArray(p2Results)) return;
+    phase1RecapTurnRef.current = recapKey;
+    setPhase1Recap({
+      turn,
+      players: [
+        { name: message.p1_name || p1?.name || 'Player 1', results: p1Results.map(Boolean), scores: Array.isArray(p1Scores) ? p1Scores : [], questionTypes: Array.isArray(p1Types) ? p1Types : [], starmonNames: Array.isArray(message.p1_starmon_names) ? message.p1_starmon_names : p1?.starmons?.map((mon: Starmon) => mon.name) || [] },
+        { name: message.p2_name || p2?.name || 'Player 2', results: p2Results.map(Boolean), scores: Array.isArray(p2Scores) ? p2Scores : [], questionTypes: Array.isArray(p2Types) ? p2Types : [], starmonNames: Array.isArray(message.p2_starmon_names) ? message.p2_starmon_names : p2?.starmons?.map((mon: Starmon) => mon.name) || [] },
+      ],
+    });
+  };
   const pvpTimeoutRequestedPhaseRef = useRef<string | null>(null);
   const [isActionPendingServer, setIsActionPendingServer] = useState<boolean>(false);
   const [actingStepIndex, setActingStepIndex] = useState<number>(0);
@@ -366,6 +392,8 @@ export const BattleView: React.FC<Props> = ({
   pvpTargetSlotRef.current = pvpTargetSlot;
 
   const pvpQuizAnswersRef = useRef<boolean[]>([]);
+  const pvpQuestionScoresRef = useRef<(number | null)[]>([null, null, null]);
+  const pvpQuestionTypesRef = useRef<('mcq' | 'speaking' | null)[]>([null, null, null]);
   const boardVersionRef = useRef<number>(0);
 
   // 5. Client — map slot sang trái/phải chỉ để hiển thị
@@ -1439,6 +1467,7 @@ export const BattleView: React.FC<Props> = ({
                 preparePvpQuizForTurn(tNum, msg.time_limit);
                 if (typeof msg.time_limit === 'number') setQuestionTimer(msg.time_limit);
               } else if (sPhase === 2 || sPhase === 3) {
+                if (sPhase === 2) openPhase1Recap(msg, tNum);
                 setIsActionPendingServer(false);
                 setPvpWaitingForOpponentSpeaking(false);
                 setPhase('phase2_combat');
@@ -1518,6 +1547,7 @@ export const BattleView: React.FC<Props> = ({
               }
               if (typeof msg.time_limit === 'number') setQuestionTimer(msg.time_limit);
             } else if (sub === 2 || sub === 3) {
+              if (sub === 2) openPhase1Recap(msg, turnNum);
               setIsActionPendingServer(false);
               setPvpWaitingForOpponentSpeaking(false);
               setPvpActionMenu(null);
@@ -2061,6 +2091,8 @@ export const BattleView: React.FC<Props> = ({
     setActiveQuestionIndex(0);
     setAnsweredState({});
     pvpQuizAnswersRef.current = [];
+    pvpQuestionScoresRef.current = [null, null, null];
+    pvpQuestionTypesRef.current = [null, null, null];
     setUnlockedPositions(Array(partySize).fill(false));
     setQuestionTimer(timeLimit || QUESTION_TIME_LIMIT);
     setIeltsAiResult(null);
@@ -2171,6 +2203,16 @@ export const BattleView: React.FC<Props> = ({
       setRecordingErrorNotice('');
 
       if (isPvP) {
+        sendPvpMessage({
+          type: 'PVP_ANSWER_PROGRESS',
+          room_code: pvpRoomInfo?.code,
+          slot: pvpMySlotRef.current,
+          player_id: pvpRoomInfo?.myPlayerId || 'player',
+          round_number: currentRoundNumberRef.current,
+          results: [...pvpQuizAnswersRef.current],
+          question_scores: [...pvpQuestionScoresRef.current],
+          question_types: currentQuizSet.map(question => question.type),
+        });
         submitPvPSpeakingFinish(finalAns, true);
       } else {
         setPhase('phase2_combat');
@@ -2192,6 +2234,12 @@ export const BattleView: React.FC<Props> = ({
     setExpandedFeedbackSection('none');
     setAnsweredState(prev => ({ ...prev, [activeQuestionIndex]: isCorrect }));
     pvpQuizAnswersRef.current[activeQuestionIndex] = isCorrect;
+    const gradedQuestion = ieltsResultsMap[activeQuestionIndex] || ieltsAiResult;
+    const questionScore = currentQ.type === 'mcq'
+      ? (isCorrect ? 1 : 0)
+      : (gradedQuestion?.overall_score ?? gradedQuestion?.overallBand ?? 0);
+    pvpQuestionScoresRef.current[activeQuestionIndex] = questionScore;
+    pvpQuestionTypesRef.current[activeQuestionIndex] = currentQ.type;
 
     if (isPvP && pvpRoomInfo?.code) {
       sendPvpMessage({
@@ -2201,6 +2249,8 @@ export const BattleView: React.FC<Props> = ({
         player_id: pvpRoomInfo.myPlayerId || 'player',
         round_number: currentRoundNumberRef.current,
         results: [...pvpQuizAnswersRef.current],
+        question_scores: [...pvpQuestionScoresRef.current],
+        question_types: currentQuizSet.map(question => question.type),
       });
     }
 
@@ -2306,6 +2356,8 @@ export const BattleView: React.FC<Props> = ({
     // Mark current question as skipped (false = 0 điểm)
     setAnsweredState(prev => ({ ...prev, [activeQuestionIndex]: false }));
     pvpQuizAnswersRef.current[activeQuestionIndex] = false;
+    pvpQuestionScoresRef.current[activeQuestionIndex] = 0;
+    pvpQuestionTypesRef.current[activeQuestionIndex] = currentQ.type;
     if (isPvP && pvpRoomInfo?.code) {
       sendPvpMessage({
         type: 'PVP_ANSWER_PROGRESS',
@@ -2314,6 +2366,8 @@ export const BattleView: React.FC<Props> = ({
         player_id: pvpRoomInfo.myPlayerId || 'player',
         round_number: currentRoundNumberRef.current,
         results: [...pvpQuizAnswersRef.current],
+        question_scores: [...pvpQuestionScoresRef.current],
+        question_types: currentQuizSet.map(question => question.type),
       });
     }
     setPerformanceStats(prev => ({
@@ -2745,6 +2799,8 @@ export const BattleView: React.FC<Props> = ({
         if (responseSource === 'spoken') saveSpeakingLogEntry(questionItem, transcriptText, data as IeltsAiEvaluationResult);
         setEvaluatingMap(prev => ({ ...prev, [targetIndex]: false }));
         pvpQuizAnswersRef.current[targetIndex] = canAttack;
+        pvpQuestionScoresRef.current[targetIndex] = score;
+        pvpQuestionTypesRef.current[targetIndex] = questionItem.type;
 
         if (canAttack) {
           setUnlockedPositions(prev => {
@@ -2926,6 +2982,8 @@ export const BattleView: React.FC<Props> = ({
     if (responseSource === 'spoken') saveSpeakingLogEntry(questionItem, transcriptText, fallbackResult);
     setEvaluatingMap(prev => ({ ...prev, [targetIndex]: false }));
     pvpQuizAnswersRef.current[targetIndex] = isPassed;
+    pvpQuestionScoresRef.current[targetIndex] = roundedScore;
+    pvpQuestionTypesRef.current[targetIndex] = questionItem.type;
     if (isPassed) {
       setUnlockedPositions(prev => {
         const next = [...prev];
@@ -2984,6 +3042,8 @@ export const BattleView: React.FC<Props> = ({
           player_id: pvpRoomInfo.myPlayerId || 'player',
           round_number: currentRoundNumberRef.current,
           results: finalResults,
+          question_scores: [...pvpQuestionScoresRef.current],
+          question_types: currentQuizSet.map(question => question.type),
           finished: true,
         });
       }
@@ -10021,6 +10081,48 @@ export const BattleView: React.FC<Props> = ({
             >
               CLOSE
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* PVP PHASE 1 RECAP */}
+      {/* ======================================================== */}
+      {phase1Recap && (
+        <div className="fixed inset-0 z-[140] flex items-center justify-center bg-slate-950/85 p-3 backdrop-blur-md animate-in fade-in duration-200" role="dialog" aria-modal="true" aria-labelledby="phase1-recap-title">
+          <div className="w-full max-w-4xl overflow-hidden rounded-3xl border-2 border-cyan-300/70 bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 text-slate-100 shadow-[0_0_70px_rgba(34,211,238,.18)]">
+            <header className="border-b border-white/10 bg-slate-950/60 px-5 py-4 text-center">
+              <p className="text-[10px] font-black tracking-[.28em] text-cyan-300">ROUND {phase1Recap.turn} COMPLETE</p>
+              <h2 id="phase1-recap-title" className="mt-1 font-game text-2xl font-black tracking-wide text-amber-200">Phase 1 Recap</h2>
+              <p className="mt-1 text-xs text-slate-400">Điểm từng câu và trạng thái lượt của cả hai người chơi</p>
+            </header>
+            <div className="grid gap-3 p-4 md:grid-cols-2 md:p-5">
+              {phase1Recap.players.map((player, playerIndex) => (
+                <section key={`${player.name}-${playerIndex}`} className="overflow-hidden rounded-2xl border border-white/10 bg-slate-950/60">
+                  <h3 className={`border-b border-white/10 px-4 py-3 text-sm font-black ${playerIndex === 0 ? 'text-cyan-200' : 'text-fuchsia-200'}`}>{playerIndex === 0 ? '◀' : '▶'} {player.name}</h3>
+                  <div className="divide-y divide-white/[.06]">
+                    {Array.from({ length: Math.max(3, player.results.length) }, (_, questionIndex) => {
+                      const success = Boolean(player.results[questionIndex]);
+                      const starmonName = player.starmonNames[questionIndex] || `Starmon ${questionIndex + 1}`;
+                      const score = player.scores[questionIndex];
+                      const questionType = player.questionTypes[questionIndex];
+                      const scoreLabel = questionType === 'speaking'
+                        ? `Band ${typeof score === 'number' ? score.toFixed(1) : '0.0'}`
+                        : `${typeof score === 'number' ? score : 0} điểm`;
+                      return <div key={questionIndex} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+                        <div className="min-w-0"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Câu {questionIndex + 1}</p><p className="truncate text-xs font-bold text-slate-100">{starmonName}</p></div>
+                        <span className={`rounded-lg px-2 py-1 text-[10px] font-black ${success ? 'bg-emerald-400/10 text-emerald-300' : 'bg-rose-400/10 text-rose-300'}`}>{scoreLabel}</span>
+                        <span className={`col-span-2 inline-flex items-center gap-1.5 text-[10px] font-black sm:col-span-1 ${success ? 'text-emerald-300' : 'text-rose-300'}`}><span className={`h-2 w-2 rounded-full ${success ? 'bg-emerald-400' : 'bg-rose-400'}`} />{success ? 'Trả lời thành công' : 'Mất lượt'}</span>
+                      </div>;
+                    })}
+                  </div>
+                  <div className="flex justify-between border-t border-white/10 bg-white/[.025] px-4 py-2 text-[10px] text-slate-400"><span>Câu trả lời thành công</span><b className="text-amber-200">{player.results.filter(Boolean).length} / {Math.max(3, player.results.length)}</b></div>
+                </section>
+              ))}
+            </div>
+            <footer className="border-t border-white/10 bg-black/20 px-4 py-3 text-center">
+              <button onClick={() => { sound.playClick(); setPhase1Recap(null); }} className="rounded-xl bg-gradient-to-r from-cyan-300 to-sky-400 px-8 py-3 text-xs font-black text-slate-950 shadow-lg transition hover:brightness-110">TIẾP TỤC PHASE 2</button>
+            </footer>
           </div>
         </div>
       )}
