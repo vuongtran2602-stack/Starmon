@@ -24,7 +24,7 @@ import { sound } from './services/sound';
 import { getEquipmentUpgradeCost, getItemLevelStats, ITEM_CRAFT_COST } from './data/itemStats';
 import { EQUIPMENT_ITEMS_CATALOG } from './data/itemsData';
 import { EventsModal } from './components/EventsModal';
-import { getDailyRewardStatus } from './data/dailyRewards';
+import { getDailyRewardStatus, localDateKey } from './data/dailyRewards';
 import { testSupabaseConnection } from './services/supabase';
 import { getResearchLevel, getUnlockedItemSlots, RESEARCH_NODES, ResearchNodeId, isResearchNodeUnlocked, getResearchStatBonuses } from './data/techResearch';
 
@@ -1528,6 +1528,18 @@ export default function App() {
         };
       });
       return { success: true, message: 'Đã mở khóa các phần thưởng Daily Rewards chưa nhận.' };
+    }
+
+    if (code === 'resetdailyrewards') {
+      dailyRewardClaimsInFlight.current.clear();
+      setPlayer(prev => ({
+        ...prev,
+        dailyRewardProgress: {
+          cycleStartedOn: localDateKey(new Date()),
+          claimedDays: [],
+        },
+      }));
+      return { success: true, message: 'Daily Rewards đã được làm mới từ ngày 1.' };
     }
 
     // Resource test codes are intentionally not listed in the interface.
