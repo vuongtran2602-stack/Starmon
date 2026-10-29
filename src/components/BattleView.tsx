@@ -51,6 +51,12 @@ import {
   Home
 } from 'lucide-react';
 import phase1Bg from '../assets/images/phase1_bg.png';
+import bubbleLtr from '../assets/images/skill-effects/bubble-left-to-right.jpeg';
+import bubbleRtl from '../assets/images/skill-effects/bubble-right-to-left.jpeg';
+import fireLtr from '../assets/images/skill-effects/fire-left-to-right.jpeg';
+import fireRtl from '../assets/images/skill-effects/fire-right-to-left.jpeg';
+import windLtr from '../assets/images/skill-effects/wind-left-to-right.png';
+import windRtl from '../assets/images/skill-effects/wind-right-to-left.jpeg';
 import { getArenaMap } from '../data/arenaMaps';
 import { GOLD_IMAGE } from '../data/itemsData';
 import { getVietnameseAnalysisForQuestion } from '../data/vietnameseSuggestions';
@@ -121,6 +127,20 @@ export interface IeltsAiEvaluationResult {
 const ELEMENTS: ElementType[] = ['Fire', 'Water', 'Electric', 'Wind', 'Earth', 'Metal'];
 const BOARD_SIZE = 8;
 const QUESTION_TIME_LIMIT = 120; // 120 seconds for Phase 1 speaking practice
+type SkillVfxType = 'projectile' | 'on-target';
+type SkillVfxAssetSet = { type: SkillVfxType; leftToRight: string; rightToLeft: string };
+const ACTIVE_SKILL_VFX: Record<string, SkillVfxAssetSet> = {
+  'pyrokit-1': { type: 'projectile', leftToRight: fireLtr, rightToLeft: fireRtl },
+  'ignisaur-2': { type: 'projectile', leftToRight: fireLtr, rightToLeft: fireRtl },
+  'moltenback-1': { type: 'projectile', leftToRight: fireLtr, rightToLeft: fireRtl },
+  'cottontail-1': { type: 'projectile', leftToRight: windLtr, rightToLeft: windRtl },
+  'zephyrion-1': { type: 'projectile', leftToRight: windLtr, rightToLeft: windRtl },
+  'frostmoth-1': { type: 'projectile', leftToRight: windLtr, rightToLeft: windRtl },
+  'coralus-1': { type: 'projectile', leftToRight: bubbleLtr, rightToLeft: bubbleRtl },
+  'aquanymph-1': { type: 'projectile', leftToRight: bubbleLtr, rightToLeft: bubbleRtl },
+  'bubbleboon-2': { type: 'projectile', leftToRight: bubbleLtr, rightToLeft: bubbleRtl },
+  'mineacle-1': { type: 'projectile', leftToRight: bubbleLtr, rightToLeft: bubbleRtl },
+};
 const ADVANCED_SPEAKING_VOCAB = [
   'sustainable development', 'renewable energy', 'carbon footprint', 'climate change', 'biodiversity', 'artificial intelligence',
   'critical thinking', 'broaden my horizons', 'a double-edged sword', 'plays a pivotal role', 'quality of life', 'work-life balance',
@@ -3214,6 +3234,25 @@ export const BattleView: React.FC<Props> = ({
         ? playerTeam[actingStepIndex]
         : null);
 
+  const [skillVfx, setSkillVfx] = useState<{ src: string; x: number; y: number; dx: number; dy: number; type: SkillVfxType; id: number; launched: boolean } | null>(null);
+  const playActiveSkillVfx = (starmon: Starmon, skillNum: 1 | 2, attackerId: string, targetId: string) => {
+    const config = ACTIVE_SKILL_VFX[`${starmon.id}-${skillNum}`] || ACTIVE_SKILL_VFX[`${starmon.avatarSeed}-${skillNum}`];
+    if (!config) return;
+    const attacker = document.querySelector<HTMLElement>(attackerId)?.getBoundingClientRect();
+    const target = document.querySelector<HTMLElement>(targetId)?.getBoundingClientRect();
+    if (!attacker || !target) return;
+    const sx = attacker.left + attacker.width / 2;
+    const sy = attacker.top + attacker.height / 2;
+    const tx = target.left + target.width / 2;
+    const ty = target.top + target.height / 2;
+    const leftToRight = tx >= sx;
+    const src = leftToRight ? config.leftToRight : config.rightToLeft;
+    const id = Date.now();
+    setSkillVfx({ src, x: sx - 110, y: sy - 70, dx: tx - sx, dy: ty - sy, type: config.type, id, launched: false });
+    requestAnimationFrame(() => requestAnimationFrame(() => setSkillVfx(current => current?.id === id ? { ...current, launched: true } : current)));
+    window.setTimeout(() => setSkillVfx(current => current?.id === id ? null : current), config.type === 'projectile' ? 720 : 900);
+  };
+
   useEffect(() => {
     if (enemyTeam[selectedEnemyIndex]?.currentHp <= 0) {
       const nextLiving = enemyTeam.findIndex(e => e.currentHp > 0);
@@ -3970,6 +4009,12 @@ export const BattleView: React.FC<Props> = ({
     }
 
     sound.playSkillCast();
+    playActiveSkillVfx(
+      activeAttackingStarmon,
+      abilityNum,
+      `[data-skill-vfx-player="${isPvP ? pvpActionMenu?.starmonIndex ?? actingStepIndex : actingStepIndex}"]`,
+      `[data-skill-vfx-enemy="${selectedEnemyIndex}"]`,
+    );
     setSelectedAbilityDetail(null);
 
     // BUBBLEBOON ABILITY 1: DOUBLE JET PUNCH (55 MANA)
@@ -7251,6 +7296,25 @@ export const BattleView: React.FC<Props> = ({
 
   return (
     <div className="w-full h-screen max-h-screen overflow-hidden flex flex-col justify-between bg-slate-950 text-slate-100 select-none">
+      {skillVfx && (
+        <img
+          key={skillVfx.id}
+          src={skillVfx.src}
+          alt=""
+          aria-hidden="true"
+          className="fixed z-[120] pointer-events-none object-contain"
+          style={{
+            left: skillVfx.type === 'projectile' || !skillVfx.launched ? skillVfx.x : skillVfx.x + skillVfx.dx,
+            top: skillVfx.type === 'projectile' || !skillVfx.launched ? skillVfx.y : skillVfx.y + skillVfx.dy,
+            width: 220,
+            height: 140,
+            mixBlendMode: 'screen',
+            opacity: skillVfx.launched ? 1 : 0.9,
+            transform: skillVfx.type === 'projectile' && skillVfx.launched ? `translate(${skillVfx.dx}px, ${skillVfx.dy}px) scale(0.65)` : 'scale(0.85)',
+            transition: skillVfx.type === 'projectile' ? 'transform 560ms cubic-bezier(.2,.75,.25,1), opacity 560ms ease-out' : 'transform 180ms ease-out, opacity 180ms ease-out',
+          }}
+        />
+      )}
       {/* TUTORIAL MODE TOP BANNER */}
       {tutorialStage && (
         <div className="bg-gradient-to-r from-amber-950 via-slate-900 to-indigo-950 border-b-2 border-amber-400 px-3 md:px-5 py-2 flex items-center justify-between shadow-xl z-30 shrink-0">
@@ -8401,6 +8465,7 @@ export const BattleView: React.FC<Props> = ({
                 return (
                   <div
                     key={mon.id}
+                    data-skill-vfx-player={idx}
                     id={tutorialStage === 'abilities' ? `tutorial-starmon-${idx}` : idx === 0 ? "tutorial-player-starmon-0" : undefined}
                     className={`p-2.5 rounded-2xl border-2 transition-all relative ${
                       isLostTurnNow
@@ -9112,6 +9177,7 @@ export const BattleView: React.FC<Props> = ({
                 return (
                   <div
                     key={enemy.id}
+                    data-skill-vfx-enemy={idx}
                     id={tutorialStage === 'abilities' ? `tutorial-target-${idx}` : undefined}
                     onClick={() => {
                       if (!isDead) {
