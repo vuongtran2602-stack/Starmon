@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { sound } from '../services/sound';
 import { GOLD_IMAGE } from '../data/itemsData';
 import {
@@ -23,15 +23,16 @@ import {
 
 interface Props {
   onClose: () => void;
-  onStartTutorialMatch?: (stage: 1 | 2 | 3) => void;
+  onStartTutorialMatch?: (stage: 1 | 2 | 3 | 'abilities') => void;
   hasClaimedTutorial1Reward?: boolean;
 }
 
 export const TutorialModal: React.FC<Props> = ({ onClose, onStartTutorialMatch, hasClaimedTutorial1Reward = false }) => {
+  const [selectedTutorial, setSelectedTutorial] = React.useState<1 | 'abilities'>(1);
   const handleStartMatch = () => {
     sound.playClick();
     if (onStartTutorialMatch) {
-      onStartTutorialMatch(1);
+      onStartTutorialMatch(selectedTutorial);
     } else {
       onClose();
     }
@@ -49,7 +50,7 @@ export const TutorialModal: React.FC<Props> = ({ onClose, onStartTutorialMatch, 
             <div className="min-w-0">
               <div className="flex items-center gap-2.5 flex-wrap">
                 <h3 className="text-base md:text-lg font-black font-game text-white tracking-wide">
-                  HƯỚNG DẪN 1: Cơ chế trò chơi
+                  {selectedTutorial === 1 ? 'TUTORIAL 1: BATTLE BASIC' : 'TUTORIAL 2: ABILITIES & TARGETS'}
                 </h3>
                 <button
                   onClick={handleStartMatch}
@@ -60,7 +61,7 @@ export const TutorialModal: React.FC<Props> = ({ onClose, onStartTutorialMatch, 
                 </button>
               </div>
               <p className="text-[11px] text-slate-400 truncate mt-0.5">
-                Trả lời câu hỏi (MCQ & IELTS Speaking) ➔ Ghép ngọc 8x8 tấn công kẻ thù!
+                {selectedTutorial === 1 ? 'Trả lời câu hỏi và ghép ngọc để tấn công kẻ thù.' : 'Đổi mục tiêu, xem Starmon, nhận mana và kích hoạt kỹ năng chủ động.'}
               </p>
             </div>
           </div>
@@ -78,17 +79,36 @@ export const TutorialModal: React.FC<Props> = ({ onClose, onStartTutorialMatch, 
           </button>
         </div>
 
-        {/* Body Content */}
+        {/* Tutorial selection and selected tutorial details */}
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button onClick={() => { sound.playClick(); setSelectedTutorial(1); }} className={`p-4 rounded-2xl border-2 text-left transition-all ${selectedTutorial === 1 ? 'border-amber-400 bg-amber-950/40 ring-2 ring-amber-400/20' : 'border-slate-700 bg-slate-950/70 hover:border-slate-500'}`}>
+              <div className="font-black font-game text-white">Tutorial 1</div><div className="text-amber-300 font-bold text-sm">Battle Basic</div><p className="text-xs text-slate-400 mt-1">Câu hỏi, Match-3 và cách tấn công cơ bản.</p>
+            </button>
+            <button onClick={() => { sound.playClick(); setSelectedTutorial('abilities'); }} className={`p-4 rounded-2xl border-2 text-left transition-all ${selectedTutorial === 'abilities' ? 'border-cyan-400 bg-cyan-950/40 ring-2 ring-cyan-400/20' : 'border-slate-700 bg-slate-950/70 hover:border-slate-500'}`}>
+              <div className="font-black font-game text-white">Tutorial 2</div><div className="text-cyan-300 font-bold text-sm">Abilities &amp; Targets</div><p className="text-xs text-slate-400 mt-1">Chọn mục tiêu, xem Starmon, ghép orb lấy mana và dùng kỹ năng.</p>
+            </button>
+          </div>
+          {selectedTutorial === 2 ? null : null}
+          {selectedTutorial === 'abilities' ? (
+            <div className="p-4 rounded-2xl bg-cyan-950/30 border border-cyan-500/40 space-y-3">
+              <div className="text-xs md:text-sm text-cyan-100"><strong className="text-cyan-300">Mục tiêu:</strong> Học bằng thao tác trực tiếp với pointer hướng dẫn từng bước.</div>
+              <div className="grid gap-2 text-xs text-slate-300">
+                <p>1. Đổi mục tiêu lần lượt từ Starmon 1 sang 2, rồi sang 3.</p><p>2. Ấn vào từng Starmon để đọc kỹ năng và chỉ số.</p><p>3. Ghép orb cùng hệ để nhận mana: mỗi orb cho 5 mana.</p><p>4. Khi đủ mana, kích hoạt kỹ năng chủ động.</p>
+              </div>
+              <div className="text-[11px] text-slate-400">Bản hướng dẫn này sẽ dùng các pointer theo từng thao tác trong trận.</div>
+            </div>
+          ) : (
           <div className="p-3.5 rounded-2xl bg-amber-950/30 border border-amber-500/40 flex items-start gap-3">
             <Sparkles className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
             <div className="text-xs md:text-sm text-amber-200 leading-relaxed">
               <strong className="text-amber-300 font-game">Mục tiêu Hướng dẫn 1:</strong> Làm quen hoàn chỉnh với câu hỏi Trắc nghiệm (MCQ), Bảng ghép ngọc Match-3 Grid (8x8), và phần thi IELTS Speaking!
             </div>
           </div>
+          )}
 
           {/* Reward Status Banner */}
-          <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-amber-400/40 flex items-center justify-between gap-3">
+          {selectedTutorial === 1 && <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-amber-400/40 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
               <img src={GOLD_IMAGE} alt="Gold" className="h-7 w-7 object-contain" />
               <div>
@@ -103,10 +123,10 @@ export const TutorialModal: React.FC<Props> = ({ onClose, onStartTutorialMatch, 
             }`}>
               {hasClaimedTutorial1Reward ? 'Đã nhận' : '1,000 Vàng'}
             </span>
-          </div>
+          </div>}
 
           {/* Special Voltlynx Lineup Notice */}
-          <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-950/40 via-purple-950/30 to-slate-950 border-2 border-amber-400/60 shadow-lg flex items-center gap-3">
+          {selectedTutorial === 1 && <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-950/40 via-purple-950/30 to-slate-950 border-2 border-amber-400/60 shadow-lg flex items-center gap-3">
             <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-400/50 flex items-center justify-center text-amber-300 shrink-0">
               <Zap className="w-6 h-6 animate-pulse" />
             </div>
@@ -121,10 +141,10 @@ export const TutorialModal: React.FC<Props> = ({ onClose, onStartTutorialMatch, 
                 Trong màn hướng dẫn này, bạn sẽ trực tiếp chỉ huy <strong>Voltlynx (DPS hệ Electric)</strong>. Voltlynx chỉ xuất hiện tạm thời trong màn hướng dẫn để bạn luyện tập và không được thêm vào kho Starmon cá nhân của bạn (muốn sở hữu bạn vẫn cần mở khóa bằng thẻ bài như bình thường).
               </p>
             </div>
-          </div>
+          </div>}
 
           {/* 3 Step Phases Overview */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {selectedTutorial === 1 && <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {/* Phase 1: MCQ */}
             <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 flex flex-col justify-between">
               <div>
@@ -183,13 +203,13 @@ export const TutorialModal: React.FC<Props> = ({ onClose, onStartTutorialMatch, 
                 </div>
               </div>
             </div>
-          </div>
+          </div>}
         </div>
 
         {/* Footer Action */}
         <div className="flex items-center justify-between border-t border-slate-800 px-5 py-4 bg-slate-950/90 shrink-0 gap-3">
           <div className="text-xs text-slate-400 font-mono">
-            Mỗi màn Hướng dẫn là một Trận đấu riêng biệt
+            {selectedTutorial === 1 ? 'Battle Basic · Trận hướng dẫn riêng' : 'Abilities & Targets · Trận hướng dẫn tương tác'}
           </div>
 
           <button

@@ -271,7 +271,7 @@ export default function App() {
   const [openingElementalPack, setOpeningElementalPack] = useState<ElementType | null>(null);
   const [showChatModal, setShowChatModal] = useState(false);
   const [showTutorialModal, setShowTutorialModal] = useState<boolean>(false);
-  const [activeTutorialStage, setActiveTutorialStage] = useState<1 | 2 | 3 | null>(null);
+  const [activeTutorialStage, setActiveTutorialStage] = useState<1 | 2 | 3 | 'abilities' | null>(null);
   const [authInitialTab, setAuthInitialTab] = useState<'profile' | 'auth' | 'backup' | 'restore' | 'password'>('profile');
 
   // Passive Energy Regeneration: 1 Energy unit per 10 minutes (600,000 ms), stops naturally at 100
@@ -340,7 +340,7 @@ export default function App() {
     }));
   };
 
-  const handleStartTutorialMatch = (stage: 1 | 2 | 3) => {
+  const handleStartTutorialMatch = (stage: 1 | 2 | 3 | 'abilities') => {
     sound.playClick();
     setActiveTutorialStage(stage);
     setShowTutorialModal(false);
