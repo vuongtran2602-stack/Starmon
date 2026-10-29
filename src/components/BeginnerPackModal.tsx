@@ -311,15 +311,15 @@ export const BeginnerPackModal: React.FC<Props> = ({
               <div className="flex flex-col gap-2">
                 <div className="p-2.5 bg-slate-900/80 rounded-xl border border-slate-800">
                   <span className="text-[10px] font-bold text-amber-400">PASSIVE: {rewardStarmon.passive.name}</span>
-                  <p className="text-[11px] text-slate-300">{rewardStarmon.passive.description}</p>
+                  <p className="text-[11px] text-slate-300 whitespace-pre-line">{rewardStarmon.passive.description}</p>
                 </div>
                 <div className="p-2.5 bg-slate-900/80 rounded-xl border border-slate-800">
                   <span className="text-[10px] font-bold text-cyan-400">SKILL 1: {rewardStarmon.skill1.name}</span>
-                  <p className="text-[11px] text-slate-300">{rewardStarmon.skill1.description}</p>
+                  <p className="text-[11px] text-slate-300 whitespace-pre-line">{rewardStarmon.skill1.description}</p>
                 </div>
                 <div className="p-2.5 bg-slate-900/80 rounded-xl border border-slate-800">
                   <span className="text-[10px] font-bold text-purple-400">SKILL 2: {rewardStarmon.skill2.name}</span>
-                  <p className="text-[11px] text-slate-300">{rewardStarmon.skill2.description}</p>
+                  <p className="text-[11px] text-slate-300 whitespace-pre-line">{rewardStarmon.skill2.description}</p>
                 </div>
               </div>
             </div>

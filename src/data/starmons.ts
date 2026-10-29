@@ -726,13 +726,13 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     equippedItems: [null, null, null, null, null, null],
     passive: {
       name: 'Proximity Detonation',
-      description: 'When hit by an attack or ability, Mineacle automatically counters with a burst of water pressure, reflecting 20% of the damage back to the attacker. Upon death, it explodes and deals DMG equal to 10% of its max HP to all enemies.',
+      description: '• When hit by an attack or ability, Mineacle automatically counters with a burst of water pressure, reflecting 20% of the damage back to the attacker.\n• Upon death, Mineacle explodes and deals DMG equal to 10% of its max HP to all enemies.',
       tag: 'Reflect 20% & Death Blast',
     },
     skill1: {
       id: 'chain_slam',
       name: 'Chain Slam',
-      description: 'Swings its heavy spiked chain to smash the target, dealing 170% Water DMG.',
+      description: 'Swings its heavy chain to smash the target, dealing 170% Water DMG.',
       manaCost: 45,
       damageMultiplier: 1.7,
       targetType: 'single',

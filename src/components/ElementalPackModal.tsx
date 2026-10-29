@@ -252,7 +252,7 @@ export const ElementalPackModal: React.FC<Props> = ({
                     <span className="font-bold text-amber-300">
                       Passive: {rewardStarmon.passive.name}
                     </span>
-                    <p className="text-[11px] text-slate-300 mt-0.5">
+                    <p className="text-[11px] text-slate-300 mt-0.5 whitespace-pre-line">
                       {rewardStarmon.passive.description}
                     </p>
                   </div>
@@ -260,7 +260,7 @@ export const ElementalPackModal: React.FC<Props> = ({
                     <span className="font-bold text-sky-300">
                       Skill 1: {rewardStarmon.skill1.name} (Cost: {rewardStarmon.skill1.manaCost} Mana)
                     </span>
-                    <p className="text-[11px] text-slate-300 mt-0.5">
+                    <p className="text-[11px] text-slate-300 mt-0.5 whitespace-pre-line">
                       {rewardStarmon.skill1.description}
                     </p>
                   </div>

@@ -9118,7 +9118,7 @@ export const BattleView: React.FC<Props> = ({
                               <br /><span className="text-cyan-300">Lasts for 3 turns</span> with a <span className="text-rose-300">3-turn cooldown</span> (cannot be reused for 3 turns). <strong>Deals 0 direct damage</strong>.
                             </p>
                           ) : (
-                            <p>
+                            <p className="whitespace-pre-line">
                               {skill.description || `Strikes the selected enemy target dealing ${Math.round(skill.damageMultiplier * 100)}% elemental damage.`}
                             </p>
                           )}
@@ -10158,7 +10158,7 @@ export const BattleView: React.FC<Props> = ({
                   [{inspectingStarmon.mon.passive?.tag || 'Passive'}]
                 </span>
               </div>
-              <p className="text-xs text-slate-200 leading-relaxed">
+              <p className="text-xs text-slate-200 leading-relaxed whitespace-pre-line">
                 {inspectingStarmon.mon.passive?.description || 'Năng lực nội tại tự động kích hoạt.'}
               </p>
               <div className="mt-2 text-[10px] text-amber-400/90 font-bold italic">
@@ -10180,7 +10180,7 @@ export const BattleView: React.FC<Props> = ({
                       {inspectingStarmon.mon.skill1?.manaCost || 20} Mana
                     </span>
                   </div>
-                  <p className="text-[11px] text-slate-300 leading-snug">
+                  <p className="text-[11px] text-slate-300 leading-snug whitespace-pre-line">
                     {inspectingStarmon.mon.skill1?.description || 'Kỹ năng chủ động.'}
                   </p>
                 </div>
@@ -10193,7 +10193,7 @@ export const BattleView: React.FC<Props> = ({
                       {inspectingStarmon.mon.skill2?.manaCost || 40} Mana
                     </span>
                   </div>
-                  <p className="text-[11px] text-slate-300 leading-snug">
+                  <p className="text-[11px] text-slate-300 leading-snug whitespace-pre-line">
                     {inspectingStarmon.mon.skill2?.description || 'Tuyệt chiêu chủ động.'}
                   </p>
                 </div>

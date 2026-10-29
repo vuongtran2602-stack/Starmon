@@ -653,19 +653,19 @@ export const StarmonManagement: React.FC<Props> = ({
               <div className="p-3 bg-slate-900/80 border border-slate-800 rounded-xl">
                 <span className="text-[10px] font-bold text-amber-400 uppercase">PASSIVE</span>
                 <h4 className="text-xs font-bold text-white font-game">{selectedStarmon.passive.name}</h4>
-                <p className="text-[11px] text-slate-400 mt-1 leading-snug">{selectedStarmon.passive.description}</p>
+                <p className="text-[11px] text-slate-400 mt-1 leading-snug whitespace-pre-line">{selectedStarmon.passive.description}</p>
               </div>
 
               <div className="p-3 bg-slate-900/80 border border-slate-800 rounded-xl">
                 <span className="text-[10px] font-bold text-sky-400 uppercase">SKILL 1 ({selectedStarmon.skill1.manaCost} Ma)</span>
                 <h4 className="text-xs font-bold text-white font-game">{selectedStarmon.skill1.name}</h4>
-                <p className="text-[11px] text-slate-400 mt-1 leading-snug">{selectedStarmon.skill1.description}</p>
+                <p className="text-[11px] text-slate-400 mt-1 leading-snug whitespace-pre-line">{selectedStarmon.skill1.description}</p>
               </div>
 
               <div className="p-3 bg-slate-900/80 border border-slate-800 rounded-xl">
                 <span className="text-[10px] font-bold text-purple-400 uppercase">SKILL 2 ({selectedStarmon.skill2.manaCost} Ma)</span>
                 <h4 className="text-xs font-bold text-white font-game">{selectedStarmon.skill2.name}</h4>
-                <p className="text-[11px] text-slate-400 mt-1 leading-snug">{selectedStarmon.skill2.description}</p>
+                <p className="text-[11px] text-slate-400 mt-1 leading-snug whitespace-pre-line">{selectedStarmon.skill2.description}</p>
               </div>
             </div>
 
