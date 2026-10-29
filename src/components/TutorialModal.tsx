@@ -94,7 +94,7 @@ export const TutorialModal: React.FC<Props> = ({ onClose, onStartTutorialMatch, 
             <div className="p-4 rounded-2xl bg-cyan-950/30 border border-cyan-500/40 space-y-3">
               <div className="text-xs md:text-sm text-cyan-100"><strong className="text-cyan-300">Mục tiêu:</strong> Học bằng thao tác trực tiếp với pointer hướng dẫn từng bước.</div>
               <div className="grid gap-2 text-xs text-slate-300">
-                <p>1. Đổi mục tiêu lần lượt từ Starmon 1 sang 2, rồi sang 3.</p><p>2. Ấn vào từng Starmon để đọc kỹ năng và chỉ số.</p><p>3. Ghép orb cùng hệ để nhận mana: mỗi orb cho 5 mana.</p><p>4. Khi đủ mana, kích hoạt kỹ năng chủ động.</p>
+                <p>1. Đổi mục tiêu lần lượt từ Starmon 1 sang 2, rồi sang 3.</p><p>2. Ấn vào Starmon 1 để đọc chỉ số và kỹ năng.</p><p>3. Ghép orb bất kỳ để nhận mana: mỗi orb cho 5 mana.</p><p>4. Khi đủ mana, kích hoạt kỹ năng chủ động.</p>
               </div>
               <div className="text-[11px] text-slate-400">Bản hướng dẫn này sẽ dùng các pointer theo từng thao tác trong trận.</div>
             </div>

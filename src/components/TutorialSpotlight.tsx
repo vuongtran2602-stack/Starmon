@@ -31,10 +31,13 @@ export interface TutorialSpotlightProps {
   selectedPlayerIndex?: number;
   onSelectPlayer?: (index: number) => void;
   playerMana?: number;
-  hasGainedTutorialMana?: boolean;
+  tutorialRequiredMana?: number;
   onTutorial2Inspect?: () => void;
   onTutorial2Cast?: () => void;
   tutorial2CastDone?: boolean;
+  tutorial2InspectOpen?: boolean;
+  tutorial2InspectStep?: number;
+  onTutorial2InspectNext?: () => void;
 }
 
 export const TutorialSpotlight: React.FC<TutorialSpotlightProps> = ({
@@ -46,6 +49,7 @@ export const TutorialSpotlight: React.FC<TutorialSpotlightProps> = ({
   ieltsAiResult,
   tutorialRound = 1,
   mcqCorrectSelected = false,
+  onSkip,
   onAdvanceToMatch3,
   onAdvanceToSpeaking,
   onAdvanceToFinalAttack,
@@ -53,10 +57,13 @@ export const TutorialSpotlight: React.FC<TutorialSpotlightProps> = ({
   selectedPlayerIndex = 0,
   onSelectPlayer,
   playerMana = 0,
-  hasGainedTutorialMana = false,
+  tutorialRequiredMana = 20,
   onTutorial2Inspect,
   onTutorial2Cast,
   tutorial2CastDone = false,
+  tutorial2InspectOpen = false,
+  tutorial2InspectStep = 0,
+  onTutorial2InspectNext,
 }) => {
   // =========================================================================
   // TUTORIAL 1 STEP STATE MACHINE:
@@ -79,7 +86,7 @@ export const TutorialSpotlight: React.FC<TutorialSpotlightProps> = ({
   //         "Your speaking answer must get 5.5 Overall or higher to attack. If it is lower than 5.5, your Starmon will lose its turn."
   // Step 10: Final Match-3 Attack -> Complete Tutorial 1!
   // =========================================================================
-  const [isStarted, setIsStarted] = useState<boolean>(stage === 'abilities');
+  const [isStarted, setIsStarted] = useState<boolean>(false);
   const [step, setStep] = useState<number>(0);
   const [targetTutorialStep, setTargetTutorialStep] = useState(0);
   const [targetRect, setTargetRect] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
@@ -181,23 +188,40 @@ export const TutorialSpotlight: React.FC<TutorialSpotlightProps> = ({
   // ==========================================
   useEffect(() => {
     if (stage === 'abilities') {
-      if (targetTutorialStep < 3) {
+      if (!isStarted) return;
+      if (tutorial2InspectOpen) {
+        const inspectTargets = [
+          ['tutorial-inspect-base-stats', 'Đây là chỉ số gốc của Starmon.'],
+          ['tutorial-inspect-vitals', 'Đây là Thanh Sinh Lực (HP) và Thanh Năng Lượng (Mana) hiện tại của Starmon.'],
+          ['tutorial-inspect-passive', 'Đây là Nội Tại (Passive) của Starmon. Kỹ năng này tự động kích hoạt trong trận đấu.'],
+          ['tutorial-inspect-active', 'Đây là Chiêu Kích Hoạt (Abilities). Ấn dấu mũi tên để dùng chiêu; chiêu tốn mana và Starmon sẽ mất lượt ghép orb.'],
+          ['tutorial-inspect-close', 'Ấn CLOSE để đóng bảng thông tin và quay lại trận đấu.'],
+        ] as const;
+        const [targetId, text] = inspectTargets[Math.min(4, Math.max(0, tutorial2InspectStep))];
+        const target = document.getElementById(targetId);
+        if (!target) return;
+        target.scrollIntoView({ block: 'nearest' });
+        const frame = window.requestAnimationFrame(() => updateSpotlight(targetId, targetId, text, 0, -35, 0));
+        return () => window.cancelAnimationFrame(frame);
+      }
+      if (targetTutorialStep < 2) {
         const target = targetTutorialStep;
-        const el = document.getElementById(`tutorial-target-${target}`);
-        if (el) updateSpotlight(`tutorial-target-${target}`, `tutorial-target-${target}`, `Mục tiêu hiện tại là Starmon ${target + 1}. Hãy ấn vào khung Starmon ${target + 2} để đổi mục tiêu.`, 0, -35, 0);
-      } else if (targetTutorialStep < 6) {
-        const playerIndex = targetTutorialStep - 3;
-        const el = document.getElementById(`tutorial-starmon-${playerIndex}`);
-        if (el) updateSpotlight(`tutorial-starmon-${playerIndex}`, `tutorial-starmon-${playerIndex}`, `Ấn vào Starmon ${playerIndex + 1} để xem kỹ năng và chỉ số.`, 0, -40, 0);
+        const nextTarget = target + 1;
+        const el = document.getElementById(`tutorial-target-${nextTarget}`);
+        if (el) updateSpotlight(`tutorial-target-${nextTarget}`, `tutorial-target-${nextTarget}`, `Mục tiêu hiện tại là Starmon ${target + 1}. Hãy ấn vào khung Starmon ${nextTarget + 1} để đổi mục tiêu.`, 0, -35, 0);
+      } else if (targetTutorialStep === 2) {
+        const avatarId = 'tutorial-starmon-avatar-0';
+        const el = document.getElementById(avatarId);
+        if (el) updateSpotlight(avatarId, avatarId, 'Ấn vào ảnh Starmon 1 để xem chỉ số và kỹ năng.', 0, -35, 0);
+      } else if (targetTutorialStep === 5) {
+        updateSpotlight('tutorial-match-grid', 'tutorial-match-grid', `Ghép orb bất kỳ để nhận 5 mana cho mỗi orb. Cần ${tutorialRequiredMana} mana để dùng chiêu; hiện Starmon có ${playerMana}.`, 90, 0, -35);
       } else if (targetTutorialStep === 6) {
-        updateSpotlight('tutorial-match-grid', 'tutorial-match-grid', 'Ghép các orb cùng hệ với Starmon 1. Mỗi orb ghép được sẽ cộng 5 mana.', 90, 0, -35);
+        updateSpotlight('tutorial-mana-bar', 'tutorial-mana-bar', `Mỗi orb được ghép, bất kể hệ nào, cho 5 mana. Starmon hiện có ${playerMana} mana để dùng chiêu chủ động.`, 0, -35, 0);
       } else if (targetTutorialStep === 7) {
-        updateSpotlight('tutorial-mana-bar', 'tutorial-mana-bar', `Mỗi orb cùng hệ vừa ghép cho 5 mana. Hiện tại Starmon có ${playerMana} mana.`, 0, -35, 0);
-      } else if (targetTutorialStep === 8) {
         updateSpotlight('tutorial-active-skill', 'tutorial-active-skill', 'Kỹ năng chủ động cần mana. Ấn vào nút kích hoạt của kỹ năng khi Starmon có đủ mana.', 0, -35, 0);
       } else {
         setTargetRect(null);
-        setPopupData({ title: 'Hoàn thành Tutorial 2!', message: 'Bạn đã biết cách đổi mục tiêu, xem Starmon, nhận mana từ orb cùng hệ và kích hoạt kỹ năng chủ động.', buttonText: 'Về sảnh', onAction: () => window.dispatchEvent(new CustomEvent('tutorial2-finish')) });
+        setPopupData({ title: 'Hoàn thành Tutorial 2!', message: 'Bạn đã biết cách đổi mục tiêu, xem Starmon, nhận mana từ orb và kích hoạt kỹ năng chủ động.', buttonText: 'Về sảnh', onAction: () => window.dispatchEvent(new CustomEvent('tutorial2-finish')) });
       }
       return;
     }
@@ -377,24 +401,22 @@ export const TutorialSpotlight: React.FC<TutorialSpotlightProps> = ({
         }
       }
     }
-  }, [stage, isStarted, phase, step, currentQuestion, tutorialRound, targetTutorialStep, selectedEnemyIndex, selectedPlayerIndex, playerMana, hasGainedTutorialMana]);
+  }, [stage, isStarted, phase, step, currentQuestion, tutorialRound, targetTutorialStep, selectedEnemyIndex, selectedPlayerIndex, playerMana, tutorialRequiredMana, tutorial2InspectOpen, tutorial2InspectStep]);
 
   useEffect(() => {
     if (stage !== 'abilities') return;
-    if (targetTutorialStep < 3 && selectedEnemyIndex === targetTutorialStep + 1) {
-      setTargetTutorialStep(selectedEnemyIndex < 2 ? selectedEnemyIndex + 1 : 3);
-    } else if (targetTutorialStep >= 3 && targetTutorialStep < 6 && selectedPlayerIndex === targetTutorialStep - 3) {
+    if (tutorial2InspectOpen) return;
+    if (targetTutorialStep < 2 && selectedEnemyIndex === targetTutorialStep + 1) {
+      setTargetTutorialStep(selectedEnemyIndex);
+    } else if (targetTutorialStep === 2 && selectedPlayerIndex === 0) {
       onSelectPlayer?.(selectedPlayerIndex);
-      if (targetTutorialStep === 5) setTargetTutorialStep(6);
-      else setTargetTutorialStep(targetTutorialStep + 1);
-    } else if (targetTutorialStep === 6 && hasGainedTutorialMana) {
-      setTargetTutorialStep(7);
-    } else if (targetTutorialStep === 7 && hasGainedTutorialMana && playerMana >= 20) {
+      setTargetTutorialStep(5);
+    } else if (targetTutorialStep === 5 && playerMana >= tutorialRequiredMana) {
+      setTargetTutorialStep(6);
+    } else if (targetTutorialStep === 7 && tutorial2CastDone) {
       setTargetTutorialStep(8);
-    } else if (targetTutorialStep === 8 && tutorial2CastDone) {
-      setTargetTutorialStep(9);
     }
-  }, [stage, targetTutorialStep, selectedEnemyIndex, selectedPlayerIndex, hasGainedTutorialMana, playerMana, tutorial2CastDone, onTutorial2Inspect]);
+  }, [stage, targetTutorialStep, selectedEnemyIndex, selectedPlayerIndex, playerMana, tutorialRequiredMana, tutorial2CastDone, onTutorial2Inspect, tutorial2InspectOpen]);
 
   // Handle MCQ selection success (Bước 3: Người chơi chọn đúng)
   useEffect(() => {
@@ -462,7 +484,7 @@ export const TutorialSpotlight: React.FC<TutorialSpotlightProps> = ({
                   <Sparkles className="w-5 h-5" />
                 </div>
                 <h2 className="text-base md:text-lg font-black font-game text-white tracking-wide">
-                  HƯỚNG DẪN 1: Cơ chế trận đấu
+                  {stage === 'abilities' ? 'TUTORIAL 2: ABILITIES & TARGETS' : 'TUTORIAL 1: BATTLE BASIC'}
                 </h2>
               </div>
 
@@ -477,7 +499,7 @@ export const TutorialSpotlight: React.FC<TutorialSpotlightProps> = ({
             </div>
 
             {stage === 'abilities' ? (
-              <div className="space-y-2 text-xs md:text-sm text-slate-300"><p>Pointer sẽ chỉ vị trí cần thao tác trong từng bước.</p><p>1. Đổi mục tiêu Starmon 1 → 2 → 3.</p><p>2. Chọn từng Starmon để đọc kỹ năng và chỉ số.</p><p>3. Ghép orb cùng hệ: mỗi orb cho 5 mana.</p><p>4. Dùng mana kích hoạt kỹ năng chủ động.</p></div>
+              <div className="space-y-2 text-xs md:text-sm text-slate-300"><p>Pointer sẽ chỉ vị trí cần thao tác trong từng bước.</p><p>1. Đổi mục tiêu Starmon 1 → 2 → 3.</p><p>2. Chọn Starmon 1 để đọc chỉ số và kỹ năng.</p><p>3. Ghép orb bất kỳ: mỗi orb cho 5 mana.</p><p>4. Dùng mana kích hoạt kỹ năng chủ động.</p></div>
             ) : <>
             {/* Description */}
             <div className="space-y-2 text-xs md:text-sm text-slate-300 leading-relaxed">
@@ -509,6 +531,15 @@ export const TutorialSpotlight: React.FC<TutorialSpotlightProps> = ({
               <Play className="w-5 h-5 fill-slate-950" />
               <span>{stage === 'abilities' ? 'BẮT ĐẦU TUTORIAL 2' : 'BẮT ĐẦU HƯỚNG DẪN 1'}</span>
             </button>
+            <button
+              onClick={() => {
+                sound.playClick();
+                onSkip?.();
+              }}
+              className="w-full py-2 rounded-xl border border-slate-600 bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white font-bold text-xs cursor-pointer transition-colors"
+            >
+              Tôi đã biết rồi! Bỏ qua hướng dẫn
+            </button>
           </div>
         </div>
       )}
@@ -517,7 +548,7 @@ export const TutorialSpotlight: React.FC<TutorialSpotlightProps> = ({
       {/* 1. GLOBAL SPOTLIGHT SVG MASK (Darkened Overlay with cutout for highlighted element) */}
       {/* Không còn hiệu ứng tối mờ sau khi người chơi trả lời speaking ở Tutorial 1 */}
       {/* ========================================================================= */}
-      {isStarted && !(stage === 1 && (step >= 9 || hasRecordedSpeaking || Boolean(ieltsAiResult) || tutorialRound === 2)) && (
+      {isStarted && !(stage === 'abilities' && (targetTutorialStep > 2 || tutorial2InspectOpen)) && !(stage === 1 && (step >= 9 || hasRecordedSpeaking || Boolean(ieltsAiResult) || tutorialRound === 2)) && (
         <svg className="absolute inset-0 w-full h-full pointer-events-none">
           <defs>
             <mask id="tutorial-spotlight-mask">
@@ -564,7 +595,7 @@ export const TutorialSpotlight: React.FC<TutorialSpotlightProps> = ({
       )}
 
       {/* Crisp Golden Frame when dark mask is disabled after speaking in Tutorial 1 */}
-      {isStarted && targetRect && (stage === 1 && (step >= 9 || hasRecordedSpeaking || Boolean(ieltsAiResult) || tutorialRound === 2)) && (
+      {isStarted && targetRect && (tutorial2InspectOpen || (stage === 1 && (step >= 9 || hasRecordedSpeaking || Boolean(ieltsAiResult) || tutorialRound === 2))) && (
         <svg className="absolute inset-0 w-full h-full pointer-events-none z-40">
           <rect
             x={targetRect.x}
@@ -638,7 +669,7 @@ export const TutorialSpotlight: React.FC<TutorialSpotlightProps> = ({
       {/* ========================================================================= */}
       {/* 4. FLOATING INSTRUCTION DIALOGUE TEXT BOX */}
       {/* ========================================================================= */}
-      {isStarted && !popupData && targetRect && (
+      {isStarted && !popupData && targetRect && !tutorial2InspectOpen && (
         <div
           className="absolute z-50 pointer-events-auto transition-all duration-300"
           style={{
@@ -731,7 +762,57 @@ export const TutorialSpotlight: React.FC<TutorialSpotlightProps> = ({
                   <ChevronRight className="w-3.5 h-3.5" />
                 </button>
               )}
+              {stage === 'abilities' && targetTutorialStep === 6 && playerMana >= tutorialRequiredMana && (
+                <button
+                  onClick={() => {
+                    sound.playClick();
+                    setTargetTutorialStep(7);
+                  }}
+                  className="px-3 py-1.5 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 text-slate-950 font-black text-xs rounded-xl shadow cursor-pointer active:scale-95 flex items-center gap-1 transition-all"
+                >
+                  <span>Tôi đã hiểu!</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {isStarted && tutorial2InspectOpen && targetRect && (
+        <div
+          className="fixed z-[60] pointer-events-auto w-[220px] max-w-[calc(100vw-2rem)] rounded-2xl border-2 border-amber-400 bg-slate-900/95 p-3.5 text-white shadow-2xl backdrop-blur-md"
+          style={{
+            left: Math.max(12, Math.min(window.innerWidth - 232, targetRect.x - 236)),
+            top: Math.max(12, Math.min(window.innerHeight - 128, targetRect.y + targetRect.height / 2 - 56)),
+          }}
+        >
+          <div className="mb-2 flex items-center gap-1.5 border-b border-slate-700 pb-1.5 text-[10px] font-black uppercase tracking-wide text-amber-300">
+            <Sparkles className="h-3.5 w-3.5" />
+            <span>Tutorial 2 · Xem Starmon</span>
+          </div>
+          <p className="text-xs font-bold leading-relaxed text-amber-100">
+            {[
+              'Đây là chỉ số gốc của Starmon.',
+              'Đây là Thanh Sinh Lực (HP) và Thanh Năng Lượng (Mana) hiện tại của Starmon.',
+              'Đây là Nội Tại (Passive) của Starmon. Kỹ năng này tự động kích hoạt trong trận đấu.',
+              'Đây là Chiêu Kích Hoạt (Abilities). Ấn dấu mũi tên để dùng chiêu; chiêu tốn mana và Starmon sẽ mất lượt ghép orb.',
+              'Ấn CLOSE để đóng bảng thông tin và quay lại trận đấu.',
+            ][Math.min(4, Math.max(0, tutorial2InspectStep))]}
+          </p>
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <span className="text-[9px] font-mono text-slate-400">Bước {tutorial2InspectStep + 1} / 5</span>
+            {tutorial2InspectStep < 4 && (
+              <button
+                onClick={() => {
+                  sound.playClick();
+                  onTutorial2InspectNext?.();
+                }}
+                className="rounded-lg bg-gradient-to-r from-amber-400 to-yellow-400 px-2.5 py-1.5 text-[10px] font-black text-slate-950 active:scale-95"
+              >
+                Tôi đã hiểu <ChevronRight className="ml-0.5 inline h-3 w-3" />
+              </button>
+            )}
           </div>
         </div>
       )}

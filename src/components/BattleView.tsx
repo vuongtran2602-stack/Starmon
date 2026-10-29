@@ -8,6 +8,7 @@ import { ELEMENT_COUNTERS, ELEMENT_COLORS, getBaseMultiplierForOrbs, STARMON_ROS
 import { sound } from '../services/sound';
 import { submitSpeakingToSupabase, syncPvpActionToSupabase, subscribeToPvpRoom } from '../services/supabase';
 import { TutorialSpotlight } from './TutorialSpotlight';
+import { BattleSkillVfx, type BattleVfxRequest } from './BattleSkillVfx';
 import {
   Mic,
   Square,
@@ -51,12 +52,6 @@ import {
   Home
 } from 'lucide-react';
 import phase1Bg from '../assets/images/phase1_bg.png';
-import bubbleLtr from '../assets/images/skill-effects/bubble-left-to-right.jpeg';
-import bubbleRtl from '../assets/images/skill-effects/bubble-right-to-left.jpeg';
-import fireLtr from '../assets/images/skill-effects/fire-left-to-right.jpeg';
-import fireRtl from '../assets/images/skill-effects/fire-right-to-left.jpeg';
-import windLtr from '../assets/images/skill-effects/wind-left-to-right.png';
-import windRtl from '../assets/images/skill-effects/wind-right-to-left.jpeg';
 import { getArenaMap } from '../data/arenaMaps';
 import { GOLD_IMAGE } from '../data/itemsData';
 import { getVietnameseAnalysisForQuestion } from '../data/vietnameseSuggestions';
@@ -127,20 +122,6 @@ export interface IeltsAiEvaluationResult {
 const ELEMENTS: ElementType[] = ['Fire', 'Water', 'Electric', 'Wind', 'Earth', 'Metal'];
 const BOARD_SIZE = 8;
 const QUESTION_TIME_LIMIT = 120; // 120 seconds for Phase 1 speaking practice
-type SkillVfxType = 'projectile' | 'on-target';
-type SkillVfxAssetSet = { type: SkillVfxType; leftToRight: string; rightToLeft: string };
-const ACTIVE_SKILL_VFX: Record<string, SkillVfxAssetSet> = {
-  'pyrokit-1': { type: 'projectile', leftToRight: fireLtr, rightToLeft: fireRtl },
-  'ignisaur-2': { type: 'projectile', leftToRight: fireLtr, rightToLeft: fireRtl },
-  'moltenback-1': { type: 'projectile', leftToRight: fireLtr, rightToLeft: fireRtl },
-  'cottontail-1': { type: 'projectile', leftToRight: windLtr, rightToLeft: windRtl },
-  'zephyrion-1': { type: 'projectile', leftToRight: windLtr, rightToLeft: windRtl },
-  'frostmoth-1': { type: 'projectile', leftToRight: windLtr, rightToLeft: windRtl },
-  'coralus-1': { type: 'projectile', leftToRight: bubbleLtr, rightToLeft: bubbleRtl },
-  'aquanymph-1': { type: 'projectile', leftToRight: bubbleLtr, rightToLeft: bubbleRtl },
-  'bubbleboon-2': { type: 'projectile', leftToRight: bubbleLtr, rightToLeft: bubbleRtl },
-  'mineacle-1': { type: 'projectile', leftToRight: bubbleLtr, rightToLeft: bubbleRtl },
-};
 const ADVANCED_SPEAKING_VOCAB = [
   'sustainable development', 'renewable energy', 'carbon footprint', 'climate change', 'biodiversity', 'artificial intelligence',
   'critical thinking', 'broaden my horizons', 'a double-edged sword', 'plays a pivotal role', 'quality of life', 'work-life balance',
@@ -283,6 +264,7 @@ export const BattleView: React.FC<Props> = ({
     monIndex: number;
     originalBase?: Starmon;
   } | null>(null);
+  const [tutorial2InspectStep, setTutorial2InspectStep] = useState(0);
 
   // ==========================================
   // BATTLE LOG (LỊCH SỬ TRẬN ĐẤU)
@@ -389,10 +371,9 @@ export const BattleView: React.FC<Props> = ({
   const [isActionPendingServer, setIsActionPendingServer] = useState<boolean>(false);
   const [actingStepIndex, setActingStepIndex] = useState<number>(0);
   const [selectedEnemyIndex, setSelectedEnemyIndex] = useState<number>(0);
-  const [selectedPlayerInspectIndex, setSelectedPlayerInspectIndex] = useState<number>(0);
+  const [selectedPlayerInspectIndex, setSelectedPlayerInspectIndex] = useState<number>(-1);
   const [tutorial2InspectDone, setTutorial2InspectDone] = useState(false);
   const [tutorial2CastDone, setTutorial2CastDone] = useState(false);
-  const [tutorial2OrbMana, setTutorial2OrbMana] = useState(0);
   useEffect(() => {
     const onFinish = () => onExitBattle('win');
     window.addEventListener('tutorial2-finish', onFinish);
@@ -1285,9 +1266,9 @@ export const BattleView: React.FC<Props> = ({
           unlocked: true,
         })));
         setSelectedEnemyIndex(0);
+        setSelectedPlayerInspectIndex(-1);
         setTutorial2InspectDone(false);
         setTutorial2CastDone(false);
-        setTutorial2OrbMana(0);
         setPhase('phase2_combat');
       } else if (tutorialStage === 1) {
         // TUTORIAL 1: Exactly 1 Starmon active: Voltlynx (special tutorial guest)
@@ -3234,23 +3215,17 @@ export const BattleView: React.FC<Props> = ({
         ? playerTeam[actingStepIndex]
         : null);
 
-  const [skillVfx, setSkillVfx] = useState<{ src: string; x: number; y: number; dx: number; dy: number; type: SkillVfxType; id: number; launched: boolean } | null>(null);
-  const playActiveSkillVfx = (starmon: Starmon, skillNum: 1 | 2, attackerId: string, targetId: string) => {
-    const config = ACTIVE_SKILL_VFX[`${starmon.id}-${skillNum}`] || ACTIVE_SKILL_VFX[`${starmon.avatarSeed}-${skillNum}`];
-    if (!config) return;
-    const attacker = document.querySelector<HTMLElement>(attackerId)?.getBoundingClientRect();
-    const target = document.querySelector<HTMLElement>(targetId)?.getBoundingClientRect();
-    if (!attacker || !target) return;
-    const sx = attacker.left + attacker.width / 2;
-    const sy = attacker.top + attacker.height / 2;
-    const tx = target.left + target.width / 2;
-    const ty = target.top + target.height / 2;
-    const leftToRight = tx >= sx;
-    const src = leftToRight ? config.leftToRight : config.rightToLeft;
-    const id = Date.now();
-    setSkillVfx({ src, x: sx - 110, y: sy - 70, dx: tx - sx, dy: ty - sy, type: config.type, id, launched: false });
-    requestAnimationFrame(() => requestAnimationFrame(() => setSkillVfx(current => current?.id === id ? { ...current, launched: true } : current)));
-    window.setTimeout(() => setSkillVfx(current => current?.id === id ? null : current), config.type === 'projectile' ? 720 : 900);
+  const [skillVfx, setSkillVfx] = useState<BattleVfxRequest | null>(null);
+  const skillVfxSequence = useRef(0);
+  const playActiveSkillVfx = (starmon: Starmon, skill: Starmon['skill1'], fromSelector: string, toSelector: string) => {
+    const isSelfTarget = skill.targetType === 'self';
+    setSkillVfx({
+      id: ++skillVfxSequence.current,
+      element: starmon.element,
+      mode: skill.targetType === 'single' ? 'projectile' : 'on-target',
+      fromSelector,
+      toSelector: isSelfTarget ? fromSelector : toSelector,
+    });
   };
 
   useEffect(() => {
@@ -3593,16 +3568,20 @@ export const BattleView: React.FC<Props> = ({
         }
 
         if (isAbilitiesTutorial && matches.length < 3) {
-          matches = [
-            { row: fromRow, col: fromCol },
-            { row: r, col: c },
-            { row: (r + 1) % BOARD_SIZE, col: c },
-          ];
-          executeMatchAttack(matches, orb1?.element || 'Electric');
+          const startCol = Math.min(c, BOARD_SIZE - 3);
+          matches = [0, 1, 2].map(offset => ({ row: r, col: startCol + offset }));
+          const guidedBoard = swapped.map(row => row.map(tile => ({ ...tile })));
+          const tutorialElement = guidedBoard[r][startCol]?.element || orb1?.element || 'Electric';
+          matches.forEach(({ row: matchRow, col: matchCol }) => {
+            guidedBoard[matchRow][matchCol] = { ...guidedBoard[matchRow][matchCol], element: tutorialElement };
+          });
+          setBoard(guidedBoard);
+          executeMatchAttack(matches, tutorialElement, undefined, guidedBoard);
         } else if (matches.length >= 3) {
-          executeMatchAttack(matches, orb1?.element || 'Electric', [
+          const matchedElement = swapped[matches[0].row][matches[0].col]?.element || orb1?.element || 'Electric';
+          executeMatchAttack(matches, matchedElement, [
             { from: { row: fromRow, col: fromCol }, to: { row: r, col: c } },
-          ]);
+          ], isAbilitiesTutorial ? swapped : undefined);
         } else {
           sound.playWrong();
           setBoard(board);
@@ -3618,7 +3597,8 @@ export const BattleView: React.FC<Props> = ({
   const executeMatchAttack = (
     matches: { row: number; col: number }[],
     elem: ElementType,
-    orbSwitches?: { from: { row: number; col: number }; to: { row: number; col: number } }[]
+    orbSwitches?: { from: { row: number; col: number }; to: { row: number; col: number } }[],
+    matchBoard?: OrbTile[][]
   ) => {
     const isTutorialFinalAttack = tutorialStage === 1 && (tutorialRound === 2 || tutorialHasRecordedSpeaking || (enemyTeam[0] && enemyTeam[0].currentHp < 320));
 
@@ -3662,6 +3642,19 @@ export const BattleView: React.FC<Props> = ({
         confetti({ particleCount: 220, spread: 100 });
       } catch {}
 
+      return;
+    }
+
+    if (tutorialStage === 'abilities') {
+      const matchedTiles = matchBoard || board;
+      const manaGain = matches.length * 5;
+      setPlayerTeam(prev => prev.map((mon, index) => index === 0
+        ? { ...mon, currentMana: Math.min(mon.maxMana || 200, mon.currentMana + manaGain) }
+        : mon));
+      setFloatingDamage({ text: `+${manaGain} MANA`, isEnemy: false });
+      sound.playMatchPop(matches.length);
+      setTimeout(() => setFloatingDamage(null), 1200);
+      setBoard(computeRefilledBoard(matchedTiles, matches));
       return;
     }
 
@@ -3776,7 +3769,6 @@ export const BattleView: React.FC<Props> = ({
     setTutorialHasSwappedOrbs(true);
 
     const manaGain = matchCount * 5;
-    if (tutorialStage === 'abilities') setTutorial2OrbMana(prev => prev + manaGain);
     // Glidron passive: Gain 2 mana for every Wind or Electric orb consumed by either side
     const isWindOrElectric = elem === 'Wind' || elem === 'Electric';
     const glidronBonusMana = isWindOrElectric ? matchCount * 2 : 0;
@@ -4011,7 +4003,7 @@ export const BattleView: React.FC<Props> = ({
     sound.playSkillCast();
     playActiveSkillVfx(
       activeAttackingStarmon,
-      abilityNum,
+      skill,
       `[data-skill-vfx-player="${isPvP ? pvpActionMenu?.starmonIndex ?? actingStepIndex : actingStepIndex}"]`,
       `[data-skill-vfx-enemy="${selectedEnemyIndex}"]`,
     );
@@ -6604,6 +6596,18 @@ export const BattleView: React.FC<Props> = ({
       // Cast Ability Path
       const skillToCast = canCastSkill2 ? attacker.skill2 : attacker.skill1;
       const manaCost = skillToCast?.manaCost || 20;
+      if (skillToCast) {
+        const playerTarget = playerTeam.findIndex(player => player.currentHp > 0);
+        const sourceSelector = `[data-skill-vfx-enemy="${attackerIdx}"]`;
+        const destinationSelector = `[data-skill-vfx-player="${Math.max(0, playerTarget)}"]`;
+        setSkillVfx({
+          id: ++skillVfxSequence.current,
+          element: attacker.element,
+          mode: skillToCast.targetType === 'single' ? 'projectile' : 'on-target',
+          fromSelector: sourceSelector,
+          toSelector: skillToCast.targetType === 'self' ? sourceSelector : destinationSelector,
+        });
+      }
 
       // Special handling for Enemy Stone Golem Fortress Bulwark
       if (isEnemyGolem && canCastSkill2) {
@@ -6862,7 +6866,7 @@ export const BattleView: React.FC<Props> = ({
           }
 
           // Enemy gains mana from matched orbs
-          const manaGain = matchCount * 6;
+          const manaGain = matchCount * 5;
           setEnemyTeam(prev =>
             prev.map(e => {
               let m = e.currentMana;
@@ -7296,25 +7300,7 @@ export const BattleView: React.FC<Props> = ({
 
   return (
     <div className="w-full h-screen max-h-screen overflow-hidden flex flex-col justify-between bg-slate-950 text-slate-100 select-none">
-      {skillVfx && (
-        <img
-          key={skillVfx.id}
-          src={skillVfx.src}
-          alt=""
-          aria-hidden="true"
-          className="fixed z-[120] pointer-events-none object-contain"
-          style={{
-            left: skillVfx.type === 'projectile' || !skillVfx.launched ? skillVfx.x : skillVfx.x + skillVfx.dx,
-            top: skillVfx.type === 'projectile' || !skillVfx.launched ? skillVfx.y : skillVfx.y + skillVfx.dy,
-            width: 220,
-            height: 140,
-            mixBlendMode: 'screen',
-            opacity: skillVfx.launched ? 1 : 0.9,
-            transform: skillVfx.type === 'projectile' && skillVfx.launched ? `translate(${skillVfx.dx}px, ${skillVfx.dy}px) scale(0.65)` : 'scale(0.85)',
-            transition: skillVfx.type === 'projectile' ? 'transform 560ms cubic-bezier(.2,.75,.25,1), opacity 560ms ease-out' : 'transform 180ms ease-out, opacity 180ms ease-out',
-          }}
-        />
-      )}
+      <BattleSkillVfx request={skillVfx} />
       {/* TUTORIAL MODE TOP BANNER */}
       {tutorialStage && (
         <div className="bg-gradient-to-r from-amber-950 via-slate-900 to-indigo-950 border-b-2 border-amber-400 px-3 md:px-5 py-2 flex items-center justify-between shadow-xl z-30 shrink-0">
@@ -7335,7 +7321,7 @@ export const BattleView: React.FC<Props> = ({
                 </span>
               </div>
               <p className="text-[11px] text-slate-300 truncate">
-                {tutorialStage === 'abilities' && 'Đổi mục tiêu ➔ Xem Starmon ➔ Ghép orb cùng hệ (+5 Mana/orb) ➔ Dùng Active Skill'}
+                {tutorialStage === 'abilities' && 'Đổi mục tiêu ➔ Xem Starmon 1 ➔ Ghép orb bất kỳ (+5 Mana/orb) ➔ Dùng Active Skill'}
                 {tutorialStage === 1 && 'Step-by-step: Answering questions unlocks attack slots ➔ Match 3+ orbs to attack ➔ Defeat enemy!'}
                 {tutorialStage === 2 && 'Passive abilities trigger automatically for free! Active abilities consume Mana & take your turn.'}
                 {tutorialStage === 3 && 'Cycle: Water ➔ Fire ➔ Metal ➔ Earth ➔ Wind ➔ Electric ➔ Water! Same-Element: +10% DMG | Counter: +10% DMG | Resistance: -10% DMG.'}
@@ -8689,7 +8675,10 @@ export const BattleView: React.FC<Props> = ({
                           onClick={(e) => {
                             e.stopPropagation();
                             sound.playClick();
-                            if (tutorialStage === 'abilities') setSelectedPlayerInspectIndex(idx);
+                            if (tutorialStage === 'abilities') {
+                              setSelectedPlayerInspectIndex(idx);
+                              setTutorial2InspectStep(0);
+                            }
                             const orig = getOriginalBaseStats(mon);
                             if (tutorialStage === 'abilities') setTutorial2InspectDone(true);
                             setInspectingStarmon({
@@ -8729,8 +8718,14 @@ export const BattleView: React.FC<Props> = ({
                     {/* Unit Info Row */}
                     <div className="flex items-center gap-2">
                       <div
+                        id={tutorialStage === 'abilities' ? `tutorial-starmon-avatar-${idx}` : undefined}
                         onClick={() => {
                           sound.playClick();
+                          if (tutorialStage === 'abilities') {
+                            setSelectedPlayerInspectIndex(idx);
+                            setTutorial2InspectDone(true);
+                            setTutorial2InspectStep(0);
+                          }
                           const orig = getOriginalBaseStats(mon);
                           setInspectingStarmon({
                             mon,
@@ -8762,6 +8757,11 @@ export const BattleView: React.FC<Props> = ({
                           <span
                             onClick={() => {
                               sound.playClick();
+                              if (tutorialStage === 'abilities') {
+                                setSelectedPlayerInspectIndex(idx);
+                                setTutorial2InspectStep(0);
+                                setTutorial2InspectDone(true);
+                              }
                               const orig = getOriginalBaseStats(mon);
                               setInspectingStarmon({
                                 mon,
@@ -8843,7 +8843,7 @@ export const BattleView: React.FC<Props> = ({
                             className="flex-1 p-1.5 text-left flex flex-col justify-between cursor-pointer min-w-0"
                             title="Click to inspect ability details"
                           >
-                            <span id={tutorialStage === 'abilities' && idx === 0 ? 'tutorial-active-skill' : undefined} className="text-[10px] font-black font-game text-cyan-300 truncate">
+                            <span className="text-[10px] font-black font-game text-cyan-300 truncate">
                               ⚡ {mon.skill1.name}
                             </span>
                             <span className="text-[8px] text-slate-300 font-mono">
@@ -8854,9 +8854,21 @@ export const BattleView: React.FC<Props> = ({
                           {/* Arrow Head Button to Activate */}
                           {(isCurrentAttacker || tutorialStage === 'abilities') && (
                             <button
+                              id={tutorialStage === 'abilities' && idx === 0 ? 'tutorial-active-skill' : undefined}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                if (tutorialStage === 'abilities') setTutorial2CastDone(true);
+                                if (tutorialStage === 'abilities') {
+                                  const manaCost = mon.skill1.manaCost;
+                                  if (mon.currentMana < manaCost) return;
+                                  setPlayerTeam(prev => prev.map((member, memberIdx) => memberIdx === idx
+                                    ? { ...member, currentMana: Math.max(0, member.currentMana - manaCost) }
+                                    : member));
+                                  setTutorial2CastDone(true);
+                                  setFloatingDamage({ text: `${mon.skill1.name} Activated · -${manaCost} Mana`, isEnemy: false });
+                                  sound.playSkillCast();
+                                  setTimeout(() => setFloatingDamage(null), 1200);
+                                  return;
+                                }
                                 handleCastAbility(1);
                               }}
                               disabled={mon.currentMana < mon.skill1.manaCost}
@@ -10076,7 +10088,7 @@ export const BattleView: React.FC<Props> = ({
             </div>
 
             {/* BASE STATS SECTION (Original Stats before battle / Roster) */}
-            <div className="p-3 rounded-2xl bg-slate-950/80 border border-slate-800">
+            <div id={tutorialStage === 'abilities' && !inspectingStarmon.isEnemy ? 'tutorial-inspect-base-stats' : undefined} className="p-3 rounded-2xl bg-slate-950/80 border border-slate-800">
               <span className="text-[10px] font-black uppercase tracking-wider text-cyan-300 block mb-2">
                 📊 Base Stats (Original Roster Stats)
               </span>
@@ -10103,7 +10115,7 @@ export const BattleView: React.FC<Props> = ({
             </div>
 
             {/* CURRENT BATTLE VITALS */}
-            <div className="p-3 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-2">
+            <div id={tutorialStage === 'abilities' && !inspectingStarmon.isEnemy ? 'tutorial-inspect-vitals' : undefined} className="p-3 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-2">
               <span className="text-[10px] font-black uppercase tracking-wider text-emerald-300 block">
                 ⚔️ Current Battle State
               </span>
@@ -10134,7 +10146,7 @@ export const BattleView: React.FC<Props> = ({
             </div>
 
             {/* PASSIVE ABILITY SECTION */}
-            <div className="p-3.5 rounded-2xl bg-amber-950/30 border border-amber-500/40">
+            <div id={tutorialStage === 'abilities' && !inspectingStarmon.isEnemy ? 'tutorial-inspect-passive' : undefined} className="p-3.5 rounded-2xl bg-amber-950/30 border border-amber-500/40">
               <div className="flex items-center justify-between mb-1.5">
                 <div className="flex items-center gap-1.5">
                   <span className="text-base">✨</span>
@@ -10155,7 +10167,7 @@ export const BattleView: React.FC<Props> = ({
             </div>
 
             {/* ACTIVE SKILLS SECTION */}
-            <div className="space-y-2">
+            <div id={tutorialStage === 'abilities' && !inspectingStarmon.isEnemy ? 'tutorial-inspect-active' : undefined} className="space-y-2">
               <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">
                 ⚡ Active Skills (Takes Turn & Consumes Mana)
               </span>
@@ -10193,7 +10205,9 @@ export const BattleView: React.FC<Props> = ({
               onClick={() => {
                 sound.playClick();
                 setInspectingStarmon(null);
+                if (tutorialStage === 'abilities') setTutorial2InspectStep(0);
               }}
+              id={tutorialStage === 'abilities' && !inspectingStarmon.isEnemy ? 'tutorial-inspect-close' : undefined}
               className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-black font-game text-xs rounded-xl cursor-pointer active:scale-95"
             >
               CLOSE
@@ -10319,9 +10333,11 @@ export const BattleView: React.FC<Props> = ({
           tutorialRound={tutorialRound}
           mcqCorrectSelected={tutorialMcqCorrect}
           playerMana={playerTeam[0]?.currentMana || 0}
-          hasGainedTutorialMana={(playerTeam[0]?.currentMana || 0) >= 20}
-          hasGainedTutorialMana={tutorial2OrbMana > 0}
+          tutorialRequiredMana={playerTeam[0]?.skill1?.manaCost || 20}
           tutorial2CastDone={tutorial2CastDone}
+          tutorial2InspectOpen={Boolean(tutorialStage === 'abilities' && inspectingStarmon && !inspectingStarmon.isEnemy && inspectingStarmon.monIndex === 0)}
+          tutorial2InspectStep={tutorial2InspectStep}
+          onTutorial2InspectNext={() => setTutorial2InspectStep(current => Math.min(4, current + 1))}
           onSkip={() => onSkipTutorial?.()}
           onNextStage={(next) => onNextTutorialStage?.(next)}
           onAdvanceToMatch3={handleAdvanceToMatch3FromTutorial}

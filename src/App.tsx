@@ -342,6 +342,9 @@ export default function App() {
 
   const handleStartTutorialMatch = (stage: 1 | 2 | 3 | 'abilities') => {
     sound.playClick();
+    if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
     setActiveTutorialStage(stage);
     setShowTutorialModal(false);
     setShowSettingsModal(false);
