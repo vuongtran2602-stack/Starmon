@@ -44,7 +44,7 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     skill1: {
       id: 'aqua_pincer',
       name: 'Aqua Pincer',
-      description: 'Crushes target with twin water-infused claws dealing 180% DMG and reducing enemy DEF by 25% for 2 turns.',
+      description: '• Crushes the target with twin water-infused claws, dealing 180% DMG.\n• Reduces the target’s DEF by 25% for 2 turns.',
       manaCost: 40,
       damageMultiplier: 1.8,
       targetType: 'single',
@@ -85,7 +85,7 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     skill1: {
       id: 'flame_burst',
       name: 'Flame Burst',
-      description: 'Hurls an explosive fireball dealing 200% Fire DMG. Deals 350% DMG if target is Burned!',
+      description: '• Hurls an explosive fireball, dealing 200% Fire DMG.\n• Deals 350% DMG if the target is Burned.',
       manaCost: 40,
       damageMultiplier: 2.0,
       targetType: 'single',
@@ -133,7 +133,7 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     skill2: {
       id: 'magma_impact',
       name: 'Magma Impact',
-      description: 'Slams molten magma onto the foe dealing 240% Fire DMG with guaranteed 30% Burn.',
+      description: '• Slams molten magma onto the foe, dealing 240% Fire DMG.\n• Guarantees Burn (30%).',
       manaCost: 55,
       damageMultiplier: 2.4,
       targetType: 'single',
@@ -158,7 +158,7 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     unlocked: false,
     passive: {
       name: 'Fluid Precision',
-      description: 'Basic Match-3 attacks recover 10% of Tidecrush Max HP as ocean tide vitality. If Tidecrush HP is full, gains 10 extra mana instead.',
+      description: '• Basic Match-3 attacks restore HP equal to 10% of Tidecrush’s Max HP.\n• If Tidecrush is at full HP, gains 10 extra Mana instead.',
       tag: 'Life Leech / Mana Surge',
     },
     skill1: {
@@ -172,7 +172,7 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     skill2: {
       id: 'tidal_surge',
       name: 'Tidal Surge',
-      description: 'Converts all current Mana into bonus Attack stat (1 Mana = +0.2% Base ATK) lasting 3 turns with a 3-turn cooldown. Deals 0 direct damage!',
+      description: '• Converts all current Mana into bonus ATK (1 Mana = +0.2% Base ATK) for 3 turns.\n• Has a 3-turn cooldown and deals no direct damage.',
       manaCost: 20, // Consumes all available mana
       damageMultiplier: 0,
       targetType: 'self',
@@ -204,7 +204,7 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     skill1: {
       id: 'plasma_ray',
       name: 'Plasma Ray',
-      description: 'Fires a concentrated beam of static electricity for 180% DMG and applies Silence.',
+      description: '• Fires a concentrated beam of static electricity, dealing 180% DMG.\n• Applies Silence to the target.',
       manaCost: 55,
       damageMultiplier: 1.8,
       targetType: 'single',
@@ -213,7 +213,7 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     skill2: {
       id: 'gigawatt_explosion',
       name: 'Giga-Watt Explosion',
-      description: 'Unleashes an overwhelming storm shockwave dealing 320% AoE Electric DMG with 1-turn Stun, sacrificing 30% of Glidron’s current HP.',
+      description: '• Deals 320% AoE Electric DMG and Stuns enemies for 1 turn.\n• Sacrifices 30% of Glidron’s current HP.',
       manaCost: 125,
       damageMultiplier: 3.2,
       targetType: 'aoe',
@@ -252,7 +252,7 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     skill2: {
       id: 'thunder_bolt',
       name: 'Thunder Bolt',
-      description: 'Calls down 3 erratic lightning bolts hitting random enemies for 120% DMG each (each bolt randomly selects a target).',
+      description: '• Calls down 3 erratic lightning bolts, each dealing 120% DMG.\n• Each bolt randomly selects an enemy target.',
       manaCost: 55,
       damageMultiplier: 1.2, // 120% per bolt x 3 hits = 360% total
       targetType: 'single',
@@ -283,7 +283,7 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     skill1: {
       id: 'stone_crash',
       name: 'Stone Crash',
-      description: 'Gain Piercing for 2 turns, ignoring 50% of target DEF and still able to move this turn.',
+      description: '• Gains Piercing for 2 turns, ignoring 50% of the target’s DEF.\n• Can still move this turn.',
       manaCost: 40,
       damageMultiplier: 1.6,
       targetType: 'single',
@@ -317,13 +317,13 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     unlocked: false, // Starts locked - players start with 0 Starmon in inventory
     passive: {
       name: 'Unyielding Granite',
-      description: 'Gains a Shield equal to 5% of max HP at the start of each round. Upon death, gives all allies a Shield equal to 25% of Stone Golem\'s max HP for 3 turns.',
+      description: '• Gains a Shield equal to 5% of Max HP at the start of each round.\n• Upon death, grants all allies a Shield equal to 25% of Stone Golem’s Max HP for 3 turns.',
       tag: 'Granite Shield',
     },
     skill1: {
       id: 'stone_crash_golem',
       name: 'Stone Crash',
-      description: 'Deals 120% Earth Physical Damage to a target enemy and has 30% chance to stun the Target.',
+      description: '• Deals 120% Earth Physical Damage to a target enemy.\n• Has a 30% chance to Stun the target.',
       manaCost: 80,
       damageMultiplier: 1.2,
       targetType: 'single',
@@ -332,7 +332,7 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     skill2: {
       id: 'fortress_bulwark',
       name: 'Fortress Bulwark',
-      description: 'Taunts all enemies for 2 turns, forcing them to target Stone Golem with single-target attacks and abilities. Instantly grants itself a Shield equal to 18% of its Max HP for 2 turns.',
+      description: '• Taunts all enemies for 2 turns, forcing their single-target attacks and abilities to target Stone Golem.\n• Instantly gains a Shield equal to 18% of its Max HP for 2 turns.',
       manaCost: 110,
       damageMultiplier: 0,
       targetType: 'self',
@@ -365,7 +365,7 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     skill1: {
       id: 'hydro_cyclone',
       name: 'Hydro Cyclone',
-      description: 'Deals 180% Water DMG and has 20% to give Frostbite to the target for 3 turns. If the target already has Frostbite, silent them for 1 turns.',
+      description: '• Deals 180% Water DMG and has a 20% chance to inflict Frostbite for 3 turns.\n• If the target already has Frostbite, Silences it for 1 turn.',
       manaCost: 40,
       damageMultiplier: 1.8,
       targetType: 'single',
@@ -374,7 +374,7 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     skill2: {
       id: 'lotus_rain',
       name: 'Lotus Rain',
-      description: 'Restores 160 HP to all allies and cleanses debuffs.',
+      description: '• Restores 160 HP to all allies.\n• Cleanses debuffs from all allies.',
       manaCost: 70,
       damageMultiplier: 0,
       targetType: 'aoe',
@@ -440,13 +440,13 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     unlocked: false,
     passive: {
       name: 'Magma Shell',
-      description: 'Reflects 20% of incoming physical damage back as Fire Burn.',
+      description: '• Reflects 20% of incoming physical damage.\n• The reflected damage is dealt as Fire Burn.',
       tag: 'Thorns',
     },
     skill1: {
       id: 'lava_spurt',
       name: 'Lava Spurt',
-      description: 'Shoots burning lava dealing 150% Fire DMG.',
+      description: 'Shoots burning lava, dealing 150% Fire DMG.',
       manaCost: 35,
       damageMultiplier: 1.5,
       targetType: 'single',
@@ -524,7 +524,7 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     skill1: {
       id: 'lightning_beak',
       name: 'Lightning Beak',
-      description: 'Zapwing coats its beak in concentrated electricity and dives into a single target, dealing 135% Electric Damage. Has a 35% chance to inflict stun to the target.',
+      description: '• Dives at a single target with its electrified beak, dealing 135% Electric DMG.\n• Has a 35% chance to Stun the target.',
       manaCost: 20,
       damageMultiplier: 1.35,
       targetType: 'single',
@@ -558,13 +558,13 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     unlocked: false,
     passive: {
       name: 'Toxic Spore',
-      description: 'Whenever Vinedra executes an attack triggered by Earth orbs or casts an Active Skill, has a 35% chance to inflict Poison on the targeted enemy for 2 turns (DEF reduced by 10%, takes 5% max HP damage after its turn).',
+      description: '• Earth-orb attacks and Active Skills have a 35% chance to Poison the target for 2 turns.\n• Poison reduces DEF by 10% and deals damage equal to 5% of Max HP after the target’s turn.',
       tag: 'Toxic Spore',
     },
     skill1: {
       id: 'thorn_whip',
       name: 'Thorn Whip',
-      description: 'Vinedra lashes out with its thorny tail, dealing 70% Earth Damage. Gains +20% critical chance for attacks and abilities. If Vinedra has 25 or more mana remaining, it can use Thorn Whip again this turn!',
+      description: '• Deals 70% Earth DMG and gains +20% Critical Chance for attacks and abilities.\n• If Vinedra has at least 25 Mana remaining, it can use Thorn Whip again this turn.',
       manaCost: 25,
       damageMultiplier: 0.7,
       targetType: 'single',
@@ -573,7 +573,7 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     skill2: {
       id: 'poisonous_burst',
       name: 'Poisonous Burst',
-      description: 'Opens the purple floral bulb on its tail to release a toxic cloud across the enemy side, dealing 85% Earth Damage to all foes with a 35% chance to poison each enemy.',
+      description: '• Deals 85% Earth DMG to all enemies.\n• Has a 35% chance to Poison each enemy.',
       manaCost: 45,
       damageMultiplier: 0.85,
       targetType: 'aoe',
@@ -598,14 +598,14 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     unlocked: false,
     passive: {
       name: 'Tidal Momentum',
-      description: "Gain a permanent Resonance effect. Bubbleboon doesn't lose a turn when using its abilities.",
+      description: '• Gains a permanent Resonance effect.\n• Bubbleboon does not lose a turn when using its abilities.',
       tag: 'Resonance',
       effectDetail: "Grants the Starmon an immediate continuation of action. Using an active ability does not consume the current turn's orb-switches, allowing the Starmon to continue moving orbs as if no skill was used in this step.",
     },
     skill1: {
       id: 'double_jet_punch',
       name: 'Double Jet Punch',
-      description: 'Gain Double Strike for 1 turn. Bubbleboon performs consecutive orb switches instead of 1.',
+      description: '• Gains Double Strike for 1 turn.\n• Bubbleboon can perform consecutive orb switches instead of one.',
       manaCost: 55,
       damageMultiplier: 1.5,
       targetType: 'single',
@@ -614,7 +614,7 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     skill2: {
       id: 'bubble_bomb',
       name: 'Bubble Bomb',
-      description: 'Deals 180% Water Physical DMG to the target and converts 3 random non-water orbs into Water Orbs. If this conversion inadvertently triggers a chain of 3 or more connected Water orbs, it inflicts an additional burst of DMG equal to 100% Atk.',
+      description: '• Deals 180% Water Physical DMG and converts 3 random non-Water orbs into Water Orbs.\n• If the conversion triggers a match of 3 or more connected Water orbs, deals an additional 100% ATK DMG.',
       manaCost: 65,
       damageMultiplier: 1.8,
       targetType: 'single',
@@ -639,13 +639,13 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     unlocked: false,
     passive: {
       name: 'Infiltration Strike',
-      description: 'Trojan Flare gains an additional 10% ATK (calculated from its base ATK) and Piercing whenever a Shield is currently active on it. This attack bonus immediately disappears when the shield expires or is broken.',
+      description: '• While it has a Shield, Trojan Flare gains 10% ATK (based on Base ATK) and Piercing.\n• The ATK bonus disappears when the Shield expires or breaks.',
       tag: 'Shield ATK & Piercing',
     },
     skill1: {
       id: 'siege_charge',
       name: 'Siege Charge',
-      description: 'Gain Clarity (Immune to stun, froze bite, burn, poison) and Resonance effect for 1 turn (Resonance is applied in the next turn, not this).',
+      description: '• Gains Clarity, becoming immune to Stun, Frostbite, Burn, and Poison.\n• Gains Resonance for 1 turn, starting next turn.',
       manaCost: 0,
       cooldownTurns: 3,
       damageMultiplier: 1.0,
@@ -656,7 +656,7 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     skill2: {
       id: 'tactical_decoy',
       name: 'Tactical Decoy',
-      description: 'Gain a shield equal to 220% of its current ATK (This shield does not expire and can only be broken via taking DMG).',
+      description: '• Gains a Shield equal to 220% of its current ATK.\n• This Shield does not expire and can only be broken by taking damage.',
       manaCost: 70,
       damageMultiplier: 0,
       targetType: 'self',
@@ -698,7 +698,7 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     skill2: {
       id: 'charge_beam',
       name: 'Charge Beam',
-      description: 'Gains a Shield equal to 20% its max HP for 3 turns to absorb energy from attacks and unleashes laser blast dealing Steel DMG equal to 30% DMG it taken.',
+      description: '• Gains a Shield equal to 20% of its Max HP for 3 turns.\n• Fires a laser blast dealing Steel DMG equal to 30% of the damage it has taken.',
       manaCost: 65,
       damageMultiplier: 1.2,
       targetType: 'single',
@@ -741,7 +741,7 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     skill2: {
       id: 'iron_barricade',
       name: 'Iron Barricade',
-      description: 'Gain Taunt effect and a 50% max HP Shield for 3 turns.',
+      description: '• Gains Taunt for 3 turns.\n• Gains a Shield equal to 50% of Max HP for 3 turns.',
       manaCost: 75,
       damageMultiplier: 0,
       targetType: 'self',
@@ -768,13 +768,13 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     equippedItems: [null, null, null, null, null, null],
     passive: {
       name: 'Order Crown',
-      description: 'Gives 10% DMG boost to all Wind Attacks & Abilities from Zephyrion & its allies and gains Clarity (Immune to Burn, Stun, Taunt, Frost Bite, Poison)',
+      description: '• Zephyrion and its allies deal 10% more damage with Wind attacks and abilities.\n• Gains Clarity, becoming immune to Burn, Stun, Taunt, Frostbite, and Poison.',
       tag: 'Wind Boost +10% & Clarity',
     },
     skill1: {
       id: 'justice_judgment',
       name: 'Justice Judgment',
-      description: 'Deals 125% Wind DMG to the target. If the target has more HP than the user, double the DMG.',
+      description: '• Deals 125% Wind DMG to the target.\n• Deals double damage if the target has more HP than Zephyrion.',
       manaCost: 30,
       damageMultiplier: 1.25,
       targetType: 'single',
@@ -783,7 +783,7 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     skill2: {
       id: 'righteous_gale',
       name: 'Righteous Gale',
-      description: 'If any target has at least 1 debuff currently active before the user activates this ability, that target takes double the DMG from this ability. Deals 120% AoE Wind DMG to all enemies and removes all the buff and debuff statuses from all enemies.',
+      description: '• Any enemy with at least 1 active debuff when this skill is activated takes double damage from it.\n• Deals 120% AoE Wind DMG to all enemies.\n• Removes all buffs and debuffs from all enemies.',
       manaCost: 60,
       damageMultiplier: 1.2,
       targetType: 'aoe',
@@ -825,7 +825,7 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     skill2: {
       id: 'sluggish_metabolism',
       name: 'Sluggish Metabolism',
-      description: 'Mossloth stays still to slow down its metabolism. Gain Taunt for 3 turns and heal 15% of its max HP at the end of every turn.',
+      description: '• Gains Taunt for 3 turns.\n• Restores HP equal to 15% of its Max HP at the end of every turn.',
       manaCost: 75,
       damageMultiplier: 0,
       targetType: 'self',
@@ -859,7 +859,7 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     skill1: {
       id: 'mummys_curse',
       name: "Mummy's Curse",
-      description: "Puts a curse on the target, dealing Earth DMG equal to 10% of target's current HP and applying Healing Block for 2 turns (prevent HP regeneration from all sources).",
+      description: '• Deals Earth DMG equal to 10% of the target’s current HP.\n• Applies Healing Block for 2 turns, preventing HP regeneration from all sources.',
       manaCost: 30,
       damageMultiplier: 0.10,
       targetType: 'single',
@@ -868,7 +868,7 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     skill2: {
       id: 'ritual_of_the_sun',
       name: 'Ritual of the Sun',
-      description: "Summon the Sun Effect on the entire board for 3 turns. When Sun is active, all Water DMG is reduced by 20% and all Fire DMG increases by 20%. When the sun effect is active, Khepri's ATK increases by 20% and Desert Shroud passive is also activated.",
+      description: '• Summons the Sun effect across the board for 3 turns.\n• While active, Water DMG decreases by 20% and Fire DMG increases by 20%.\n• Khepri gains 20% ATK and activates the Desert Shroud passive.',
       manaCost: 65,
       damageMultiplier: 0,
       targetType: 'self',
@@ -902,7 +902,7 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     skill1: {
       id: 'ear_whip',
       name: 'Ear Whip',
-      description: "Deals Wind damage equal to 160% of Cottontail's ATK and removes the target's Shield.",
+      description: '• Deals Wind DMG equal to 160% of Cottontail’s ATK.\n• Removes the target’s Shield.',
       manaCost: 30,
       damageMultiplier: 1.6,
       targetType: 'single',
@@ -911,7 +911,7 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     skill2: {
       id: 'fluffy_hug',
       name: 'Fluffy Hug',
-      description: 'For 3 turns, Cottontail gains Taunt and reduces all damage it takes by 15%.',
+      description: '• Gains Taunt for 3 turns.\n• Reduces all damage it takes by 15% for 3 turns.',
       manaCost: 60,
       damageMultiplier: 0,
       targetType: 'self',
@@ -954,7 +954,7 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     skill2: {
       id: 'winged_fortress',
       name: 'Winged Fortress',
-      description: 'For 3 turns, Dreadhorn gains Taunt and increases its DEF by 20%.',
+      description: '• Gains Taunt for 3 turns.\n• Increases its DEF by 20% for 3 turns.',
       manaCost: 65,
       damageMultiplier: 0,
       targetType: 'self',
@@ -981,7 +981,7 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     equippedItems: [null, null, null, null, null, null],
     passive: {
       name: 'Berry Reserve',
-      description: "Once per battle per ally, when its or an ally's HP falls below 30%, restores 15% of that ally's base HP (30% for Bambloom itself).",
+      description: '• Once per battle per ally, triggers when that ally’s HP falls below 30% and restores 15% of its Base HP.\n• Restores 30% of Base HP when Bambloom itself triggers this effect.',
       tag: 'Berry Reserve · emergency healing',
     },
     skill1: {

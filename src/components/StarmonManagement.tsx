@@ -7,6 +7,7 @@ import { getEquipmentUpgradeCost, getItemLevelStats } from '../data/itemStats';
 import { getUnlockedItemSlots } from '../data/techResearch';
 import { EQUIPMENT_ITEMS_CATALOG, OMNI_CARD_IMAGE, GOLD_IMAGE } from '../data/itemsData';
 import { sound } from '../services/sound';
+import { getStarmonSkillDescription } from '../data/starmonSkillTranslations';
 import {
   Shield,
   Swords,
@@ -85,6 +86,7 @@ export const StarmonManagement: React.FC<Props> = ({
   const [showEquipLimits, setShowEquipLimits] = useState(false);
   const [showOmniModal, setShowOmniModal] = useState(false);
   const [omniAmount, setOmniAmount] = useState(1);
+  const [skillLanguage, setSkillLanguage] = useState<'English' | 'Tiếng Việt'>('English');
 
   // UnitTest 0-cost mode check (valid for 5 days)
   const isUnitTestActive = !!(unitTestExpiry && unitTestExpiry > Date.now());
@@ -649,23 +651,27 @@ export const StarmonManagement: React.FC<Props> = ({
             </div>
 
             {/* Skills & Passive */}
+            <div className="mt-3 flex items-center justify-end gap-1.5" aria-label="Skill description language">
+              <button onClick={() => setSkillLanguage('English')} className={`rounded-lg border px-3 py-1 text-[10px] font-black ${skillLanguage === 'English' ? 'border-amber-300 bg-amber-300 text-slate-950' : 'border-slate-700 bg-slate-950 text-slate-300'}`}>English</button>
+              <button onClick={() => setSkillLanguage('Tiếng Việt')} className={`rounded-lg border px-3 py-1 text-[10px] font-black ${skillLanguage === 'Tiếng Việt' ? 'border-amber-300 bg-amber-300 text-slate-950' : 'border-slate-700 bg-slate-950 text-slate-300'}`}>Tiếng Việt</button>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 mt-3">
               <div className="p-3 bg-slate-900/80 border border-slate-800 rounded-xl">
                 <span className="text-[10px] font-bold text-amber-400 uppercase">PASSIVE</span>
                 <h4 className="text-xs font-bold text-white font-game">{selectedStarmon.passive.name}</h4>
-                <p className="text-[11px] text-slate-400 mt-1 leading-snug whitespace-pre-line">{selectedStarmon.passive.description}</p>
+                <p className="text-[11px] text-slate-400 mt-1 leading-snug whitespace-pre-line">{getStarmonSkillDescription(selectedStarmon.id, 'passive', selectedStarmon.passive.description, skillLanguage)}</p>
               </div>
 
               <div className="p-3 bg-slate-900/80 border border-slate-800 rounded-xl">
                 <span className="text-[10px] font-bold text-sky-400 uppercase">SKILL 1 ({selectedStarmon.skill1.manaCost} Ma)</span>
                 <h4 className="text-xs font-bold text-white font-game">{selectedStarmon.skill1.name}</h4>
-                <p className="text-[11px] text-slate-400 mt-1 leading-snug whitespace-pre-line">{selectedStarmon.skill1.description}</p>
+                <p className="text-[11px] text-slate-400 mt-1 leading-snug whitespace-pre-line">{getStarmonSkillDescription(selectedStarmon.id, 'skill1', selectedStarmon.skill1.description, skillLanguage)}</p>
               </div>
 
               <div className="p-3 bg-slate-900/80 border border-slate-800 rounded-xl">
                 <span className="text-[10px] font-bold text-purple-400 uppercase">SKILL 2 ({selectedStarmon.skill2.manaCost} Ma)</span>
                 <h4 className="text-xs font-bold text-white font-game">{selectedStarmon.skill2.name}</h4>
-                <p className="text-[11px] text-slate-400 mt-1 leading-snug whitespace-pre-line">{selectedStarmon.skill2.description}</p>
+                <p className="text-[11px] text-slate-400 mt-1 leading-snug whitespace-pre-line">{getStarmonSkillDescription(selectedStarmon.id, 'skill2', selectedStarmon.skill2.description, skillLanguage)}</p>
               </div>
             </div>
 

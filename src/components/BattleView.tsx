@@ -9,6 +9,7 @@ import { sound } from '../services/sound';
 import { submitSpeakingToSupabase, syncPvpActionToSupabase, subscribeToPvpRoom } from '../services/supabase';
 import { TutorialSpotlight } from './TutorialSpotlight';
 import { BattleSkillVfx, type BattleVfxRequest } from './BattleSkillVfx';
+import { getStarmonSkillDescription } from '../data/starmonSkillTranslations';
 import {
   Mic,
   Square,
@@ -265,6 +266,7 @@ export const BattleView: React.FC<Props> = ({
     originalBase?: Starmon;
   } | null>(null);
   const [tutorial2InspectStep, setTutorial2InspectStep] = useState(0);
+  const [inspectSkillLanguage, setInspectSkillLanguage] = useState<'English' | 'Tiếng Việt'>('English');
 
   // ==========================================
   // BATTLE LOG (LỊCH SỬ TRẬN ĐẤU)
@@ -10146,6 +10148,10 @@ export const BattleView: React.FC<Props> = ({
             </div>
 
             {/* PASSIVE ABILITY SECTION */}
+            <div className="flex justify-end gap-1.5" aria-label="Skill description language">
+              <button onClick={() => setInspectSkillLanguage('English')} className={`rounded-lg border px-3 py-1 text-[10px] font-black ${inspectSkillLanguage === 'English' ? 'border-amber-300 bg-amber-300 text-slate-950' : 'border-slate-700 bg-slate-950 text-slate-300'}`}>English</button>
+              <button onClick={() => setInspectSkillLanguage('Tiếng Việt')} className={`rounded-lg border px-3 py-1 text-[10px] font-black ${inspectSkillLanguage === 'Tiếng Việt' ? 'border-amber-300 bg-amber-300 text-slate-950' : 'border-slate-700 bg-slate-950 text-slate-300'}`}>Tiếng Việt</button>
+            </div>
             <div id={tutorialStage === 'abilities' && !inspectingStarmon.isEnemy ? 'tutorial-inspect-passive' : undefined} className="p-3.5 rounded-2xl bg-amber-950/30 border border-amber-500/40">
               <div className="flex items-center justify-between mb-1.5">
                 <div className="flex items-center gap-1.5">
@@ -10159,7 +10165,7 @@ export const BattleView: React.FC<Props> = ({
                 </span>
               </div>
               <p className="text-xs text-slate-200 leading-relaxed whitespace-pre-line">
-                {inspectingStarmon.mon.passive?.description || 'Năng lực nội tại tự động kích hoạt.'}
+                {getStarmonSkillDescription(inspectingStarmon.mon.id, 'passive', inspectingStarmon.mon.passive?.description || 'Năng lực nội tại tự động kích hoạt.', inspectSkillLanguage)}
               </p>
               <div className="mt-2 text-[10px] text-amber-400/90 font-bold italic">
                 💡 Passive abilities trigger automatically without costing mana or consuming your turn.
@@ -10181,7 +10187,7 @@ export const BattleView: React.FC<Props> = ({
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-300 leading-snug whitespace-pre-line">
-                    {inspectingStarmon.mon.skill1?.description || 'Kỹ năng chủ động.'}
+                    {getStarmonSkillDescription(inspectingStarmon.mon.id, 'skill1', inspectingStarmon.mon.skill1?.description || 'Kỹ năng chủ động.', inspectSkillLanguage)}
                   </p>
                 </div>
 
@@ -10194,7 +10200,7 @@ export const BattleView: React.FC<Props> = ({
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-300 leading-snug whitespace-pre-line">
-                    {inspectingStarmon.mon.skill2?.description || 'Tuyệt chiêu chủ động.'}
+                    {getStarmonSkillDescription(inspectingStarmon.mon.id, 'skill2', inspectingStarmon.mon.skill2?.description || 'Tuyệt chiêu chủ động.', inspectSkillLanguage)}
                   </p>
                 </div>
               </div>
