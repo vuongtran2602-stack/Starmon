@@ -730,6 +730,13 @@ interface StarmonCombatant {
   mana: number;
   currentMana: number;
   battleShieldPoints?: number;
+  battleDecoyHp?: number;
+  battleDecoyTurns?: number;
+  battleAttackBuffAmount?: number;
+  battleAttackBuffTurns?: number;
+  battleCritChanceBonus?: number;
+  battleCritChanceTurns?: number;
+  battleSirenGraceUsed?: boolean;
   battleTauntTurns?: number;
   battleDamageReduction?: number;
   battleDamageReductionTurns?: number;
@@ -1446,6 +1453,13 @@ function createDefaultStarmonsForSlot(slot: 1 | 2, inputStarmons?: any[]): Starm
       secondaryElement: input?.secondaryElement,
       def: input?.def || 20,
       battleShieldPoints: 0,
+      battleDecoyHp: typeof input?.battleDecoyHp === 'number' ? input.battleDecoyHp : ((input?.id === 'manta1' || input?.avatarSeed === 'manta1') ? Math.max(1, Math.round(maxHp * 0.3)) : 0),
+      battleDecoyTurns: input?.battleDecoyTurns || 0,
+      battleAttackBuffAmount: input?.battleAttackBuffAmount || 0,
+      battleAttackBuffTurns: input?.battleAttackBuffTurns || 0,
+      battleCritChanceBonus: input?.battleCritChanceBonus || 0,
+      battleCritChanceTurns: input?.battleCritChanceTurns || 0,
+      battleSirenGraceUsed: Boolean(input?.battleSirenGraceUsed),
       battleTauntTurns: 0,
       battleDamageReduction: 0,
       battleDamageReductionTurns: 0,
@@ -2535,7 +2549,7 @@ function onStarmonAction(
       targetIdx = aliveTargets[0];
     }
     payload.targetStarmonIndex = targetIdx;
-    const isSupportAbility = ability.id === 'fluffy_hug' || ability.id === 'winged_fortress' || ability.id === 'antler_blessing';
+    const isSupportAbility = ability.id === 'fluffy_hug' || ability.id === 'winged_fortress' || ability.id === 'antler_blessing' || ability.id === 'flaming_decoy' || ability.id === 'soothing_aura' || ability.id === 'petal_dance';
     damage = isSupportAbility ? 0 : calcAbilityDamage(starmon, ability, targetIdx, payload);
   } else {
     return reject('action không hợp lệ');
@@ -2544,12 +2558,14 @@ function onStarmonAction(
   const effectLines: string[] = [];
   const passiveEvents: Array<{ starmonName: string; passiveName: string; line: string }> = [];
   const damageElement = ability?.id === 'shield_bash' ? 'Steel' : (starmon.element || 'Physical');
-  if (actionType === 'use_ability' && damage > 0 && !['fluffy_hug', 'winged_fortress', 'antler_blessing'].includes(ability?.id || '')) {
+  if (actionType === 'use_ability' && damage > 0 && !['fluffy_hug', 'winged_fortress', 'antler_blessing', 'flaming_decoy', 'soothing_aura', 'petal_dance'].includes(ability?.id || '')) {
     effectLines.push(`Deals ${damage} ${damageElement} DMG`);
   }
 
+  // Flaming Decoy is a free action; keep this step open for the same Starmon to act again.
+  const isFreeAction = actionType === 'use_ability' && ability?.id === 'flaming_decoy';
   // Lock the step before mutating shared state; repeated or delayed client messages cannot apply damage twice.
-  state.actionCommittedStep = state.step;
+  if (!isFreeAction) state.actionCommittedStep = state.step;
 
   const targetStarmon = target.starmons[targetIdx];
 
@@ -2586,6 +2602,19 @@ function onStarmonAction(
         starmon.battleDefenseBuffTurns = 3;
         starmon.def += defBonus;
         effectLines.push(`Gain Taunt and ${defBonus} DEF for 3 turns`);
+      } else if (ability?.id === 'flaming_decoy') {
+        starmon.battleDecoyHp = Math.max(1, Math.round(starmon.maxHp * 0.4));
+        starmon.battleDecoyTurns = 1;
+        effectLines.push(`Create Decoy: ${starmon.battleDecoyHp}HP for 1 turn`);
+      } else if (ability?.id === 'soothing_aura') {
+        attacker.starmons.forEach(ally => { if (ally.hp > 0) { ally.battleDamageReduction = 0.15; ally.battleDamageReductionTurns = 1; } });
+        effectLines.push('All allies take 15% less damage for 1 turn');
+      } else if (ability?.id === 'petal_dance') {
+        starmon.battleAttackBuffAmount = 0.4;
+        starmon.battleAttackBuffTurns = 3;
+        starmon.battleCritChanceBonus = 0.4;
+        starmon.battleCritChanceTurns = 3;
+        effectLines.push('Gain 40% ATK and 40% Critical Hit chance for 3 turns');
       } else if (ability?.id === 'antler_blessing') {
         const healTarget = attacker.starmons
           .filter(s => s.hp > 0 && s.hp < s.maxHp)
@@ -2608,15 +2637,38 @@ function onStarmonAction(
           }
           const hpBefore = ts.hp;
           let hitDamage = Math.round(damage * (1 - ((ts.battleDamageReductionTurns || 0) > 0 ? (ts.battleDamageReduction || 0) : 0)));
+          if (ts.id === 'dandylmane' && (actionType === 'physical_attack' || ability?.targetType !== 'aoe')) hitDamage = Math.round(hitDamage * 0.8);
           const wasHit = hitDamage > 0;
+          const decoyAbsorbed = Math.min(Math.max(0, ts.battleDecoyHp || 0), hitDamage);
+          ts.battleDecoyHp = Math.max(0, (ts.battleDecoyHp || 0) - decoyAbsorbed);
+          hitDamage -= decoyAbsorbed;
+          if (decoyAbsorbed > 0) effectLines.push(`Decoy absorbs ${decoyAbsorbed} DMG (${ts.battleDecoyHp}HP left)`);
           const shield = Math.max(0, ts.battleShieldPoints || 0);
           const absorbed = Math.min(shield, hitDamage);
           ts.battleShieldPoints = shield - absorbed;
           if (absorbed > 0) effectLines.push(`Shield absorbs ${absorbed} DMG`);
           hitDamage -= absorbed;
           ts.hp = Math.max(0, ts.hp - hitDamage);
+          if (starmon.id === 'volzard' || starmon.avatarSeed === 'volzard') {
+            const manaDrain = actionType === 'physical_attack' || ability?.targetType !== 'aoe' ? 8 : 4;
+            ts.mana = Math.max(0, (ts.mana ?? ts.currentMana ?? 0) - manaDrain);
+            ts.currentMana = ts.mana;
+          }
           ts.alive = ts.hp > 0;
           ts.currentHp = ts.hp;
+          if (ts.id === 'seaponi' && !ts.battleSirenGraceUsed && hpBefore >= ts.maxHp * 0.5 && ts.hp < ts.maxHp * 0.5) {
+            ts.battleSirenGraceUsed = true;
+            ts.mana = Math.min(200, (ts.mana ?? 0) + 40);
+            ts.currentMana = ts.mana;
+            effectLines.push('Siren’s Grace: restore 40 Mana');
+          }
+          if (wasHit) {
+            const whiskerteer = attacker.starmons.find(ally => ally.id === 'whiskerteer' && ally.hp > 0);
+            if (whiskerteer) {
+              whiskerteer.baseAtk += Math.max(1, Math.round(whiskerteer.baseAtk * 0.03));
+              effectLines.push('All for One: Whiskerteer gains 3% ATK');
+            }
+          }
 
           if (hpBefore >= ts.maxHp * 0.3 && ts.hp < ts.maxHp * 0.3 && !ts.berryReserveUsed) {
             const bambloom = target.starmons.find(s => s.id === 'bambloom' && (s.hp > 0 || s === ts));
@@ -2687,6 +2739,7 @@ function onStarmonAction(
       abilityNum: payload.abilityNum || (ability && starmon.skill2?.id === ability.id ? 2 : 1),
     },
     damage: damage,
+    freeAction: isFreeAction,
     effectLines,
     passiveEvents,
     targetHpAfter: targetStarmon ? targetStarmon.hp : 0,
@@ -2709,6 +2762,7 @@ function onStarmonAction(
   }
 
   // ---- Kết thúc lượt starmon -> sang step kế sau 700ms để 2 người chơi thấy rõ hiệu ứng đòn đánh trên board ----
+  if (isFreeAction) return;
   state.stepTimerHandle = setTimeout(() => {
     endStep(state, roomCode);
   }, 700);

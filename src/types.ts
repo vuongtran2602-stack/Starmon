@@ -95,6 +95,12 @@ export interface Starmon {
   battleDefenseBuffAmount?: number;
   battleDefenseBuffTurns?: number;
   battleShieldPoints?: number;
+  battleDecoyHp?: number;
+  battleDecoyTurns?: number;
+  battleAttackBuffAmount?: number;
+  battleAttackBuffTurns?: number;
+  battleCritChanceBonus?: number;
+  battleCritChanceTurns?: number;
   battleBaseDef?: number;
   berryReserveUsed?: boolean;
 }

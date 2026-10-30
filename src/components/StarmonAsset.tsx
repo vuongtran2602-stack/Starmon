@@ -23,6 +23,12 @@ import khepriImg from '../assets/images/khepri.png';
 import cottontailImg from '../assets/images/cottontail.jpeg';
 import dreadhornImg from '../assets/images/dreadhorn.jpg';
 import bambloomImg from '../assets/images/bambloom.jpeg';
+import volzardImg from '../assets/images/volzard.jpeg';
+import dandylmaneImg from '../assets/images/dandylmane.jpeg';
+import manta1Img from '../assets/images/manta1.png';
+import pumpyreImg from '../assets/images/pumpyre.jpeg';
+import whiskerteerImg from '../assets/images/whiskerteer.jpeg';
+import seaponiImg from '../assets/images/seaponi.jpeg';
 import {
   AQUANYMPH_DA_PHUC_IMAGE,
   CYBORGNID_IMAGE,
@@ -319,6 +325,19 @@ function renderGraphic(id: string) {
 
     case 'bambloom':
       return <img src={bambloomImg} alt="Bambloom" className="w-full h-full object-contain drop-shadow-md select-none pointer-events-none" />;
+
+    case 'volzard':
+      return <img src={volzardImg} alt="Volzard" className="w-full h-full object-contain drop-shadow-md select-none pointer-events-none" />;
+    case 'dandylmane':
+      return <img src={dandylmaneImg} alt="Dandylmane" className="w-full h-full object-contain drop-shadow-md select-none pointer-events-none" />;
+    case 'manta1':
+      return <img src={manta1Img} alt="Manta-1" className="w-full h-full object-contain drop-shadow-md select-none pointer-events-none" />;
+    case 'pumpyre':
+      return <img src={pumpyreImg} alt="Pumpyre" className="w-full h-full object-contain drop-shadow-md select-none pointer-events-none" />;
+    case 'whiskerteer':
+      return <img src={whiskerteerImg} alt="Whiskerteer" className="w-full h-full object-contain drop-shadow-md select-none pointer-events-none" />;
+    case 'seaponi':
+      return <img src={seaponiImg} alt="Seaponi" className="w-full h-full object-contain drop-shadow-md select-none pointer-events-none" />;
 
     case 'teslarion':
       // Pulse Robot

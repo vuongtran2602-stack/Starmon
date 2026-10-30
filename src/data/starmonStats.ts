@@ -167,6 +167,12 @@ export const STARMON_CLASS_MAP: Record<string, StarmonClass> = {
   bambloom: 'Support 1 (Caster Support)',
   cottontail: 'Support 2 (Tank Support)',
   dreadhorn: 'Tank 2',
+  volzard: 'Attacker 3',
+  dandylmane: 'Warrior 3',
+  manta1: 'Attacker 3',
+  pumpyre: 'Attacker 2',
+  whiskerteer: 'Warrior 2',
+  seaponi: 'Support 1 (Caster Support)',
 };
 
 /**
