@@ -2311,7 +2311,7 @@
   "player": {
     "username": "Player",
     "createdAt": "2026-10-14T10:04:38.619Z",
-    "lastPlayedAt": "2026-10-29T08:35:34.647Z",
+    "lastPlayedAt": "2026-10-29T15:15:42.231Z",
     "player": {
       "name": "Player",
       "username": "Player",
@@ -2326,7 +2326,7 @@
       "commonItemPacks": 0,
       "energy": 100,
       "maxEnergy": 100,
-      "lastEnergyRegenTime": 1793262934570,
+      "lastEnergyRegenTime": 1793286941972,
       "energyBatteries": {
         "battery50": 5,
         "battery100": 3,
@@ -2366,7 +2366,8 @@
       "showSpeakingHints": false,
       "quizQuestionMode": "part3_forecast_2026",
       "speakingLog": [],
-      "graphicsQuality": "High"
+      "graphicsQuality": "High",
+      "googleEmail": ""
     },
     "starmons": [
       {
@@ -13815,7 +13816,7 @@
     "username": "Player",
     "googleId": "player3",
     "createdAt": "2026-10-29T08:31:03.503Z",
-    "lastPlayedAt": "2026-10-29T08:35:34.615Z",
+    "lastPlayedAt": "2026-10-29T15:15:42.116Z",
     "quests": [
       {
         "id": "daily_login",
@@ -14417,7 +14418,7 @@
       "commonItemPacks": 0,
       "energy": 100,
       "maxEnergy": 100,
-      "lastEnergyRegenTime": 1793262934570,
+      "lastEnergyRegenTime": 1793286941972,
       "energyBatteries": {
         "battery50": 5,
         "battery100": 3,
@@ -14457,7 +14458,8 @@
       "showSpeakingHints": false,
       "quizQuestionMode": "part3_forecast_2026",
       "speakingLog": [],
-      "graphicsQuality": "High"
+      "graphicsQuality": "High",
+      "googleEmail": ""
     },
     "starmons": [
       {
