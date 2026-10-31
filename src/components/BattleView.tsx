@@ -5871,7 +5871,7 @@ export const BattleView: React.FC<Props> = ({
 
     // ==============================================================
     // MOSSLOTH ABILITY 1: BRANCH SLAM (40 MANA)
-    // Deals Earth DMG based on the user's max HP (15%).
+    // Deals Earth DMG based on the user's max HP (10%).
     // ==============================================================
     if ((activeAttackingStarmon.id === 'mossloth' || activeAttackingStarmon.avatarSeed === 'mossloth') && abilityNum === 1) {
       if (activeAttackingStarmon.currentMana < 40) {
@@ -5893,8 +5893,8 @@ export const BattleView: React.FC<Props> = ({
       setSelectedEnemyIndex(targetIdx);
       const targetEnemy = enemyTeam[targetIdx];
 
-      // 15% of user max HP as Earth DMG
-      const dmg = Math.round(activeAttackingStarmon.maxHp * 0.15);
+      // 10% of user max HP as Earth DMG
+      const dmg = Math.round(activeAttackingStarmon.maxHp * 0.10);
 
       setPlayerTeam(prev =>
         prev.map((s, idx) =>
@@ -5919,7 +5919,7 @@ export const BattleView: React.FC<Props> = ({
         unitName: 'Mossloth',
         actionType: 'skill',
         message: `🌿 Mossloth cast "Branch Slam" (-40 Mana)!`,
-        detail: `Dealt ${dmg} Earth DMG (15% of Mossloth's Max HP ${activeAttackingStarmon.maxHp}) to ${targetEnemy.name}.`,
+        detail: `Dealt ${dmg} Earth DMG (10% of Mossloth's Max HP ${activeAttackingStarmon.maxHp}) to ${targetEnemy.name}.`,
       });
 
       if (isPvP) {
@@ -5954,7 +5954,7 @@ export const BattleView: React.FC<Props> = ({
 
     // ==============================================================
     // MOSSLOTH ABILITY 2: SLUGGISH METABOLISM (75 MANA)
-    // Gain Taunt for 3 turns and heal 15% of its max HP at the end of every turn.
+    // Gain Taunt for 3 turns and heal 12% of its max HP at the end of every turn for 3 turns.
     // ==============================================================
     if ((activeAttackingStarmon.id === 'mossloth' || activeAttackingStarmon.avatarSeed === 'mossloth') && abilityNum === 2) {
       if (activeAttackingStarmon.currentMana < 75) {
@@ -5973,7 +5973,7 @@ export const BattleView: React.FC<Props> = ({
 
       sound.playShield();
       setFloatingDamage({
-        text: `🐢 SLUGGISH METABOLISM! Taunt (3t) & +15% HP Regen/turn (3t)`,
+        text: `🐢 SLUGGISH METABOLISM! Taunt (3t) & +12% HP Regen/turn (3t)`,
         isEnemy: false,
       });
       setTimeout(() => setFloatingDamage(null), 1400);
@@ -5984,7 +5984,7 @@ export const BattleView: React.FC<Props> = ({
         unitName: 'Mossloth',
         actionType: 'skill',
         message: `🐢 Mossloth cast "Sluggish Metabolism" (-75 Mana)!`,
-        detail: `Slowed metabolism: Gained Taunt for 3 turns and will heal 15% Max HP (${Math.round(activeAttackingStarmon.maxHp * 0.15)} HP) at the end of every turn for 3 turns!`,
+        detail: `Slowed metabolism: Gained Taunt for 3 turns and will heal 12% Max HP (${Math.round(activeAttackingStarmon.maxHp * 0.12)} HP) at the end of every turn for 3 turns!`,
       });
 
       syncCurrentSkill(0, true, 0);
@@ -7453,7 +7453,7 @@ export const BattleView: React.FC<Props> = ({
       return next;
     });
 
-    // Sluggish Metabolism: Heal 15% Max HP at the end of every turn
+    // Sluggish Metabolism: Heal 12% Max HP at the end of every turn
     if (playerMosslothRegenTurns > 0) {
       setPlayerTeam(prevPlayers => {
         const mossIdx = prevPlayers.findIndex(p => (p.id === 'mossloth' || p.avatarSeed === 'mossloth') && p.currentHp > 0);
@@ -7461,14 +7461,14 @@ export const BattleView: React.FC<Props> = ({
           const isBlocked = (playerHealingBlockTurns[mossIdx] || 0) > 0;
           if (!isBlocked) {
             const mossMon = prevPlayers[mossIdx];
-            const heal = Math.round(mossMon.maxHp * 0.15);
+            const heal = Math.round(mossMon.maxHp * 0.12);
             const nextHp = Math.min(mossMon.maxHp, mossMon.currentHp + heal);
             addBattleLog({
               phase: 'combat',
               source: 'player',
               unitName: 'Mossloth',
               actionType: 'status',
-              message: `🐢 Sluggish Metabolism: Mossloth recovered +${heal} HP (15% Max HP)!`,
+              message: `🐢 Sluggish Metabolism: Mossloth recovered +${heal} HP (12% Max HP)!`,
             });
             return prevPlayers.map((p, i) => i === mossIdx ? { ...p, currentHp: nextHp } : p);
           } else {
@@ -9003,7 +9003,7 @@ export const BattleView: React.FC<Props> = ({
                         {(mon.id === 'mossloth' || mon.avatarSeed === 'mossloth') && playerMosslothTauntTurns > 0 && (
                           <div
                             className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-emerald-950 border border-emerald-400 text-emerald-300 animate-pulse shadow"
-                            title={`Sluggish Metabolism: Taunting enemies & healing 15% Max HP/turn (${playerMosslothTauntTurns} turns left)`}
+                            title={`Sluggish Metabolism: Taunting enemies & healing 12% Max HP/turn (${playerMosslothTauntTurns} turns left)`}
                           >
                             <Crosshair className="w-3 h-3 text-emerald-300" />
                             <span className="text-[8px] font-black">Taunt+Regen [{playerMosslothTauntTurns}t]</span>

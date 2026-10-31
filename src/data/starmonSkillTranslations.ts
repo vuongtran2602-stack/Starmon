@@ -55,7 +55,7 @@ const VIETNAMESE_SKILL_DESCRIPTIONS: Record<string, SkillTranslations> = {
     skill1: '• Gây 125% sát thương Wind lên mục tiêu.\n• Sát thương tăng gấp đôi nếu mục tiêu có nhiều HP hơn Zephyrion.',
     skill2: '• Kẻ địch đang có ít nhất 1 debuff khi kỹ năng được kích hoạt sẽ nhận sát thương gấp đôi từ kỹ năng này.\n• Gây 120% sát thương Wind diện rộng lên toàn bộ kẻ địch.\n• Xóa mọi buff và debuff khỏi toàn bộ kẻ địch.',
   },
-  mossloth: { passive: 'Khi HP dưới 50% Max HP, có 20% tỉ lệ né đòn đánh thường hoặc kỹ năng đơn mục tiêu nhắm vào mình.', skill1: 'Gây sát thương Earth bằng 15% Max HP của bản thân.', skill2: '• Nhận Taunt trong 3 lượt.\n• Hồi HP bằng 15% Max HP vào cuối mỗi lượt.' },
+  mossloth: { passive: 'Khi HP dưới 50% Max HP, có 20% tỉ lệ né đòn đánh thường hoặc kỹ năng đơn mục tiêu nhắm vào mình.', skill1: 'Gây sát thương Earth bằng 10% Max HP của bản thân.', skill2: '• Nhận Taunt trong 3 lượt.\n• Hồi HP bằng 12% Max HP vào cuối mỗi lượt trong 3 lượt.' },
   khepri: {
     passive: 'Sau khi sử dụng kỹ năng, nhận 30% Evasiveness trong 1 lượt. Hiệu ứng Evasiveness không cộng dồn.',
     skill1: '• Gây sát thương Earth bằng 10% HP hiện tại của mục tiêu.\n• Áp dụng Healing Block trong 2 lượt, ngăn mọi nguồn hồi HP.',
