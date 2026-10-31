@@ -367,7 +367,7 @@ export const BattlePerformanceSummary: React.FC<Props> = ({
                 <div className="p-2.5 rounded-xl bg-indigo-950/30 border border-indigo-500/30 text-[10px] text-indigo-300 flex items-center gap-2">
                   <Sparkles className="w-4 h-4 text-indigo-400 shrink-0" />
                   <span>
-                    Vòng tròn khắc chế: <strong>Water ➔ Fire ➔ Metal ➔ Earth ➔ Wind ➔ Electric ➔ Water</strong> (+10% Counter / -10% Resistance).
+                    Vòng tròn khắc chế: <strong>Water ➔ Fire ➔ Metal ➔ Wind ➔ Earth ➔ Electric ➔ Water</strong> (+10% Counter / -10% Resistance).
                   </span>
                 </div>
               </div>

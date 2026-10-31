@@ -736,6 +736,12 @@ interface StarmonCombatant {
   battleAttackBuffTurns?: number;
   battleCritChanceBonus?: number;
   battleCritChanceTurns?: number;
+  battleBurnTurns?: number;
+  battlePoisonTurns?: number;
+  battleSilenceTurns?: number;
+  battleFrostbiteTurns?: number;
+  battleAttackDebuffPercent?: number;
+  battleAttackDebuffTurns?: number;
   battleSirenGraceUsed?: boolean;
   battleTauntTurns?: number;
   battleDamageReduction?: number;
@@ -1459,6 +1465,12 @@ function createDefaultStarmonsForSlot(slot: 1 | 2, inputStarmons?: any[]): Starm
       battleAttackBuffTurns: input?.battleAttackBuffTurns || 0,
       battleCritChanceBonus: input?.battleCritChanceBonus || 0,
       battleCritChanceTurns: input?.battleCritChanceTurns || 0,
+      battleBurnTurns: input?.battleBurnTurns || 0,
+      battlePoisonTurns: input?.battlePoisonTurns || 0,
+      battleSilenceTurns: input?.battleSilenceTurns || 0,
+      battleFrostbiteTurns: input?.battleFrostbiteTurns || 0,
+      battleAttackDebuffPercent: input?.battleAttackDebuffPercent || 0,
+      battleAttackDebuffTurns: input?.battleAttackDebuffTurns || 0,
       battleSirenGraceUsed: Boolean(input?.battleSirenGraceUsed),
       battleTauntTurns: 0,
       battleDamageReduction: 0,
@@ -1784,7 +1796,34 @@ phaseDeadlineWatchdog.unref?.();
 function startTurn(state: PvpMatchState, roomCode: string, n: number) {
   for (const slot of [1, 2] as const) {
     for (const starmon of state.players[slot].starmons) {
+      if (starmon.battleDecoyHp && starmon.battleDecoyHp > 0 && !(starmon.battleDecoyTurns > 0)) starmon.battleDecoyHp = 0;
       starmon.battleTauntTurns = Math.max(0, (starmon.battleTauntTurns || 0) - 1);
+      if ((starmon.battleDecoyTurns || 0) > 0) {
+        starmon.battleDecoyTurns = Math.max(0, starmon.battleDecoyTurns - 1);
+        if (starmon.battleDecoyTurns === 0) starmon.battleDecoyHp = 0;
+      }
+      if ((starmon.battleBurnTurns || 0) > 0 || (starmon.battlePoisonTurns || 0) > 0) {
+        const damageOverTimeCount = (starmon.battleBurnTurns || 0) > 0 ? 1 : 0;
+        const poisonCount = (starmon.battlePoisonTurns || 0) > 0 ? 1 : 0;
+        const statusDamage = (damageOverTimeCount + poisonCount) * Math.max(5, Math.round(starmon.maxHp * 0.05));
+        starmon.hp = Math.max(0, starmon.hp - statusDamage);
+        starmon.currentHp = starmon.hp;
+        starmon.alive = starmon.hp > 0;
+        starmon.battleBurnTurns = 0;
+        starmon.battlePoisonTurns = 0;
+      }
+      starmon.battleSilenceTurns = Math.max(0, (starmon.battleSilenceTurns || 0) - 1);
+      starmon.battleFrostbiteTurns = Math.max(0, (starmon.battleFrostbiteTurns || 0) - 1);
+      starmon.battleAttackDebuffTurns = Math.max(0, (starmon.battleAttackDebuffTurns || 0) - 1);
+      if (starmon.battleAttackDebuffTurns === 0) starmon.battleAttackDebuffPercent = 0;
+      if ((starmon.battleAttackBuffTurns || 0) > 0) {
+        starmon.battleAttackBuffTurns = Math.max(0, starmon.battleAttackBuffTurns - 1);
+        if (starmon.battleAttackBuffTurns === 0) starmon.battleAttackBuffAmount = 0;
+      }
+      if ((starmon.battleCritChanceTurns || 0) > 0) {
+        starmon.battleCritChanceTurns = Math.max(0, starmon.battleCritChanceTurns - 1);
+        if (starmon.battleCritChanceTurns === 0) starmon.battleCritChanceBonus = 0;
+      }
       if ((starmon.battleDamageReductionTurns || 0) > 0) {
         starmon.battleDamageReductionTurns = Math.max(0, (starmon.battleDamageReductionTurns || 0) - 1);
         if (starmon.battleDamageReductionTurns === 0) starmon.battleDamageReduction = 0;
@@ -2523,6 +2562,9 @@ function onStarmonAction(
   const target = state.players[state.targetSlot];
   const aliveTargets = aliveStarmonIndices(target);
   const ability = actionType === 'use_ability' ? getAbility(starmon, payload.abilityId, payload) : null;
+  if (actionType === 'use_ability' && (starmon.battleSilenceTurns || 0) > 0) {
+    return reject('Starmon is Silenced and cannot use active abilities this turn');
+  }
   let targetIdx = typeof payload.targetStarmonIndex === 'number'
     ? payload.targetStarmonIndex
     : (aliveTargets[0] ?? 0);
@@ -2576,9 +2618,39 @@ function onStarmonAction(
     () => {
       if (actionType === 'physical_attack') {
         const matchCount = payload.matchCount || (Array.isArray(payload.orbSwitches) && payload.orbSwitches.length >= 3 ? payload.orbSwitches.length : 3);
-        const manaGain = matchCount * 5;
+        let manaGain = matchCount * 5;
+        if ((starmon.battleFrostbiteTurns || 0) > 0) manaGain = Math.floor(manaGain / 2);
         starmon.mana = Math.min(200, (starmon.mana ?? starmon.currentMana ?? 0) + manaGain);
         starmon.currentMana = starmon.mana;
+
+        if (starmon.id === 'tidecrush' && starmon.hp >= starmon.maxHp) {
+          const bonus = (starmon.battleFrostbiteTurns || 0) > 0 ? 5 : 10;
+          starmon.mana = Math.min(200, starmon.mana + bonus);
+          starmon.currentMana = starmon.mana;
+        }
+        const matchElement = String(payload.elem || '');
+        for (const ally of attacker.starmons) {
+          let passiveMana = 0;
+          if ((matchElement === 'Wind' || matchElement === 'Electric') && (ally.id === 'glidron' || ally.avatarSeed === 'glidron') && ally.hp > 0) passiveMana += matchCount * 2;
+          if (matchElement === 'Electric' && (ally.id === 'teslarion' || ally.avatarSeed === 'teslarion') && ally.hp > 0) passiveMana += 5;
+          if ((ally.battleFrostbiteTurns || 0) > 0) passiveMana = Math.floor(passiveMana / 2);
+          ally.mana = Math.min(200, (ally.mana ?? ally.currentMana ?? 0) + passiveMana);
+          ally.currentMana = ally.mana;
+        }
+        for (const mon of target.starmons) {
+          let passiveMana = 0;
+          if ((matchElement === 'Wind' || matchElement === 'Electric') && (mon.id === 'glidron' || mon.avatarSeed === 'glidron') && mon.hp > 0) passiveMana += matchCount * 2;
+          if (matchElement === 'Electric' && (mon.id === 'teslarion' || mon.avatarSeed === 'teslarion') && mon.hp > 0) passiveMana += 5;
+          if ((mon.battleFrostbiteTurns || 0) > 0) passiveMana = Math.floor(passiveMana / 2);
+          mon.mana = Math.min(200, (mon.mana ?? mon.currentMana ?? 0) + passiveMana);
+          mon.currentMana = mon.mana;
+        }
+
+        if ((starmon.id === 'pyrokit' || starmon.avatarSeed === 'pyrokit') && Math.random() < 0.35) {
+          const burnTargets = payload.isAoE ? target.starmons.filter(mon => mon.hp > 0) : [target.starmons[targetIdx]].filter(mon => mon && mon.hp > 0);
+          burnTargets.forEach(mon => { mon.battleBurnTurns = Math.max(mon.battleBurnTurns || 0, 1); });
+          if (burnTargets.length) effectLines.push(`Wildfire: Burned ${burnTargets.length} target(s) for 1 turn`);
+        }
 
         if (proposedBoard) state.board = proposedBoard;
       } else if (actionType === 'use_ability') {
@@ -2590,6 +2662,31 @@ function onStarmonAction(
         starmon.currentMana = starmon.mana;
       }
 
+      const applyPumpyreTrickOrTreat = () => {
+        if (ability && (starmon.id === 'pumpyre' || starmon.avatarSeed === 'pumpyre') && Math.random() < 0.2) {
+          const effect = Math.floor(Math.random() * 7);
+          if (effect < 4) {
+            const affected = ability.targetType === 'aoe' ? target.starmons.filter(mon => mon.hp > 0) : [target.starmons[targetIdx]].filter(mon => mon && mon.hp > 0);
+            for (const mon of affected) {
+              if (effect === 0) mon.battleBurnTurns = Math.max(mon.battleBurnTurns || 0, 1);
+              else if (effect === 1) mon.battlePoisonTurns = Math.max(mon.battlePoisonTurns || 0, 1);
+              else if (effect === 2) mon.battleSilenceTurns = Math.max(mon.battleSilenceTurns || 0, 1);
+              else mon.battleFrostbiteTurns = Math.max(mon.battleFrostbiteTurns || 0, 1);
+            }
+            effectLines.push(`Trick or Treat: applied ${['Burned', 'Poison', 'Silence', 'Frostbite'][effect]} for 1 turn`);
+          } else if (effect === 4) {
+            const gain = Math.max(1, Math.round(starmon.maxHp * 0.1));
+            starmon.maxHp += gain; starmon.hp += gain; starmon.currentHp = starmon.hp;
+            effectLines.push('Trick or Treat: Max HP +10%');
+          } else if (effect === 5) {
+            starmon.baseAtk = Math.round(starmon.baseAtk * 1.1);
+            effectLines.push('Trick or Treat: ATK +10%');
+          } else {
+            starmon.def = Math.round(starmon.def * 1.1);
+            effectLines.push('Trick or Treat: DEF +10%');
+          }
+        }
+      };
       if (ability?.id === 'fluffy_hug') {
         starmon.battleTauntTurns = 3;
         starmon.battleDamageReduction = 0.15;
@@ -2611,9 +2708,9 @@ function onStarmonAction(
         effectLines.push('All allies take 15% less damage for 1 turn');
       } else if (ability?.id === 'petal_dance') {
         starmon.battleAttackBuffAmount = 0.4;
-        starmon.battleAttackBuffTurns = 3;
+        starmon.battleAttackBuffTurns = 4;
         starmon.battleCritChanceBonus = 0.4;
-        starmon.battleCritChanceTurns = 3;
+        starmon.battleCritChanceTurns = 4;
         effectLines.push('Gain 40% ATK and 40% Critical Hit chance for 3 turns');
       } else if (ability?.id === 'antler_blessing') {
         const healTarget = attacker.starmons
@@ -2637,7 +2734,9 @@ function onStarmonAction(
           }
           const hpBefore = ts.hp;
           let hitDamage = Math.round(damage * (1 - ((ts.battleDamageReductionTurns || 0) > 0 ? (ts.battleDamageReduction || 0) : 0)));
+          if ((starmon.battleBurnTurns || 0) > 0) hitDamage = Math.round(hitDamage * 0.9);
           if (ts.id === 'dandylmane' && (actionType === 'physical_attack' || ability?.targetType !== 'aoe')) hitDamage = Math.round(hitDamage * 0.8);
+          if ((ts.battlePoisonTurns || 0) > 0) hitDamage = Math.round(hitDamage / 0.9);
           const wasHit = hitDamage > 0;
           const decoyAbsorbed = Math.min(Math.max(0, ts.battleDecoyHp || 0), hitDamage);
           ts.battleDecoyHp = Math.max(0, (ts.battleDecoyHp || 0) - decoyAbsorbed);
@@ -2649,6 +2748,34 @@ function onStarmonAction(
           if (absorbed > 0) effectLines.push(`Shield absorbs ${absorbed} DMG`);
           hitDamage -= absorbed;
           ts.hp = Math.max(0, ts.hp - hitDamage);
+          if (actionType === 'physical_attack' && (ts.id === 'moltenback' || ts.avatarSeed === 'moltenback')) {
+            const hpDamage = Math.max(0, hpBefore - ts.hp);
+            if (hpDamage > 0) {
+              const reflected = Math.round(hpDamage * 0.2);
+              const reflectedToDecoy = Math.min(Math.max(0, starmon.battleDecoyHp || 0), reflected);
+              starmon.battleDecoyHp = Math.max(0, (starmon.battleDecoyHp || 0) - reflectedToDecoy);
+              starmon.hp = Math.max(0, starmon.hp - (reflected - reflectedToDecoy));
+              starmon.currentHp = starmon.hp;
+              starmon.alive = starmon.hp > 0;
+              starmon.battleBurnTurns = Math.max(starmon.battleBurnTurns || 0, 1);
+              effectLines.push(`Magma Shell: reflect ${reflected} Fire DMG and Burn attacker (-10% ATK) for 1 turn`);
+            }
+          }
+          if (ability?.id === 'venom_spark') ts.battlePoisonTurns = Math.max(ts.battlePoisonTurns || 0, 1);
+          if ((starmon.id === 'vinedra' || starmon.avatarSeed === 'vinedra') && Math.random() < 0.35) ts.battlePoisonTurns = Math.max(ts.battlePoisonTurns || 0, 2);
+          if ((starmon.id === 'pyrokit' || starmon.avatarSeed === 'pyrokit') && Math.random() < 0.35) ts.battleBurnTurns = Math.max(ts.battleBurnTurns || 0, 1);
+          if (ability?.id === 'inferno_eruption') ts.battleBurnTurns = Math.max(ts.battleBurnTurns || 0, 1);
+          if (ability?.id === 'magma_impact' && Math.random() < 0.3) ts.battleBurnTurns = Math.max(ts.battleBurnTurns || 0, 1);
+          if (ability?.id === 'plasma_ray') ts.battleSilenceTurns = Math.max(ts.battleSilenceTurns || 0, 1);
+          if (ability?.id === 'supersonic_burst' && Math.random() < 0.1) ts.battleSilenceTurns = Math.max(ts.battleSilenceTurns || 0, 1);
+          if (ability?.id === 'hydro_cyclone') {
+            if ((ts.battleFrostbiteTurns || 0) > 0) ts.battleSilenceTurns = Math.max(ts.battleSilenceTurns || 0, 1);
+            else if (Math.random() < 0.2) ts.battleFrostbiteTurns = Math.max(ts.battleFrostbiteTurns || 0, 3);
+          }
+          if (ability?.id === 'pumpkin_bomb' && Math.random() < 0.1) ts.battleBurnTurns = Math.max(ts.battleBurnTurns || 0, 1);
+          const hasFrostmoth = attacker.starmons.some(mon => mon.hp > 0 && (mon.id === 'frostmoth' || mon.avatarSeed === 'frostmoth'));
+          const waterOrWindSkill = starmon.element === 'Water' || starmon.element === 'Wind' || starmon.secondaryElement === 'Water' || starmon.secondaryElement === 'Wind';
+          if (actionType === 'use_ability' && hasFrostmoth && waterOrWindSkill && Math.random() < 0.1) ts.battleFrostbiteTurns = Math.max(ts.battleFrostbiteTurns || 0, 1);
           if (starmon.id === 'volzard' || starmon.avatarSeed === 'volzard') {
             const manaDrain = actionType === 'physical_attack' || ability?.targetType !== 'aoe' ? 8 : 4;
             ts.mana = Math.max(0, (ts.mana ?? ts.currentMana ?? 0) - manaDrain);
@@ -2658,11 +2785,17 @@ function onStarmonAction(
           ts.currentHp = ts.hp;
           if (ts.id === 'seaponi' && !ts.battleSirenGraceUsed && hpBefore >= ts.maxHp * 0.5 && ts.hp < ts.maxHp * 0.5) {
             ts.battleSirenGraceUsed = true;
-            ts.mana = Math.min(200, (ts.mana ?? 0) + 40);
+            const manaGain = (ts.battleFrostbiteTurns || 0) > 0 ? 20 : 40;
+            ts.mana = Math.min(200, (ts.mana ?? 0) + manaGain);
             ts.currentMana = ts.mana;
-            effectLines.push('Siren’s Grace: restore 40 Mana');
+            effectLines.push(`Siren’s Grace: restore ${manaGain} Mana`);
           }
           if (wasHit) {
+            if (ts.id === 'cyborgnid' || ts.avatarSeed === 'cyborgnid') {
+              const gainedMana = (ts.battleFrostbiteTurns || 0) > 0 ? 5 : 10;
+              ts.mana = Math.min(200, (ts.mana ?? ts.currentMana ?? 0) + gainedMana);
+              ts.currentMana = ts.mana;
+            }
             const whiskerteer = attacker.starmons.find(ally => ally.id === 'whiskerteer' && ally.hp > 0);
             if (whiskerteer) {
               whiskerteer.baseAtk += Math.max(1, Math.round(whiskerteer.baseAtk * 0.03));
@@ -2682,6 +2815,7 @@ function onStarmonAction(
             }
           }
 
+
           if (wasHit && ts.id === 'cottontail') {
             starmon.baseAtk = Math.round(starmon.baseAtk * 0.95);
             passiveEvents.push({ starmonName: ts.name, passiveName: 'Sweet Scent', line: `${starmon.name}'s ATK falls by 5%` });
@@ -2698,7 +2832,19 @@ function onStarmonAction(
         } else if (targetStarmon != null && targetStarmon.hp > 0) {
           applyHit(targetStarmon);
         }
+
+        if (ability?.id === 'feline_fury') {
+          starmon.battleAttackBuffAmount = 0.2;
+          starmon.battleAttackBuffTurns = 3;
+          effectLines.push('Gain 20% ATK for 2 turns');
+        }
+        if (ability?.id === 'supernova_discharge') {
+          starmon.battleAttackDebuffPercent = 0.5;
+          starmon.battleAttackDebuffTurns = 4;
+          effectLines.push('ATK reduced by 50% for 3 turns');
+        }
       }
+      applyPumpyreTrickOrTreat();
     },
     {
       grid: state.board,

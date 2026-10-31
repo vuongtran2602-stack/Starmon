@@ -21,6 +21,7 @@ export interface TutorialSpotlightProps {
   hasSelectedAbility?: boolean;
   ieltsAiResult?: any;
   tutorialRound?: 1 | 2; // Round 1: MCQ -> Match-3 -> HP bar; Round 2: IELTS Speaking -> Match-3 -> Complete!
+  tutorialElementalActionStep?: number;
   mcqCorrectSelected?: boolean;
   onSkip?: () => void;
   onNextStage?: (next: 1 | 2 | 3) => void;
@@ -30,6 +31,7 @@ export interface TutorialSpotlightProps {
   onFinishTutorial?: () => void;
   selectedPlayerIndex?: number;
   onSelectPlayer?: (index: number) => void;
+  onSelectEnemy?: (index: number) => void;
   playerMana?: number;
   tutorialRequiredMana?: number;
   onTutorial2Inspect?: () => void;
@@ -48,6 +50,7 @@ export const TutorialSpotlight: React.FC<TutorialSpotlightProps> = ({
   hasRecordedSpeaking = false,
   ieltsAiResult,
   tutorialRound = 1,
+  tutorialElementalActionStep = 0,
   mcqCorrectSelected = false,
   onSkip,
   onAdvanceToMatch3,
@@ -56,6 +59,7 @@ export const TutorialSpotlight: React.FC<TutorialSpotlightProps> = ({
   selectedEnemyIndex,
   selectedPlayerIndex = 0,
   onSelectPlayer,
+  onSelectEnemy,
   playerMana = 0,
   tutorialRequiredMana = 20,
   onTutorial2Inspect,
@@ -64,6 +68,7 @@ export const TutorialSpotlight: React.FC<TutorialSpotlightProps> = ({
   tutorial2InspectOpen = false,
   tutorial2InspectStep = 0,
   onTutorial2InspectNext,
+  playerTeam,
 }) => {
   // =========================================================================
   // TUTORIAL 1 STEP STATE MACHINE:
@@ -177,6 +182,22 @@ export const TutorialSpotlight: React.FC<TutorialSpotlightProps> = ({
     setStep(1);
   };
 
+  const advanceElementalTutorial = () => {
+    sound.playClick();
+    if (step === 5 && selectedEnemyIndex !== 1) {
+      sound.playWrong();
+      return;
+    }
+    if (step >= 7) onSkip?.();
+    else if (step === 3) {
+      onSelectEnemy?.(0);
+      setStep(4);
+    } else if (step === 5) {
+      onSelectEnemy?.(1);
+      setStep(6);
+    } else setStep(current => current + 1);
+  };
+
   // Step 1 -> Step 2 transition when clicking "I understand!"
   const handleUnderstandStep1 = () => {
     sound.playClick();
@@ -223,6 +244,28 @@ export const TutorialSpotlight: React.FC<TutorialSpotlightProps> = ({
         setTargetRect(null);
         setPopupData({ title: 'Hoàn thành Tutorial 2!', message: 'Bạn đã biết cách đổi mục tiêu, xem Starmon, nhận mana từ orb và kích hoạt kỹ năng chủ động.', buttonText: 'Về sảnh', onAction: () => window.dispatchEvent(new CustomEvent('tutorial2-finish')) });
       }
+      return;
+    }
+    if (stage === 3 && isStarted) {
+      if (step === 4 && tutorialElementalActionStep >= 1) {
+        setStep(5);
+        return;
+      }
+      if (step === 6 && tutorialElementalActionStep >= 2) {
+        setStep(7);
+        return;
+      }
+      const steps = [
+        ['tutorial-elemental-wheel', 'tutorial-elemental-wheel', 'Vòng khắc chế: Water → Fire → Metal → Wind → Earth → Electric → Water. Counter cộng 10%; Resistance trừ 10%.'],
+        ['tutorial-player-starmon-0', 'tutorial-player-starmon-0', `${playerTeam[0]?.name || 'Starmon Water'} là Starmon Water dùng trong bài tập. Water kháng Fire: Fire Orbs và kỹ năng gây Fire DMG gây ít hơn 10% sát thương lên Starmon hệ Water.`],
+        ['tutorial-element-target-0', 'tutorial-element-target-0', 'Chọn Fire Target. Tiếp theo, ghép Water orb: hệ của orb quyết định đòn là Water, không phải hệ của người dùng.'],
+        ['tutorial-match-grid', 'tutorial-swap-orb-1', 'Đổi cặp orb được đánh dấu để tạo thành chuỗi 3 Water Orbs.\n\nKhi Starmon hệ Water nối Water Orbs, đòn tấn công gây thêm 10% sát thương.\n\nDùng Water Orbs tấn công kẻ địch hệ Fire sẽ gây thêm 10% sát thương nữa.'],
+        ['tutorial-element-target-1', 'tutorial-element-target-1', 'Chọn Glidron làm mục tiêu cho lượt ghép tiếp theo. Glidron có hai hệ Wind/Electric.'],
+        ['tutorial-match-grid', 'tutorial-swap-orb-1', 'Đổi cặp Water orb được đánh dấu để đánh Glidron. Electric resists Water (−10%); modifier này được tính riêng với same-element bonus của Starmon Water.'],
+        ['tutorial-elemental-wheel', 'tutorial-elemental-wheel', 'Tóm tắt: Water orb đánh Fire được Counter +10%; Water orb đánh Glidron bị Electric kháng −10%. Fire attacks/Fire DMG đánh Water cũng bị kháng −10%. Với mục tiêu hai hệ, các modifier triệt tiêu: Earth đánh Wind/Electric gây trung tính vì Wind kháng Earth nhưng Electric yếu trước Earth.'],
+      ] as const;
+      const [highlightId, pointerId, text] = steps[Math.min(6, Math.max(0, step - 1))];
+      if (document.getElementById(highlightId)) updateSpotlight(highlightId, pointerId, text, 0, -35, 0);
       return;
     }
     if (stage !== 1 || !isStarted) return;
@@ -401,7 +444,7 @@ export const TutorialSpotlight: React.FC<TutorialSpotlightProps> = ({
         }
       }
     }
-  }, [stage, isStarted, phase, step, currentQuestion, tutorialRound, targetTutorialStep, selectedEnemyIndex, selectedPlayerIndex, playerMana, tutorialRequiredMana, tutorial2InspectOpen, tutorial2InspectStep]);
+  }, [stage, isStarted, phase, step, currentQuestion, tutorialRound, targetTutorialStep, selectedEnemyIndex, selectedPlayerIndex, playerTeam, playerMana, tutorialRequiredMana, tutorial2InspectOpen, tutorial2InspectStep, tutorialElementalActionStep]);
 
   useEffect(() => {
     if (stage !== 'abilities') return;
@@ -484,7 +527,7 @@ export const TutorialSpotlight: React.FC<TutorialSpotlightProps> = ({
                   <Sparkles className="w-5 h-5" />
                 </div>
                 <h2 className="text-base md:text-lg font-black font-game text-white tracking-wide">
-                  {stage === 'abilities' ? 'TUTORIAL 2: ABILITIES & TARGETS' : 'TUTORIAL 1: BATTLE BASIC'}
+                  {stage === 'abilities' ? 'TUTORIAL 2: ABILITIES & TARGETS' : stage === 3 ? 'TUTORIAL 3: ELEMENTAL INTERACTIONS' : 'TUTORIAL 1: BATTLE BASIC'}
                 </h2>
               </div>
 
@@ -498,7 +541,13 @@ export const TutorialSpotlight: React.FC<TutorialSpotlightProps> = ({
               </button>
             </div>
 
-            {stage === 'abilities' ? (
+            {stage === 3 ? (
+              <div className="space-y-2 text-xs md:text-sm text-slate-300">
+                <p>Bài tập đưa một Starmon Water vào slot hoạt động: ghép Water orb đánh Fire Target, sau đó đánh Glidron để quan sát Counter và Resistance trong sát thương thật.</p>
+                <p>Water orb tạo đòn Water cho mọi Starmon. Counter: +10%; Resistance: −10%. Same-element bonus được tính riêng.</p>
+                <p>Fire orb/Fire DMG gây ít hơn 10% lên Water. Earth gây sát thương trung tính lên Wind/Electric vì Wind kháng Earth nhưng Electric lại yếu trước Earth.</p>
+              </div>
+            ) : stage === 'abilities' ? (
               <div className="space-y-2 text-xs md:text-sm text-slate-300"><p>Pointer sẽ chỉ vị trí cần thao tác trong từng bước.</p><p>1. Đổi mục tiêu Starmon 1 → 2 → 3.</p><p>2. Chọn Starmon 1 để đọc chỉ số và kỹ năng.</p><p>3. Ghép orb bất kỳ: mỗi orb cho 5 mana.</p><p>4. Dùng mana kích hoạt kỹ năng chủ động.</p></div>
             ) : <>
             {/* Description */}
@@ -529,7 +578,7 @@ export const TutorialSpotlight: React.FC<TutorialSpotlightProps> = ({
               className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 hover:from-amber-300 text-slate-950 font-black font-game text-sm md:text-base shadow-xl shadow-amber-400/30 cursor-pointer active:scale-95 transition-all flex items-center justify-center gap-2"
             >
               <Play className="w-5 h-5 fill-slate-950" />
-              <span>{stage === 'abilities' ? 'BẮT ĐẦU TUTORIAL 2' : 'BẮT ĐẦU HƯỚNG DẪN 1'}</span>
+              <span>{stage === 3 ? 'BẮT ĐẦU TUTORIAL 3' : stage === 'abilities' ? 'BẮT ĐẦU TUTORIAL 2' : 'BẮT ĐẦU HƯỚNG DẪN 1'}</span>
             </button>
             <button
               onClick={() => {
@@ -690,7 +739,9 @@ export const TutorialSpotlight: React.FC<TutorialSpotlightProps> = ({
                   Math.max(20, targetRect.x + targetRect.width / 2 - 160)
                 )
               : '50%',
-            top: (step === 4 || step === 10)
+            top: stage === 3 && step === 7
+              ? 72
+              : (step === 4 || step === 10)
               ? (() => {
                   const el = document.getElementById('tutorial-player-starmon-0');
                   if (el) {
@@ -710,8 +761,10 @@ export const TutorialSpotlight: React.FC<TutorialSpotlightProps> = ({
                 ? Math.max(16, targetRect.y - 130)
                 : Math.min(window.innerHeight - 150, targetRect.y + targetRect.height + 20)
               : '30%',
-            transform: step === 6 ? 'translateX(-50%)' : (step === 4 || step === 10) ? 'none' : targetRect ? 'none' : 'translate(-50%, -50%)',
+            transform: step === 6 ? 'translateX(-50%)' : (step === 4 || step === 10 || (stage === 3 && step === 7)) ? 'none' : targetRect ? 'none' : 'translate(-50%, -50%)',
             width: '320px',
+            maxHeight: 'calc(100vh - 88px)',
+            overflowY: 'auto',
           }}
         >
           <div className="bg-slate-900/95 border-2 border-amber-400 rounded-2xl p-4 shadow-2xl backdrop-blur-md text-white flex flex-col gap-2.5 relative">
@@ -719,27 +772,28 @@ export const TutorialSpotlight: React.FC<TutorialSpotlightProps> = ({
             <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
               <div className="flex items-center gap-1.5 text-amber-300 text-xs font-black font-game uppercase tracking-wide">
                 <Sparkles className="w-3.5 h-3.5" />
-                <span>{stage === 'abilities' ? 'TUTORIAL 2: ABILITIES & TARGETS' : 'HƯỚNG DẪN 1: Cơ chế trò chơi'}</span>
+                <span>{stage === 'abilities' ? 'TUTORIAL 2: ABILITIES & TARGETS' : stage === 3 ? 'TUTORIAL 3: ELEMENTAL INTERACTIONS' : 'HƯỚNG DẪN 1: Cơ chế trò chơi'}</span>
               </div>
             </div>
 
             {/* Core Instruction Text */}
-            <p className="text-xs md:text-sm text-amber-100 font-bold leading-relaxed">
+            <p className="text-xs md:text-sm text-amber-100 font-bold leading-relaxed whitespace-pre-line">
               {instructionText}
             </p>
 
             {/* Actions for Step 1 ("Tôi đã hiểu!") & Step 6 ("Tiếp tục") */}
             <div className="flex items-center justify-between pt-1 gap-2">
               <div className="text-[10px] text-slate-400 font-mono">
+                {stage === 3 && `Bước ${step} / 7`}
                 {stage === 'abilities' && `Bước ${Math.min(targetTutorialStep + 1, 9)} / 9`}
-                {stage !== 'abilities' && step <= 3 && '🎯 Phase 1: Trắc nghiệm (MCQ)'}
-                {step >= 4 && step <= 6 && '⚔️ Phase 2: Ghép ngọc 8x8'}
-                {step >= 7 && step <= 9 && '🎙️ Phase 3: Luyện nói IELTS'}
-                {step >= 10 && '⚔️ Đòn đánh kết liễu'}
+                {stage === 1 && step <= 3 && '🎯 Phase 1: Trắc nghiệm (MCQ)'}
+                {stage === 1 && step >= 4 && step <= 6 && '⚔️ Phase 2: Ghép ngọc 8x8'}
+                {stage === 1 && step >= 7 && step <= 9 && '🎙️ Phase 3: Luyện nói IELTS'}
+                {stage === 1 && step >= 10 && '⚔️ Đòn đánh kết liễu'}
               </div>
 
               {/* Step 1: Button "Tôi đã hiểu!" */}
-              {step === 1 && (
+              {step === 1 && stage !== 3 && (
                 <button
                   onClick={handleUnderstandStep1}
                   className="px-3 py-1.5 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 text-slate-950 font-black text-xs rounded-xl shadow cursor-pointer active:scale-95 flex items-center gap-1 transition-all"
@@ -749,8 +803,14 @@ export const TutorialSpotlight: React.FC<TutorialSpotlightProps> = ({
                 </button>
               )}
 
+              {stage === 3 && [1, 2, 3, 5, 7].includes(step) && (
+                <button onClick={advanceElementalTutorial} className="px-3 py-1.5 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 text-slate-950 font-black text-xs rounded-xl shadow cursor-pointer active:scale-95 flex items-center gap-1 transition-all">
+                  <span>{step === 7 ? 'Hoàn tất' : step === 3 ? 'Chọn Fire Target' : step === 5 ? 'Chọn Glidron' : 'Tiếp tục'}</span><ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              )}
+
               {/* Step 6: Button "Tiếp tục (Luyện nói IELTS)" */}
-              {step === 6 && (
+              {step === 6 && stage === 1 && (
                 <button
                   onClick={() => {
                     sound.playClick();

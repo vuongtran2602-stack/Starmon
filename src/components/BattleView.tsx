@@ -4,7 +4,7 @@ import { Starmon, QuizQuestion, OrbTile, ElementType, BattlePhase, BattlePerform
 import { BattlePerformanceSummary } from './BattlePerformanceSummary';
 import { StarmonAsset } from './StarmonAsset';
 import { getRandomQuizSet, IELTS_SPEAKING_POOL, EXTENDED_SPEAKING_BANK } from '../data/quizzes';
-import { ELEMENT_COUNTERS, ELEMENT_COLORS, getBaseMultiplierForOrbs, STARMON_ROSTER } from '../data/starmons';
+import { ELEMENT_COLORS, getBaseMultiplierForOrbs, getElementalInteractionBonus, STARMON_ROSTER } from '../data/starmons';
 import { sound } from '../services/sound';
 import { submitSpeakingToSupabase, syncPvpActionToSupabase, subscribeToPvpRoom } from '../services/supabase';
 import { TutorialSpotlight } from './TutorialSpotlight';
@@ -614,6 +614,9 @@ export const BattleView: React.FC<Props> = ({
     actorName?: string;
   }) => {
     setActingStepIndex(config.starmonIndex);
+    if (playerTeamRef.current[config.starmonIndex]?.id === 'whiskerteer') {
+      setWhiskerteerCooldownTurns(prev => Math.max(0, prev - 1));
+    }
     setPvpTurnTimer(config.timer);
     setTurnStatusType('normal');
     if (Array.isArray(config.validTargets) && config.validTargets.length > 0) {
@@ -928,8 +931,6 @@ export const BattleView: React.FC<Props> = ({
   const [enemyDefDebuffs, setEnemyDefDebuffs] = useState<Record<number, { percent: number; turns: number }>>({});
   const [playerDefDebuffs, setPlayerDefDebuffs] = useState<Record<number, { percent: number; turns: number }>>({});
   const [playerAttackDebuffs, setPlayerAttackDebuffs] = useState<Record<number, { percent: number; turns: number }>>({});
-  const [playerSilenceAppliedTurns, setPlayerSilenceAppliedTurns] = useState<Record<number, number>>({});
-  const [enemySilenceAppliedTurns, setEnemySilenceAppliedTurns] = useState<Record<number, number>>({});
 
   // Victory Chest States: 100-500 Gold, 3-8 Cards of a random Starmon
   const [chestOpened, setChestOpened] = useState<boolean>(false);
@@ -1040,11 +1041,6 @@ export const BattleView: React.FC<Props> = ({
   const [playerPoisonTurns, setPlayerPoisonTurns] = useState<Record<number, number>>({});
   const [enemyPoisonTurns, setEnemyPoisonTurns] = useState<Record<number, number>>({});
   const [playerSeaponiGraceUsed, setPlayerSeaponiGraceUsed] = useState<Record<number, boolean>>({});
-  const [enemySeaponiGraceUsed, setEnemySeaponiGraceUsed] = useState<Record<number, boolean>>({});
-  const [playerPumpyreBurnTurns, setPlayerPumpyreBurnTurns] = useState<Record<number, number>>({});
-  const [enemyPumpyreBurnTurns, setEnemyPumpyreBurnTurns] = useState<Record<number, number>>({});
-  const [playerPumpyreSpecialTurns, setPlayerPumpyreSpecialTurns] = useState<Record<number, number>>({});
-  const [enemyPumpyreSpecialTurns, setEnemyPumpyreSpecialTurns] = useState<Record<number, number>>({});
   const [playerMantaEntryUsed, setPlayerMantaEntryUsed] = useState<Record<number, boolean>>({});
   const [enemyMantaEntryUsed, setEnemyMantaEntryUsed] = useState<Record<number, boolean>>({});
 
@@ -1253,6 +1249,7 @@ export const BattleView: React.FC<Props> = ({
   const pveLevelTransitioningRef = useRef(false);
 
   const [tutorialHasSwappedOrbs, setTutorialHasSwappedOrbs] = useState(false);
+  const [tutorialElementalActionStep, setTutorialElementalActionStep] = useState(0);
   const [tutorialHasRecordedSpeaking, setTutorialHasRecordedSpeaking] = useState(false);
   const [tutorialRound, setTutorialRound] = useState<1 | 2>(1);
   const [tutorialMcqCorrect, setTutorialMcqCorrect] = useState(false);
@@ -1278,6 +1275,7 @@ export const BattleView: React.FC<Props> = ({
       setChestOpened(false);
       setChestRewards(null);
       setTutorialHasSwappedOrbs(false);
+      setTutorialElementalActionStep(0);
       setTutorialHasRecordedSpeaking(false);
       setTutorialRound(1);
       setTutorialMcqCorrect(false);
@@ -1372,15 +1370,30 @@ export const BattleView: React.FC<Props> = ({
         setCurrentQuizSet(getRandomQuizSet(3));
         setTurnAnnouncement('TUTORIAL 2: In a battle party, turn order depends on questions! Click skills to view & cast abilities.');
       } else if (tutorialStage === 3) {
-        const threeRoster = playerStarmons.length >= 3 ? playerStarmons.slice(0, 3) : STARMON_ROSTER.slice(0, 3);
+        const waterMon = playerStarmons.find(s => s.element === 'Water' && s.unlocked)
+          || STARMON_ROSTER.find(s => s.id === 'seaponi')
+          || STARMON_ROSTER.find(s => s.element === 'Water')
+          || STARMON_ROSTER[0];
+        const remainingRoster = (playerStarmons.length >= 3 ? playerStarmons : STARMON_ROSTER).filter(s => s.id !== waterMon.id).slice(0, 2);
+        const threeRoster = [waterMon, ...remainingRoster];
         setPlayerTeam(threeRoster.map(s => ({
           ...s,
           currentHp: s.maxHp,
           currentMana: 100,
           maxMana: 200,
         })));
+        const fireTemplate = STARMON_ROSTER.find(s => s.element === 'Fire') || STARMON_ROSTER[0];
+        const glidronTemplate = STARMON_ROSTER.find(s => s.id === 'glidron' || s.avatarSeed === 'glidron') || STARMON_ROSTER.find(s => s.element === 'Wind') || STARMON_ROSTER[0];
+        setEnemyTeam([
+          { ...fireTemplate, id: 'tutorial_fire_target', name: 'Fire Target', currentHp: 5000, maxHp: 5000, currentMana: 0, maxMana: 200, unlocked: true },
+          { ...glidronTemplate, id: 'tutorial_glidron_target', name: 'Glidron', element: 'Wind', secondaryElement: 'Electric', currentHp: 5000, maxHp: 5000, currentMana: 0, maxMana: 200, unlocked: true },
+        ]);
+        setSelectedEnemyIndex(0);
+        setActingStepIndex(0);
+        setUnlockedPositions([true, false, false]);
         setCurrentQuizSet(getRandomQuizSet(3));
-        setTurnAnnouncement('TUTORIAL 3: Water ➔ Fire ➔ Metal ➔ Earth ➔ Wind ➔ Electric ➔ Water! Same-Elem (+10%), Counter (+10%), Resist (-10%).');
+        setPhase('phase2_combat');
+        setTurnAnnouncement('TUTORIAL 3: Counter +10% | Resistance -10% | Dual-element interactions.');
       }
     }
   }, [tutorialStage]);
@@ -1904,8 +1917,10 @@ export const BattleView: React.FC<Props> = ({
             const damage = msg.damage ?? msg.action?.damage ?? 0;
             const isMyAction = attackerSlot === pvpMySlotRef.current;
             if (msg.freeAction && isMyAction) {
-              const validTargets = enemyTeam.map((enemy, idx) => enemy.currentHp > 0 ? idx : -1).filter(idx => idx >= 0);
-              setPvpActionMenu({ starmonIndex: atkIdx, options: ['physical_attack', 'use_ability'], validTargets, timer: pvpTurnTimer || 30, selectedMode: 'physical_attack' });
+              const serverTargets = msg.state?.players?.[targetSlot]?.starmons;
+              const validTargets = Array.isArray(serverTargets) ? serverTargets.map((mon: any, idx: number) => mon?.hp > 0 ? idx : -1).filter((idx: number) => idx >= 0) : [0, 1, 2];
+              const secondsLeft = msg.state?.phaseEndsAt ? Math.max(1, Math.ceil((msg.state.phaseEndsAt - Date.now()) / 1000)) : 30;
+              setPvpActionMenu({ starmonIndex: atkIdx, options: ['physical_attack', 'use_ability'], validTargets, timer: secondsLeft, selectedMode: 'physical_attack' });
             }
             const attackerName = isMyAction
               ? (playerTeamRef.current[atkIdx]?.name || `Starmon #${atkIdx + 1}`)
@@ -3216,6 +3231,20 @@ export const BattleView: React.FC<Props> = ({
   };
 
   const advanceToNextUnit = (nextStep: number) => {
+    if (!isPvP && nextStep >= playerTeam.length) {
+      setPlayerSilenceTurns(prev => Object.fromEntries(Object.entries(prev).flatMap(([idx, turns]) => turns > 1 ? [[Number(idx), turns - 1]] : [])));
+      setPlayerTeam(prev => prev.map((mon, idx) => {
+        if (mon.currentHp <= 0) return mon;
+        const burn = (playerBurnTurns[idx] || 0) > 0;
+        const poison = (playerPoisonTurns[idx] || 0) > 0;
+        const damage = Math.max(5, Math.round(mon.maxHp * 0.05)) * (Number(burn) + Number(poison));
+        if (damage <= 0) return mon;
+        addBattleLog({ phase: 'combat', source: 'system', unitName: mon.name, actionType: 'status', message: `${burn ? '🔥 Burned' : ''}${burn && poison ? ' + ' : ''}${poison ? '🍄 Poison' : ''}: Your ${mon.name} took ${damage} damage.` });
+        return { ...mon, currentHp: Math.max(0, mon.currentHp - damage) };
+      }));
+      setPlayerBurnTurns(prev => Object.fromEntries(Object.entries(prev).flatMap(([idx, turns]) => turns > 1 ? [[Number(idx), turns - 1]] : [])));
+      setPlayerPoisonTurns(prev => Object.fromEntries(Object.entries(prev).flatMap(([idx, turns]) => turns > 1 ? [[Number(idx), turns - 1]] : [])));
+    }
     if (actingStepIndex < playerTeam.length && playerTeam[actingStepIndex]?.id === 'tidecrush') {
       if (tidecrushBuffTurns > 0) {
         const nextBuff = tidecrushBuffTurns - 1;
@@ -3239,7 +3268,6 @@ export const BattleView: React.FC<Props> = ({
 
       if (tidecrushCooldownTurns > 0) {
         setTidecrushCooldownTurns(prev => Math.max(0, prev - 1));
-    setWhiskerteerCooldownTurns(prev => Math.max(0, prev - 1));
       }
     }
 
@@ -3247,6 +3275,7 @@ export const BattleView: React.FC<Props> = ({
     setActingStepIndex(nextStep);
     announceTurnForStep(nextStep);
   };
+
 
   const activeAttackingStarmon = isPvP
     ? (isMyTurnInPvP &&
@@ -3265,9 +3294,17 @@ export const BattleView: React.FC<Props> = ({
   const skillVfxSequence = useRef(0);
   const playActiveSkillVfx = (starmon: Starmon, skill: Starmon['skill1'], fromSelector: string, toSelector: string) => {
     const isSelfTarget = skill.targetType === 'self';
+    const skillId = skill.id || '';
+    const skillElement: ElementType = skillId === 'aero_blade' ? 'Metal'
+      : skillId === 'supersonic_burst' ? 'Wind'
+      : skillId === 'bubble_shot' || skillId === 'soothing_aura' ? 'Water'
+      : skillId === 'thorn_rapier' || skillId === 'puff_blast' || skillId === 'feline_fury' ? 'Earth'
+      : skillId === 'venom_spark' || skillId === 'supernova_discharge' ? 'Electric'
+      : skillId === 'pumpkin_bomb' || skillId === 'flaming_decoy' ? 'Fire'
+      : starmon.element;
     setSkillVfx({
       id: ++skillVfxSequence.current,
-      element: starmon.element,
+      element: skillElement === 'Metal' || skillId === 'shield_bash' ? 'Metal' : skillElement,
       mode: skill.targetType === 'single' ? 'projectile' : 'on-target',
       fromSelector,
       toSelector: isSelfTarget ? fromSelector : toSelector,
@@ -3429,6 +3466,20 @@ export const BattleView: React.FC<Props> = ({
       grid[3][4] = { ...grid[3][4], element: 'Water' }; // Swapping with (3, 5) creates (3,2)+(3,3)+(3,4) Electric!
       grid[3][5] = { ...grid[3][5], element: 'Electric' };
       grid[3][6] = { ...grid[3][6], element: 'Wind' };
+    } else if (tutorialStage === 3) {
+      // Guaranteed Water match: swap (3,1) with (3,2) to complete cols 2–4.
+      grid[2][2] = { ...grid[2][2], element: 'Metal' };
+      grid[2][3] = { ...grid[2][3], element: 'Fire' };
+      grid[2][4] = { ...grid[2][4], element: 'Earth' };
+      grid[3][1] = { ...grid[3][1], element: 'Water' };
+      grid[3][2] = { ...grid[3][2], element: 'Fire' };
+      grid[3][3] = { ...grid[3][3], element: 'Water' };
+      grid[3][4] = { ...grid[3][4], element: 'Water' };
+      grid[3][5] = { ...grid[3][5], element: 'Electric' };
+      grid[3][6] = { ...grid[3][6], element: 'Fire' };
+      grid[4][2] = { ...grid[4][2], element: 'Earth' };
+      grid[4][3] = { ...grid[4][3], element: 'Metal' };
+      grid[4][4] = { ...grid[4][4], element: 'Wind' };
     }
 
     return grid;
@@ -3547,6 +3598,31 @@ export const BattleView: React.FC<Props> = ({
     return applyAntiCascadeLockout(copy as OrbTile[][]);
   };
 
+  // Keep the second Tutorial 3 exercise solvable after the random refill.
+  // If the new board has no legal Water match, prepare one clear horizontal
+  // match that is completed by swapping row 3, columns 1 and 2.
+  const ensureTutorialWaterSwap = (grid: OrbTile[][]): OrbTile[][] => {
+    if (findValidTutorialMatchMove(grid, 'Water')?.matchElem === 'Water') return grid;
+
+    const next = grid.map(row => row.map(tile => ({ ...tile })));
+    const setElement = (row: number, col: number, element: ElementType) => {
+      next[row][col] = { ...next[row][col], element };
+    };
+
+    setElement(2, 1, 'Metal');
+    setElement(4, 1, 'Fire');
+    setElement(2, 3, 'Earth');
+    setElement(4, 3, 'Metal');
+    setElement(2, 4, 'Earth');
+    setElement(4, 4, 'Fire');
+    setElement(3, 1, 'Water');
+    setElement(3, 2, 'Fire');
+    setElement(3, 3, 'Water');
+    setElement(3, 4, 'Water');
+
+    return next;
+  };
+
   // PLAYER TILE SWAP ACTION
   const handleTileClick = (r: number, c: number) => {
     if (isPvP && !isMyTurnInPvP) {
@@ -3609,6 +3685,24 @@ export const BattleView: React.FC<Props> = ({
             ];
           }
         executeMatchAttack(matches, orb1?.element || 'Electric');
+          setIsSwapping(false);
+          return;
+        }
+
+        if (tutorialStage === 3 && tutorialElementalActionStep < 2) {
+          // A few pre-arranged tutorial orbs can also complete an unrelated line.
+          // Judge the guided move by the Water orbs it actually matched, not by
+          // whichever element findMatches happened to return first.
+          const waterMatches = matches.filter(({ row, col }) => swapped[row]?.[col]?.element === 'Water');
+          const expectedTarget = tutorialElementalActionStep === 0 ? 0 : 1;
+          if (waterMatches.length < 3 || selectedEnemyIndex !== expectedTarget || activeAttackingStarmon?.element !== 'Water') {
+            sound.playWrong();
+            setBoard(board);
+          } else {
+            executeMatchAttack(waterMatches, 'Water', [
+              { from: { row: fromRow, col: fromCol }, to: { row: r, col: c } },
+            ], swapped);
+          }
           setIsSwapping(false);
           return;
         }
@@ -3743,26 +3837,15 @@ export const BattleView: React.FC<Props> = ({
     }
 
     // Elemental Counter: Granted if attacking Starmon's element counters targeted enemy's element (+10% DMG)
-    const isCounter = (
-      ELEMENT_COUNTERS[activeAttackingStarmon.element] === targetEnemy.element ||
-      (activeAttackingStarmon.secondaryElement && ELEMENT_COUNTERS[activeAttackingStarmon.secondaryElement] === targetEnemy.element) ||
-      ELEMENT_COUNTERS[elem] === targetEnemy.element
-    );
-    const counterBonus = isCounter ? 0.10 : 0.0;
-
-    // Elemental Resistance: If attacking Starmon's element is countered by targeted enemy's element (-10% DMG)
-    const isResisted = (
-      ELEMENT_COUNTERS[targetEnemy.element] === activeAttackingStarmon.element ||
-      (targetEnemy.secondaryElement && ELEMENT_COUNTERS[targetEnemy.secondaryElement] === activeAttackingStarmon.element)
-    );
-    const resistancePenalty = isResisted ? -0.10 : 0.0;
-
-    const totalMult = Math.max(0.2, baseMult + sameElemBonus + counterBonus + resistancePenalty);
+    // Match damage uses the orb's element, regardless of the Starmon's own element.
+    // Against dual elements, counter/resistance bonuses stack and can cancel out.
+    const elementalBonus = getElementalInteractionBonus(elem, [targetEnemy.element, targetEnemy.secondaryElement]);
+    const totalMult = Math.max(0.2, baseMult + sameElemBonus + elementalBonus);
     const defDebuff = enemyDefDebuffs[targetIdx];
     const skillDefDebuff = playerDefDebuffs[targetIdx];
     const defMult = defDebuff && defDebuff.turns > 0 ? 1.25 : (skillDefDebuff && skillDefDebuff.turns > 0 ? 1 / Math.max(0.1, 1 - skillDefDebuff.percent) : 1.0);
     // Poison status effect: DEF reduced by 10%
-    const poisonDefMult = (enemyPoisonTurns[targetIdx] || 0) > 0 ? 1.10 : 1.0;
+    const poisonDefMult = ((enemyPoisonTurns[targetIdx] || 0) > 0 || (targetEnemy.battlePoisonTurns || 0) > 0) ? (1 / 0.9) : 1.0;
 
     // Critical Hit Calculation with Voltlynx / Vinedra Passive Buff:
     const isVoltlynx = (activeAttackingStarmon.id === 'voltlynx' || activeAttackingStarmon.avatarSeed === 'voltlynx');
@@ -3789,7 +3872,8 @@ export const BattleView: React.FC<Props> = ({
     // Trojan Flare gains an additional 10% ATK and Piercing whenever a Shield is currently active on it.
     let baseAtkToUse = activeAttackingStarmon.baseAtk;
     const activeAttackDebuff = playerAttackDebuffs[actingStepIndex];
-    if (activeAttackDebuff && activeAttackDebuff.turns > 0) baseAtkToUse = Math.round(baseAtkToUse * (1 - activeAttackDebuff.percent));
+    const activeAttackDebuffPercent = activeAttackDebuff && activeAttackDebuff.turns > 0 ? activeAttackDebuff.percent : (activeAttackingStarmon.battleAttackDebuffTurns || 0) > 0 ? activeAttackingStarmon.battleAttackDebuffPercent || 0 : 0;
+    if (activeAttackDebuffPercent > 0) baseAtkToUse = Math.round(baseAtkToUse * (1 - activeAttackDebuffPercent));
     if (activeAttackingStarmon.battleAttackBuffTurns && activeAttackingStarmon.battleAttackBuffTurns > 0) baseAtkToUse = Math.round(baseAtkToUse * (1 + (activeAttackingStarmon.battleAttackBuffAmount || 0)));
     let isPiercing = false;
     if ((activeAttackingStarmon.id === 'trojan_flare' || activeAttackingStarmon.avatarSeed === 'trojan_flare') && trojanShieldPoints > 0) {
@@ -3810,6 +3894,12 @@ export const BattleView: React.FC<Props> = ({
     }
 
     let dmg = Math.round(baseAtkToUse * totalMult * (isPiercing ? 1.25 : defMult) * poisonDefMult * critMultiplier * sunDmgMult);
+    if (!isPvP && (playerBurnTurns[actingStepIndex] || activeAttackingStarmon.battleBurnTurns || 0) > 0) dmg = Math.round(dmg * 0.9);
+    if (!isPvP && (activeAttackingStarmon.id === 'pyrokit' || activeAttackingStarmon.avatarSeed === 'pyrokit') && Math.random() < 0.35) {
+      setEnemyBurnTurns(prev => ({ ...prev, [targetIdx]: Math.max(prev[targetIdx] || 0, 1) }));
+      addBattleLog({ phase: 'combat', source: 'player', unitName: activeAttackingStarmon.name, actionType: 'status', message: `🔥 Wildfire: ${targetEnemy.name} Burned for 1 turn.` });
+    }
+    if ((activeAttackingStarmon.id === 'pyrokit' || activeAttackingStarmon.avatarSeed === 'pyrokit') && abilityNum === 1 && (enemyBurnTurns[targetIdx] || 0) > 0) dmg = Math.round(dmg * 1.75);
     if ((playerAttackDebuffs[actingStepIndex]?.turns || 0) > 0) dmg = Math.round(dmg * (1 - playerAttackDebuffs[actingStepIndex].percent));
 
     // Tutorial 1 Round 2: Final attack guarantees enemy knockout
@@ -3828,6 +3918,11 @@ export const BattleView: React.FC<Props> = ({
 
     // Track Tutorial 1 swap progress
     setTutorialHasSwappedOrbs(true);
+    if (tutorialStage === 3 && tutorialElementalActionStep < 2) {
+      const nextElementalAction = tutorialElementalActionStep + 1;
+      setTutorialElementalActionStep(nextElementalAction);
+      if (nextElementalAction === 1) setSelectedEnemyIndex(1);
+    }
 
     const manaGain = matchCount * 5;
     // Glidron passive: Gain 2 mana for every Wind or Electric orb consumed by either side
@@ -3854,15 +3949,19 @@ export const BattleView: React.FC<Props> = ({
       prev.map((s, idx) => {
         let m = s.currentMana;
         let hp = s.currentHp;
+        let incomingMana = 0;
         if (idx === actingStepIndex) {
-          m += manaGain + tidecrushExtraMana;
+          incomingMana += manaGain + tidecrushExtraMana;
           if (tidecrushHeal > 0) {
             hp = Math.min(s.maxHp, hp + tidecrushHeal);
           }
         }
         if (glidronBonusMana > 0 && (s.id === 'glidron' || s.avatarSeed === 'glidron') && s.currentHp > 0) {
-          m += glidronBonusMana;
+          incomingMana += glidronBonusMana;
         }
+        if (elem === 'Electric' && (s.id === 'teslarion' || s.avatarSeed === 'teslarion') && s.currentHp > 0) incomingMana += 5;
+        if (incomingMana > 0 && ((playerFrostbiteTurns[idx] || 0) > 0 || (s.battleFrostbiteTurns || 0) > 0)) incomingMana = Math.floor(incomingMana / 2);
+        m += incomingMana;
         return { ...s, currentMana: Math.min(200, m), currentHp: hp };
       })
     );
@@ -3887,15 +3986,13 @@ export const BattleView: React.FC<Props> = ({
       }
     }
 
-    if (glidronBonusMana > 0) {
-      setEnemyTeam(prev =>
-        prev.map(e =>
-          (e.id === 'enemy_glidron' || e.avatarSeed === 'glidron') && e.currentHp > 0
-            ? { ...e, currentMana: Math.min(200, e.currentMana + glidronBonusMana) }
-            : e
-        )
-      );
-    }
+    setEnemyTeam(prev => prev.map((e, idx) => {
+      let incomingMana = 0;
+      if (glidronBonusMana > 0 && (e.id === 'enemy_glidron' || e.avatarSeed === 'glidron') && e.currentHp > 0) incomingMana += glidronBonusMana;
+      if (elem === 'Electric' && (e.id === 'enemy_teslarion' || e.avatarSeed === 'teslarion') && e.currentHp > 0) incomingMana += 5;
+      if (incomingMana > 0 && ((enemyFrostbiteTurns[idx] || 0) > 0 || (e.battleFrostbiteTurns || 0) > 0)) incomingMana = Math.floor(incomingMana / 2);
+      return incomingMana ? { ...e, currentMana: Math.min(200, e.currentMana + incomingMana) } : e;
+    }));
 
     sound.playAttackHit();
     const floatCritText = (tutorialStage === 1 && tutorialRound === 2)
@@ -3905,7 +4002,11 @@ export const BattleView: React.FC<Props> = ({
           ? `⚡ CRIT! -${dmg} HP [+25% Voltlynx DMG]`
           : `💥 CRIT! -${dmg} HP`
         : `-${dmg} HP`;
-    setFloatingDamage({ text: floatCritText, isEnemy: true });
+    const modifierLines = [
+      ...(sameElemBonus > 0 ? ['Same element: +10%'] : []),
+      ...(elementalBonus > 0 ? ['Counter: +10%'] : elementalBonus < 0 ? ['Resistance: −10%'] : []),
+    ];
+    setFloatingDamage({ text: floatCritText, isEnemy: true, lines: modifierLines });
     setTimeout(() => setFloatingDamage(null), 1200);
 
     // Record Battle Performance Statistics
@@ -3931,11 +4032,14 @@ export const BattleView: React.FC<Props> = ({
       unitName: activeAttackingStarmon.name,
       actionType: 'match',
       message: `${isCrit ? '⚡ CRITICAL HIT! ' : '⚔️ '}${activeAttackingStarmon.name} matched ${matchCount} ${elem} orbs!`,
-      detail: `Dealt ${dmg} damage to ${targetEnemy.name}${isCrit && isVoltlynx ? ' (empowered by Voltlynx Passive: +25% Crit Chance & +25% DMG)!' : ''}. Gained +${manaGain} Mana.`,
+      detail: `Dealt ${dmg} damage to ${targetEnemy.name}${modifierLines.length ? ` (${modifierLines.join('; ')})` : ''}${isCrit && isVoltlynx ? ' (empowered by Voltlynx Passive: +25% Crit Chance & +25% DMG)!' : ''}. Gained +${manaGain} Mana.`,
     });
 
     // FIX LỖI 1: Tính toán ngọc refill đồng bộ để simplifiedNewBoard không bao giờ bị undefined
-    const nextBoard = computeRefilledBoard(board, matches);
+    const refilledBoard = computeRefilledBoard(board, matches);
+    const nextBoard = tutorialStage === 3 && tutorialElementalActionStep === 0
+      ? ensureTutorialWaterSwap(refilledBoard)
+      : refilledBoard;
 
     if (isPvP && pvpRoomInfo?.code) {
       const simplifiedNewBoard = nextBoard.map(row => row.map(tile => ({ element: tile.element })));
@@ -3965,7 +4069,14 @@ export const BattleView: React.FC<Props> = ({
         if (idx === targetIdx) {
           const absorbed = Math.min(e.battleDecoyHp || 0, dmg);
           const decoyHp = Math.max(0, (e.battleDecoyHp || 0) - absorbed);
-          const nextHp = Math.max(0, e.currentHp - (dmg - absorbed));
+          const hpDamage = Math.min(e.currentHp, dmg - absorbed);
+          const nextHp = Math.max(0, e.currentHp - hpDamage);
+          if ((e.id === 'moltenback' || e.avatarSeed === 'moltenback') && hpDamage > 0) {
+            const reflected = Math.round(hpDamage * 0.2);
+            setPlayerTeam(team => team.map((mon, monIdx) => monIdx === actingStepIndex ? { ...mon, currentHp: Math.max(0, mon.currentHp - reflected) } : mon));
+            setPlayerBurnTurns(prevBurn => ({ ...prevBurn, [actingStepIndex]: Math.max(prevBurn[actingStepIndex] || 0, 1) }));
+            addBattleLog({ phase: 'combat', source: 'enemy', unitName: e.name, actionType: 'status', message: `🔥 Magma Shell reflected ${reflected} Fire damage and Burned ${activeAttackingStarmon.name} (-10% ATK) for 1 turn.` });
+          }
           if (e.currentHp > 0 && nextHp <= 0) {
             addBattleLog({
               phase: 'combat',
@@ -4039,9 +4150,10 @@ export const BattleView: React.FC<Props> = ({
         });
       }
     };
+    const applyBurnAttackPenalty = (damage: number) => !isPvP && ((playerBurnTurns[actingStepIndex] || 0) > 0 || (activeAttackingStarmon.battleBurnTurns || 0) > 0) ? Math.round(damage * 0.9) : damage;
 
     // Silence check: If this Starmon is Silenced, it CANNOT cast Active Abilities!
-    if ((playerSilenceTurns[actingStepIndex] || 0) > 0 || (playerSilenceAppliedTurns[actingStepIndex] || 0) > 0) {
+    if ((playerSilenceTurns[actingStepIndex] || 0) > 0 || (activeAttackingStarmon.battleSilenceTurns || 0) > 0) {
       sound.playWrong();
       setFloatingDamage({ text: '🔇 SILENCED! Cannot cast Active Abilities!', isEnemy: false });
       setTimeout(() => setFloatingDamage(null), 1400);
@@ -4134,7 +4246,7 @@ export const BattleView: React.FC<Props> = ({
         )
       );
 
-      const baseDmg = Math.round(activeAttackingStarmon.baseAtk * 1.8);
+      const baseDmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * 1.8));
 
       // Convert 3 random non-water orbs on board into Water orbs
       const nonWaterCoords: { r: number; c: number }[] = [];
@@ -4183,7 +4295,9 @@ export const BattleView: React.FC<Props> = ({
       setEnemyTeam(prev =>
         prev.map((e, idx) => {
           if (idx === targetIdx) {
-            const nextHp = Math.max(0, e.currentHp - totalDmg);
+            const absorbed = Math.min(e.battleDecoyHp || 0, totalDmg);
+            const decoyHp = Math.max(0, (e.battleDecoyHp || 0) - absorbed);
+            const nextHp = Math.max(0, e.currentHp - (totalDmg - absorbed));
             if (e.currentHp > 0 && nextHp <= 0) {
               addBattleLog({
                 phase: 'combat',
@@ -4192,7 +4306,7 @@ export const BattleView: React.FC<Props> = ({
                 message: `💀 Enemy ${e.name} was defeated!`,
               });
             }
-            return { ...e, currentHp: nextHp };
+            return { ...e, currentHp: nextHp, battleDecoyHp: decoyHp || undefined };
           }
           return e;
         })
@@ -4373,10 +4487,7 @@ export const BattleView: React.FC<Props> = ({
 
       const targetEnemy = enemyTeam[targetIdx];
       const hasFrostbiteAlready = (enemyFrostbiteTurns[targetIdx] || 0) > 0;
-      let dmg = Math.round(activeAttackingStarmon.baseAtk * 1.8);
-      if ((playerFrostbiteTurns[actingStepIndex] || 0) > 0) {
-        dmg = Math.round(dmg * 0.9); // Frostbite reduces Attack by 10%
-      }
+      let dmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * 1.8));
 
       let effectDesc = '';
       if (hasFrostbiteAlready) {
@@ -4530,10 +4641,7 @@ export const BattleView: React.FC<Props> = ({
         const target = currentEnemies[targetIdx];
 
         // Voltlynx ability deals extra 25% DMG
-        let strikeDmg = Math.round(activeAttackingStarmon.baseAtk * 0.9 * 1.25);
-        if ((playerFrostbiteTurns[actingStepIndex] || 0) > 0) {
-          strikeDmg = Math.round(strikeDmg * 0.9); // Frostbite -10% ATK
-        }
+        let strikeDmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * 0.9 * 1.25));
 
         // Elemental calculation: Electric counters Water (+10%)
         if (target.element === 'Water') {
@@ -4555,8 +4663,10 @@ export const BattleView: React.FC<Props> = ({
           strikeDmg = Math.round(strikeDmg * 1.875);
         }
 
-        const nextHp = Math.max(0, target.currentHp - strikeDmg);
-        currentEnemies[targetIdx] = { ...target, currentHp: nextHp };
+        const absorbed = Math.min(target.battleDecoyHp || 0, strikeDmg);
+        const decoyHp = Math.max(0, (target.battleDecoyHp || 0) - absorbed);
+        const nextHp = Math.max(0, target.currentHp - (strikeDmg - absorbed));
+        currentEnemies[targetIdx] = { ...target, currentHp: nextHp, battleDecoyHp: decoyHp || undefined };
         totalDmg += strikeDmg;
         recordEnemyMonDamageTaken(targetIdx, strikeDmg);
         strikeDetails.push(`Strike #${s}: -${strikeDmg} HP to ${target.name} (#${targetIdx + 1})${isBoltCrit ? ' ⚡ CRIT! (+25% DMG)' : ''}`);
@@ -4672,7 +4782,7 @@ export const BattleView: React.FC<Props> = ({
       }
       setSelectedEnemyIndex(targetIdx);
 
-      const dmg = Math.round(activeAttackingStarmon.baseAtk * 1.8);
+      const dmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * 1.8));
       const targetEnemy = enemyTeam[targetIdx];
 
       // Apply 25% DEF reduction for 2 turns
@@ -4717,7 +4827,9 @@ export const BattleView: React.FC<Props> = ({
       setEnemyTeam(prev =>
         prev.map((e, idx) => {
           if (idx === targetIdx) {
-            const nextHp = Math.max(0, e.currentHp - dmg);
+            const absorbed = Math.min(e.battleDecoyHp || 0, dmg);
+            const decoyHp = Math.max(0, (e.battleDecoyHp || 0) - absorbed);
+            const nextHp = Math.max(0, e.currentHp - (dmg - absorbed));
             if (e.currentHp > 0 && nextHp <= 0) {
               addBattleLog({
                 phase: 'combat',
@@ -4726,7 +4838,7 @@ export const BattleView: React.FC<Props> = ({
                 message: `💀 Enemy ${e.name} was defeated!`,
               });
             }
-            return { ...e, currentHp: nextHp };
+            return { ...e, currentHp: nextHp, battleDecoyHp: decoyHp || undefined };
           }
           return e;
         })
@@ -4779,7 +4891,7 @@ export const BattleView: React.FC<Props> = ({
     // STONE GOLEM ABILITY 1: STONE CRASH (60 MANA)
     // Deals 120% Earth Physical Damage to target enemy, 30% chance to stun
     if ((activeAttackingStarmon.id === 'stone_golem' || activeAttackingStarmon.avatarSeed === 'stone_golem') && abilityNum === 1) {
-      const dmg = Math.round(activeAttackingStarmon.baseAtk * 1.2);
+      const dmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * 1.2));
       const isStunned = Math.random() < 0.3;
 
       let targetIdx = selectedEnemyIndex;
@@ -4839,7 +4951,9 @@ export const BattleView: React.FC<Props> = ({
       setEnemyTeam(prev =>
         prev.map((e, idx) => {
           if (idx === targetIdx) {
-            const nextHp = Math.max(0, e.currentHp - dmg);
+            const absorbed = Math.min(e.battleDecoyHp || 0, dmg);
+            const decoyHp = Math.max(0, (e.battleDecoyHp || 0) - absorbed);
+            const nextHp = Math.max(0, e.currentHp - (dmg - absorbed));
             if (e.currentHp > 0 && nextHp <= 0) {
               addBattleLog({
                 phase: 'combat',
@@ -4848,7 +4962,7 @@ export const BattleView: React.FC<Props> = ({
                 message: `💀 Enemy ${e.name} was defeated!`,
               });
             }
-            return { ...e, currentHp: nextHp };
+            return { ...e, currentHp: nextHp, battleDecoyHp: decoyHp || undefined };
           }
           return e;
         })
@@ -4929,7 +5043,7 @@ export const BattleView: React.FC<Props> = ({
       const targetEnemy = enemyTeam[targetIdx];
 
       const isStunned = Math.random() < 0.35;
-      const dmg = Math.round(activeAttackingStarmon.baseAtk * 1.35);
+      const dmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * 1.35));
 
       setPlayerTeam(prev =>
         prev.map((s, idx) =>
@@ -4974,7 +5088,9 @@ export const BattleView: React.FC<Props> = ({
       setEnemyTeam(prev =>
         prev.map((e, idx) => {
           if (idx === targetIdx) {
-            const nextHp = Math.max(0, e.currentHp - dmg);
+            const absorbed = Math.min(e.battleDecoyHp || 0, dmg);
+            const decoyHp = Math.max(0, (e.battleDecoyHp || 0) - absorbed);
+            const nextHp = Math.max(0, e.currentHp - (dmg - absorbed));
             if (e.currentHp > 0 && nextHp <= 0) {
               addBattleLog({
                 phase: 'combat',
@@ -4983,7 +5099,7 @@ export const BattleView: React.FC<Props> = ({
                 message: `💀 Enemy ${e.name} was defeated!`,
               });
             }
-            return { ...e, currentHp: nextHp };
+            return { ...e, currentHp: nextHp, battleDecoyHp: decoyHp || undefined };
           }
           return e;
         })
@@ -5005,7 +5121,7 @@ export const BattleView: React.FC<Props> = ({
         return;
       }
 
-      const dmg = Math.round(activeAttackingStarmon.baseAtk * 2.2);
+      const dmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * 2.2));
 
       setPlayerTeam(prev =>
         prev.map((s, idx) =>
@@ -5101,10 +5217,7 @@ export const BattleView: React.FC<Props> = ({
       const existingCrit = (vinedraCritBonusTurns[actingStepIndex] || 0) > 0 ? 0.20 : 0.0;
       const isCrit = Math.random() < (0.10 + existingCrit);
       const critMult = isCrit ? 1.5 : 1.0;
-      let dmg = Math.round(activeAttackingStarmon.baseAtk * 0.7 * critMult);
-      if ((playerFrostbiteTurns[actingStepIndex] || 0) > 0) {
-        dmg = Math.round(dmg * 0.9);
-      }
+      let dmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * 0.7 * critMult));
 
       // Gain +20% crit chance for attacks & abilities
       setVinedraCritBonusTurns(prev => ({
@@ -5164,7 +5277,9 @@ export const BattleView: React.FC<Props> = ({
       setEnemyTeam(prev => {
         const next = prev.map((e, idx) => {
           if (idx === targetIdx) {
-            const nextHp = Math.max(0, e.currentHp - dmg);
+            const absorbed = Math.min(e.battleDecoyHp || 0, dmg);
+            const decoyHp = Math.max(0, (e.battleDecoyHp || 0) - absorbed);
+            const nextHp = Math.max(0, e.currentHp - (dmg - absorbed));
             if (e.currentHp > 0 && nextHp <= 0) {
               addBattleLog({
                 phase: 'combat',
@@ -5173,7 +5288,7 @@ export const BattleView: React.FC<Props> = ({
                 message: `💀 Enemy ${e.name} was defeated!`,
               });
             }
-            return { ...e, currentHp: nextHp };
+            return { ...e, currentHp: nextHp, battleDecoyHp: decoyHp || undefined };
           }
           return e;
         });
@@ -5219,7 +5334,7 @@ export const BattleView: React.FC<Props> = ({
         return;
       }
 
-      const dmg = Math.round(activeAttackingStarmon.baseAtk * 0.85);
+      const dmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * 0.85));
 
       setPlayerTeam(prev =>
         prev.map((s, idx) =>
@@ -5321,7 +5436,7 @@ export const BattleView: React.FC<Props> = ({
       setSelectedEnemyIndex(targetIdx);
       const targetEnemy = enemyTeam[targetIdx];
 
-      const dmg = Math.round(activeAttackingStarmon.baseAtk * 1.30);
+      const dmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * 1.30));
       setPlayerTeam(prev =>
         prev.map((s, idx) =>
           idx === actingStepIndex ? { ...s, currentMana: Math.max(0, s.currentMana - 45) } : s
@@ -5353,7 +5468,9 @@ export const BattleView: React.FC<Props> = ({
       setEnemyTeam(prev =>
         prev.map((e, idx) => {
           if (idx === targetIdx) {
-            const nextHp = Math.max(0, e.currentHp - dmg);
+            const absorbed = Math.min(e.battleDecoyHp || 0, dmg);
+            const decoyHp = Math.max(0, (e.battleDecoyHp || 0) - absorbed);
+            const nextHp = Math.max(0, e.currentHp - (dmg - absorbed));
             if (e.currentHp > 0 && nextHp <= 0) {
               addBattleLog({
                 phase: 'combat',
@@ -5362,7 +5479,7 @@ export const BattleView: React.FC<Props> = ({
                 message: `💀 Enemy ${e.name} was defeated!`,
               });
             }
-            return { ...e, currentHp: nextHp };
+            return { ...e, currentHp: nextHp, battleDecoyHp: decoyHp || undefined };
           }
           return e;
         })
@@ -5403,7 +5520,7 @@ export const BattleView: React.FC<Props> = ({
       setTeamShieldTurns(3);
 
       const bonusFromTaken = Math.round(playerCyborgnidDmgAbsorbed * 0.30);
-      const dmg = Math.round(activeAttackingStarmon.baseAtk * 1.30) + bonusFromTaken;
+      const dmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * 1.30) + bonusFromTaken);
       setPlayerCyborgnidDmgAbsorbed(0);
 
       setPlayerTeam(prev =>
@@ -5440,7 +5557,9 @@ export const BattleView: React.FC<Props> = ({
       setEnemyTeam(prev =>
         prev.map((e, idx) => {
           if (idx === targetIdx) {
-            const nextHp = Math.max(0, e.currentHp - dmg);
+            const absorbed = Math.min(e.battleDecoyHp || 0, dmg);
+            const decoyHp = Math.max(0, (e.battleDecoyHp || 0) - absorbed);
+            const nextHp = Math.max(0, e.currentHp - (dmg - absorbed));
             if (e.currentHp > 0 && nextHp <= 0) {
               addBattleLog({
                 phase: 'combat',
@@ -5449,7 +5568,7 @@ export const BattleView: React.FC<Props> = ({
                 message: `💀 Enemy ${e.name} was defeated!`,
               });
             }
-            return { ...e, currentHp: nextHp };
+            return { ...e, currentHp: nextHp, battleDecoyHp: decoyHp || undefined };
           }
           return e;
         })
@@ -5484,7 +5603,7 @@ export const BattleView: React.FC<Props> = ({
       setSelectedEnemyIndex(targetIdx);
       const targetEnemy = enemyTeam[targetIdx];
 
-      const dmg = Math.round(activeAttackingStarmon.baseAtk * 1.70);
+      const dmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * 1.70));
       setPlayerTeam(prev =>
         prev.map((s, idx) =>
           idx === actingStepIndex ? { ...s, currentMana: Math.max(0, s.currentMana - 45) } : s
@@ -5516,7 +5635,9 @@ export const BattleView: React.FC<Props> = ({
       setEnemyTeam(prev =>
         prev.map((e, idx) => {
           if (idx === targetIdx) {
-            const nextHp = Math.max(0, e.currentHp - dmg);
+            const absorbed = Math.min(e.battleDecoyHp || 0, dmg);
+            const decoyHp = Math.max(0, (e.battleDecoyHp || 0) - absorbed);
+            const nextHp = Math.max(0, e.currentHp - (dmg - absorbed));
             if (e.currentHp > 0 && nextHp <= 0) {
               addBattleLog({
                 phase: 'combat',
@@ -5525,7 +5646,7 @@ export const BattleView: React.FC<Props> = ({
                 message: `💀 Enemy ${e.name} was defeated!`,
               });
             }
-            return { ...e, currentHp: nextHp };
+            return { ...e, currentHp: nextHp, battleDecoyHp: decoyHp || undefined };
           }
           return e;
         })
@@ -5606,7 +5727,7 @@ export const BattleView: React.FC<Props> = ({
       const isTargetHigherHp = targetEnemy.currentHp > activeAttackingStarmon.currentHp;
       const mult = isTargetHigherHp ? 2.50 : 1.25;
       // Order Crown passive provides +10% DMG to all Wind attacks/abilities
-      const dmg = Math.round(activeAttackingStarmon.baseAtk * mult * 1.10);
+      const dmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * mult * 1.10));
 
       setPlayerTeam(prev =>
         prev.map((s, idx) =>
@@ -5642,7 +5763,9 @@ export const BattleView: React.FC<Props> = ({
       setEnemyTeam(prev =>
         prev.map((e, idx) => {
           if (idx === targetIdx) {
-            const nextHp = Math.max(0, e.currentHp - dmg);
+            const absorbed = Math.min(e.battleDecoyHp || 0, dmg);
+            const decoyHp = Math.max(0, (e.battleDecoyHp || 0) - absorbed);
+            const nextHp = Math.max(0, e.currentHp - (dmg - absorbed));
             if (e.currentHp > 0 && nextHp <= 0) {
               addBattleLog({
                 phase: 'combat',
@@ -5651,7 +5774,7 @@ export const BattleView: React.FC<Props> = ({
                 message: `💀 Enemy ${e.name} was defeated!`,
               });
             }
-            return { ...e, currentHp: nextHp };
+            return { ...e, currentHp: nextHp, battleDecoyHp: decoyHp || undefined };
           }
           return e;
         })
@@ -5679,8 +5802,9 @@ export const BattleView: React.FC<Props> = ({
       const enemyHasDebuff = enemyTeam.map((e, idx) => {
         const hasFrostbite = (enemyFrostbiteTurns[idx] || 0) > 0;
         const hasPoison = (enemyPoisonTurns[idx] || 0) > 0;
+        const hasBurn = (enemyBurnTurns[idx] || 0) > 0;
         const hasStun = stunnedEnemyIndices.includes(idx);
-        return hasFrostbite || hasPoison || hasStun;
+        return hasFrostbite || hasPoison || hasBurn || hasStun;
       });
 
       setPlayerTeam(prev =>
@@ -5703,10 +5827,12 @@ export const BattleView: React.FC<Props> = ({
           const isDebuffed = enemyHasDebuff[idx];
           const mult = isDebuffed ? 2.40 : 1.20; // Double DMG if target has at least 1 debuff!
           // +10% Order Crown boost
-          const dmg = Math.round(activeAttackingStarmon.baseAtk * mult * 1.10);
+          const dmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * mult * 1.10));
           totalGaleDmg += dmg;
           recordEnemyMonDamageTaken(idx, dmg);
-          const nextHp = Math.max(0, e.currentHp - dmg);
+          const absorbed = Math.min(e.battleDecoyHp || 0, dmg);
+            const decoyHp = Math.max(0, (e.battleDecoyHp || 0) - absorbed);
+            const nextHp = Math.max(0, e.currentHp - (dmg - absorbed));
           if (e.currentHp > 0 && nextHp <= 0) {
             addBattleLog({
               phase: 'combat',
@@ -5715,7 +5841,7 @@ export const BattleView: React.FC<Props> = ({
               message: `💀 Enemy ${e.name} was defeated!`,
             });
           }
-          return { ...e, currentHp: nextHp };
+          return { ...e, currentHp: nextHp, battleDecoyHp: decoyHp || undefined };
         })
       );
 
@@ -5804,7 +5930,9 @@ export const BattleView: React.FC<Props> = ({
       setEnemyTeam(prev =>
         prev.map((e, idx) => {
           if (idx === targetIdx) {
-            const nextHp = Math.max(0, e.currentHp - dmg);
+            const absorbed = Math.min(e.battleDecoyHp || 0, dmg);
+            const decoyHp = Math.max(0, (e.battleDecoyHp || 0) - absorbed);
+            const nextHp = Math.max(0, e.currentHp - (dmg - absorbed));
             if (e.currentHp > 0 && nextHp <= 0) {
               addBattleLog({
                 phase: 'combat',
@@ -5813,7 +5941,7 @@ export const BattleView: React.FC<Props> = ({
                 message: `💀 Enemy ${e.name} was defeated!`,
               });
             }
-            return { ...e, currentHp: nextHp };
+            return { ...e, currentHp: nextHp, battleDecoyHp: decoyHp || undefined };
           }
           return e;
         })
@@ -5935,7 +6063,9 @@ export const BattleView: React.FC<Props> = ({
       setEnemyTeam(prev =>
         prev.map((e, idx) => {
           if (idx === targetIdx) {
-            const nextHp = Math.max(0, e.currentHp - dmg);
+            const absorbed = Math.min(e.battleDecoyHp || 0, dmg);
+            const decoyHp = Math.max(0, (e.battleDecoyHp || 0) - absorbed);
+            const nextHp = Math.max(0, e.currentHp - (dmg - absorbed));
             if (e.currentHp > 0 && nextHp <= 0) {
               addBattleLog({
                 phase: 'combat',
@@ -5944,7 +6074,7 @@ export const BattleView: React.FC<Props> = ({
                 message: `💀 Enemy ${e.name} was defeated!`,
               });
             }
-            return { ...e, currentHp: nextHp };
+            return { ...e, currentHp: nextHp, battleDecoyHp: decoyHp || undefined };
           }
           return e;
         })
@@ -6071,13 +6201,12 @@ export const BattleView: React.FC<Props> = ({
         payMana();
         const decoyHp = Math.max(1, Math.round(activeAttackingStarmon.maxHp * 0.4));
         setPlayerTeam(prev => prev.map((mon, idx) => idx === actingStepIndex ? { ...mon, battleDecoyHp: decoyHp, battleDecoyTurns: 1 } : mon));
-        setPlayerPumpyreBurnTurns(prev => ({ ...prev, [actingStepIndex]: 1 }));
-        if (Math.random() < 0.2) {
+        if (!isPvP && Math.random() < 0.2) {
           const effect = Math.floor(Math.random() * 7);
           if (effect < 4) {
             if (effect === 0) setEnemyBurnTurns(prev => ({ ...prev, [selectedTarget]: 1 }));
             if (effect === 1) setEnemyPoisonTurns(prev => ({ ...prev, [selectedTarget]: 1 }));
-            if (effect === 2) setEnemySilenceAppliedTurns(prev => ({ ...prev, [selectedTarget]: 1 }));
+            if (effect === 2) setEnemySilenceTurns(prev => ({ ...prev, [selectedTarget]: 1 }));
             if (effect === 3) setEnemyFrostbiteTurns(prev => ({ ...prev, [selectedTarget]: 1 }));
           } else {
             const stat: 'maxHp' | 'baseAtk' | 'def' = effect === 4 ? 'maxHp' : effect === 5 ? 'baseAtk' : 'def';
@@ -6085,6 +6214,7 @@ export const BattleView: React.FC<Props> = ({
           }
         }
         setFloatingDamage({ text: `🎭 Flaming Decoy · Decoy: ${decoyHp}HP`, isEnemy: false });
+        setTimeout(() => setFloatingDamage(null), 1800);
         addBattleLog({ phase: 'combat', source: 'player', unitName: activeAttackingStarmon.name, actionType: 'status', message: `🎭 Flaming Decoy created a ${decoyHp} HP decoy for 1 turn.` });
         finishSkill(0, true);
         return;
@@ -6107,20 +6237,8 @@ export const BattleView: React.FC<Props> = ({
       if (monId === 'dandylmane' && abilityNum === 2) {
         setPlayerTeam(prev => prev.map((mon, idx) => idx === actingStepIndex ? { ...mon, battleAttackBuffAmount: 0.2, battleAttackBuffTurns: 3 } : mon));
       }
-      if ((monId === 'whiskerteer' && abilityNum === 2) || (monId === 'seaponi' && abilityNum === 2)) {
-        if (selectedTarget < 0) return;
-        payMana();
-        const damage = Math.round(activeAttackingStarmon.baseAtk * skill.damageMultiplier);
-        const target = enemyTeam[selectedTarget];
-        const absorbed = Math.min(target.battleDecoyHp || 0, damage);
-        setEnemyTeam(prev => prev.map((enemy, idx) => idx === selectedTarget ? { ...enemy, currentHp: Math.max(0, enemy.currentHp - (damage - absorbed)), battleDecoyHp: Math.max(0, (enemy.battleDecoyHp || 0) - absorbed) || undefined } : enemy));
-        if (monId === 'seaponi') setEnemyDefDebuffs(prev => ({ ...prev, [selectedTarget]: { percent: 0.2, turns: 1 } }));
-        finishSkill(damage);
-        return;
-      }
-      if (monId === 'volzard' && abilityNum === 1 && selectedTarget >= 0) setEnemyPoisonTurns(prev => ({ ...prev, [selectedTarget]: Math.max(prev[selectedTarget] || 0, 1) }));
-      if (monId === 'manta1' && abilityNum === 2) enemyTeam.forEach((enemy, idx) => { if (enemy.currentHp > 0 && Math.random() < 0.1) setEnemySilenceAppliedTurns(prev => ({ ...prev, [idx]: 1 })); });
-      if (monId === 'pumpyre' && abilityNum === 2) enemyTeam.forEach((enemy, idx) => { if (enemy.currentHp > 0 && Math.random() < 0.1) setEnemyBurnTurns(prev => ({ ...prev, [idx]: Math.max(prev[idx] || 0, 1) })); });
+      if (!isPvP && monId === 'manta1' && abilityNum === 2) enemyTeam.forEach((enemy, idx) => { if (enemy.currentHp > 0 && Math.random() < 0.1) setEnemySilenceTurns(prev => ({ ...prev, [idx]: 1 })); });
+      if (!isPvP && monId === 'pumpyre' && abilityNum === 2) enemyTeam.forEach((enemy, idx) => { if (enemy.currentHp > 0 && Math.random() < 0.1) setEnemyBurnTurns(prev => ({ ...prev, [idx]: Math.max(prev[idx] || 0, 1) })); });
 
     }
 
@@ -6138,7 +6256,8 @@ export const BattleView: React.FC<Props> = ({
       }
     }
     const skillAttackDebuff = playerAttackDebuffs[actingStepIndex];
-    const skillBaseAtk = skillAttackDebuff && skillAttackDebuff.turns > 0 ? Math.round(activeAttackingStarmon.baseAtk * (1 - skillAttackDebuff.percent)) : activeAttackingStarmon.baseAtk;
+    const skillAttackDebuffPercent = skillAttackDebuff && skillAttackDebuff.turns > 0 ? skillAttackDebuff.percent : (activeAttackingStarmon.battleAttackDebuffTurns || 0) > 0 ? activeAttackingStarmon.battleAttackDebuffPercent || 0 : 0;
+    const skillBaseAtk = skillAttackDebuffPercent > 0 ? Math.round(activeAttackingStarmon.baseAtk * (1 - skillAttackDebuffPercent)) : activeAttackingStarmon.baseAtk;
     const isAbilityCrit = skill.id === 'shield_bash' ? false : Math.random() < (abilityCritChance + ((activeAttackingStarmon.battleCritChanceTurns || 0) > 0 ? (activeAttackingStarmon.battleCritChanceBonus || 0) : 0));
     let abilityCritMult = 1.0;
     if (isAbilityCrit) {
@@ -6150,11 +6269,11 @@ export const BattleView: React.FC<Props> = ({
     let dmg = skill.id === 'shield_bash'
       ? Math.round(activeAttackingStarmon.def * 0.5)
       : Math.round(skillBaseAtk * (activeAttackingStarmon.battleAttackBuffTurns ? 1 + (activeAttackingStarmon.battleAttackBuffAmount || 0) : 1) * skill.damageMultiplier * voltlynxAbilityBuff * abilityCritMult);
-    if ((playerFrostbiteTurns[actingStepIndex] || 0) > 0) {
-      dmg = Math.round(dmg * 0.9); // Frostbite reduces Attack by 10%
-    }
+    if ((activeAttackingStarmon.id === 'pyrokit' || activeAttackingStarmon.avatarSeed === 'pyrokit') && abilityNum === 1 && ((enemyBurnTurns[selectedEnemyIndex] || 0) > 0 || (enemyTeam[selectedEnemyIndex]?.battleBurnTurns || 0) > 0)) dmg = Math.round(dmg * 1.75);
+    dmg = applyBurnAttackPenalty(dmg);
     if ((activeAttackingStarmon.id === 'volzard' || activeAttackingStarmon.avatarSeed === 'volzard') && abilityNum === 2) {
       setPlayerAttackDebuffs(prev => ({ ...prev, [actingStepIndex]: { percent: 0.5, turns: 4 } }));
+      if (isPvP) setPlayerTeam(prev => prev.map((mon, idx) => idx === actingStepIndex ? { ...mon, battleAttackDebuffPercent: 0.5, battleAttackDebuffTurns: 4 } : mon));
     }
 
     setPlayerTeam(prev =>
@@ -6185,7 +6304,7 @@ export const BattleView: React.FC<Props> = ({
         ? `⚡ CRIT! -${dmg} HP [+25% Voltlynx DMG]`
         : `💥 CRIT! -${dmg} HP`
       : `💥 -${dmg} HP`;
-    const abilityElement = (activeAttackingStarmon.id === 'manta1' || activeAttackingStarmon.avatarSeed === 'manta1') && abilityNum === 1 ? 'Metal' : activeAttackingStarmon.element;
+    const abilityElement = skill.damageElement || ((activeAttackingStarmon.id === 'manta1' || activeAttackingStarmon.avatarSeed === 'manta1') && abilityNum === 1 ? 'Metal' : activeAttackingStarmon.element);
     const abilityEffects = [`Deals ${dmg} ${skill.id === 'shield_bash' ? 'Steel' : abilityElement} DMG`];
     if (isAbilityCrit) abilityEffects.push('Critical hit');
     if (skill.id === 'ear_whip') abilityEffects.push('Removes target Shield');
@@ -6208,8 +6327,23 @@ export const BattleView: React.FC<Props> = ({
       return;
     }
     setSelectedEnemyIndex(Math.max(0, effectiveTarget));
+    if (skill.targetType === 'aoe') {
+      // Resolve AoE damage per target so dual-element matchups can differ.
+    } else if (enemyTeam[effectiveTarget]) {
+      const elementalBonus = getElementalInteractionBonus(abilityElement, [enemyTeam[effectiveTarget].element, enemyTeam[effectiveTarget].secondaryElement]);
+      dmg = Math.max(0, Math.round(dmg * (1 + elementalBonus)));
+    }
     if (skill.id === 'ear_whip') {
       setEnemyTeam(prev => prev.map((e, idx) => idx === effectiveTarget ? { ...e, battleShieldPoints: 0 } : e));
+    }
+    if ((activeAttackingStarmon.id === 'seaponi' || activeAttackingStarmon.avatarSeed === 'seaponi') && abilityNum === 2) {
+      setEnemyDefDebuffs(prev => ({ ...prev, [effectiveTarget]: { percent: 0.2, turns: 1 } }));
+    }
+    if (!isPvP && (activeAttackingStarmon.id === 'volzard' || activeAttackingStarmon.avatarSeed === 'volzard') && abilityNum === 1) {
+      setEnemyPoisonTurns(prev => ({ ...prev, [effectiveTarget]: Math.max(prev[effectiveTarget] || 0, 1) }));
+    }
+    if (!isPvP && (activeAttackingStarmon.id === 'glidron' || activeAttackingStarmon.avatarSeed === 'glidron') && skill.id === 'plasma_ray') {
+      setEnemySilenceTurns(prev => ({ ...prev, [effectiveTarget]: Math.max(prev[effectiveTarget] || 0, 1) }));
     }
 
     addBattleLog({
@@ -6223,7 +6357,7 @@ export const BattleView: React.FC<Props> = ({
     });
 
     // Check Frostmoth Absolute Zero passive:
-    // Allies' Water and Wind skills have 10% chance to give Frostbite (Reduce their Attack by 10%) to enemies for 1 turn
+    // Allies' Water and Wind skills have 10% chance to Frostbite enemies, halving Mana gained for 1 turn.
     const isWaterOrWindSkill = abilityElement === 'Water' || abilityElement === 'Wind' ||
       activeAttackingStarmon.secondaryElement === 'Water' || activeAttackingStarmon.secondaryElement === 'Wind';
     const hasAliveFrostmothMon = playerTeam.some(p => (p.id === 'frostmoth' || p.avatarSeed === 'frostmoth') && p.currentHp > 0);
@@ -6233,6 +6367,15 @@ export const BattleView: React.FC<Props> = ({
       syncCurrentSkill(dmg, skill.targetType === 'aoe', effectiveTarget);
       return;
     }
+
+    if ((activeAttackingStarmon.id === 'pyrokit' || activeAttackingStarmon.avatarSeed === 'pyrokit') && Math.random() < 0.35) {
+      const burnTargets = skill.targetType === 'aoe' ? enemyTeam.map((enemy, idx) => enemy.currentHp > 0 ? idx : -1).filter(idx => idx >= 0) : [effectiveTarget];
+      setEnemyBurnTurns(prev => burnTargets.reduce((next, idx) => ({ ...next, [idx]: Math.max(next[idx] || 0, 1) }), { ...prev }));
+    }
+    if (skill.id === 'inferno_eruption') {
+      setEnemyBurnTurns(prev => Object.fromEntries(enemyTeam.map((enemy, idx) => [idx, enemy.currentHp > 0 ? Math.max(prev[idx] || 0, 1) : prev[idx] || 0])));
+    }
+    if (skill.id === 'magma_impact' && Math.random() < 0.3) setEnemyBurnTurns(prev => ({ ...prev, [effectiveTarget]: Math.max(prev[effectiveTarget] || 0, 1) }));
 
     if (skill.targetType === 'aoe') {
       const livingCount = enemyTeam.filter(e => e.currentHp > 0).length;
@@ -6252,14 +6395,18 @@ export const BattleView: React.FC<Props> = ({
           source: 'player',
           unitName: 'Frostmoth',
           actionType: 'status',
-          message: '❄️ Absolute Zero triggered! (10% chance) Inflicted Frostbite (-10% ATK) on all enemies for 1 turn!',
+          message: '❄️ Absolute Zero triggered! (10% chance) Inflicted Frostbite (half Mana gained) on all enemies for 1 turn!',
         });
       }
       setEnemyTeam(prev =>
-        prev.map(e => {
-          const absorbed = Math.min(e.battleDecoyHp || 0, dmg);
+        prev.map((e, idx) => {
+          const elementalDamage = skill.targetType === 'aoe'
+            ? Math.max(0, Math.round(dmg * (1 + getElementalInteractionBonus(abilityElement, [e.element, e.secondaryElement]))))
+            : dmg;
+          const targetDamage = ((enemyPoisonTurns[idx] || 0) > 0 || (e.battlePoisonTurns || 0) > 0) ? Math.round(elementalDamage / 0.9) : elementalDamage;
+          const absorbed = Math.min(e.battleDecoyHp || 0, targetDamage);
           const decoyHp = Math.max(0, (e.battleDecoyHp || 0) - absorbed);
-          const nextHp = Math.max(0, e.currentHp - (dmg - absorbed));
+          const nextHp = Math.max(0, e.currentHp - (targetDamage - absorbed));
           if (e.currentHp > 0 && nextHp <= 0) {
             addBattleLog({
               phase: 'combat',
@@ -6282,15 +6429,16 @@ export const BattleView: React.FC<Props> = ({
           source: 'player',
           unitName: 'Frostmoth',
           actionType: 'status',
-          message: `❄️ Absolute Zero triggered! (10% chance) Inflicted Frostbite (-10% ATK) on ${enemyTeam[effectiveTarget].name} for 1 turn!`,
+          message: `❄️ Absolute Zero triggered! (10% chance) Inflicted Frostbite (half Mana gained) on ${enemyTeam[effectiveTarget].name} for 1 turn!`,
         });
       }
       setEnemyTeam(prev =>
         prev.map((e, idx) => {
           if (idx === effectiveTarget) {
-            const absorbed = Math.min(e.battleDecoyHp || 0, dmg);
+            const targetDamage = ((enemyPoisonTurns[effectiveTarget] || 0) > 0 || (e.battlePoisonTurns || 0) > 0) ? Math.round(dmg / 0.9) : dmg;
+            const absorbed = Math.min(e.battleDecoyHp || 0, targetDamage);
             const decoyHp = Math.max(0, (e.battleDecoyHp || 0) - absorbed);
-            const nextHp = Math.max(0, e.currentHp - (dmg - absorbed));
+            const nextHp = Math.max(0, e.currentHp - (targetDamage - absorbed));
             if (e.currentHp > 0 && nextHp <= 0) {
               addBattleLog({
                 phase: 'combat',
@@ -6306,6 +6454,10 @@ export const BattleView: React.FC<Props> = ({
       );
     }
 
+    if ((activeAttackingStarmon.id === 'dandylmane' || activeAttackingStarmon.avatarSeed === 'dandylmane') && abilityNum === 2) {
+      setPlayerTeam(prev => prev.map((mon, idx) => idx === actingStepIndex ? { ...mon, battleAttackBuffAmount: 0.2, battleAttackBuffTurns: 3 } : mon));
+    }
+
     // Bio-Battery drains Mana from targets hit by Volzard abilities.
     if (activeAttackingStarmon.id === 'volzard' || activeAttackingStarmon.avatarSeed === 'volzard') {
       const drain = skill.targetType === 'aoe' ? 4 : 8;
@@ -6317,13 +6469,13 @@ export const BattleView: React.FC<Props> = ({
       if (skill.targetType === 'aoe') {
         if (effect === 0) setEnemyBurnTurns(prev => Object.fromEntries(enemyTeam.map((enemy, idx) => [idx, enemy.currentHp > 0 ? Math.max(prev[idx] || 0, 1) : prev[idx] || 0])));
         else if (effect === 1) setEnemyPoisonTurns(prev => Object.fromEntries(enemyTeam.map((enemy, idx) => [idx, enemy.currentHp > 0 ? Math.max(prev[idx] || 0, 1) : prev[idx] || 0])));
-        else if (effect === 2) setEnemySilenceAppliedTurns(prev => Object.fromEntries(enemyTeam.map((enemy, idx) => [idx, enemy.currentHp > 0 ? 1 : prev[idx] || 0])));
+        else if (effect === 2) setEnemySilenceTurns(prev => Object.fromEntries(enemyTeam.map((enemy, idx) => [idx, enemy.currentHp > 0 ? 1 : prev[idx] || 0])));
         else if (effect === 3) setEnemyFrostbiteTurns(prev => Object.fromEntries(enemyTeam.map((enemy, idx) => [idx, enemy.currentHp > 0 ? Math.max(prev[idx] || 0, 1) : prev[idx] || 0])));
         else { const stat: 'maxHp' | 'baseAtk' | 'def' = effect === 4 ? 'maxHp' : effect === 5 ? 'baseAtk' : 'def'; setPlayerTeam(prev => prev.map((mon, idx) => idx === actingStepIndex ? { ...mon, [stat]: Math.round(mon[stat] * 1.1) } : mon)); }
       } else if (effect < 4) {
         if (effect === 0) setEnemyBurnTurns(prev => ({ ...prev, [effectiveTarget]: 1 }));
         if (effect === 1) setEnemyPoisonTurns(prev => ({ ...prev, [effectiveTarget]: 1 }));
-        if (effect === 2) setEnemySilenceAppliedTurns(prev => ({ ...prev, [effectiveTarget]: 1 }));
+        if (effect === 2) setEnemySilenceTurns(prev => ({ ...prev, [effectiveTarget]: 1 }));
         if (effect === 3) setEnemyFrostbiteTurns(prev => ({ ...prev, [effectiveTarget]: 1 }));
       } else {
         const stat: 'maxHp' | 'baseAtk' | 'def' = effect === 4 ? 'maxHp' : effect === 5 ? 'baseAtk' : 'def';
@@ -6339,6 +6491,7 @@ export const BattleView: React.FC<Props> = ({
   };
 
   const checkImmediateWinOrNext = (nextStep: number) => {
+    if (tutorialStage === 3) return;
     if (tutorialStage === 1) {
       if (tutorialRound === 1) {
         // In Tutorial 1 Round 1, after the first match attack, the enemy took damage.
@@ -6536,7 +6689,7 @@ export const BattleView: React.FC<Props> = ({
       return;
     }
 
-    const applyDamageToPlayer = (prevPlayers: Starmon[], dmg: number, isAoE: boolean = false, isOrbMatch: boolean = false) => {
+    const applyDamageToPlayer = (prevPlayers: Starmon[], dmg: number, isAoE: boolean = false, isOrbMatch: boolean = false, attackElement?: ElementType) => {
       let finalDmg = dmg;
 
       // Ritual of the Sun Effect on enemy damage: Fire +20%, Water -20%
@@ -6565,7 +6718,9 @@ export const BattleView: React.FC<Props> = ({
       }
 
       let updated = [...prevPlayers];
+      let hitPlayerIndices: number[] = [];
       if (isAoE) {
+        if (dmg > 0) hitPlayerIndices = prevPlayers.map((mon, idx) => mon.currentHp > 0 ? idx : -1).filter(idx => idx >= 0);
         const hasBambloom = prevPlayers.some(mon => (mon.id === 'bambloom' || mon.avatarSeed === 'bambloom') && mon.currentHp > 0);
         const cottontailWasHit = prevPlayers.some(mon => (mon.id === 'cottontail' || mon.avatarSeed === 'cottontail') && mon.currentHp > 0);
         if (cottontailWasHit && finalDmg > 0) enemySweetScentStacksRef.current[attackerIdx] = scentStacks + 1;
@@ -6573,6 +6728,8 @@ export const BattleView: React.FC<Props> = ({
           if (p.currentHp <= 0) return p;
           const personalReduction = (p.battleDamageReductionTurns || 0) > 0 ? (p.battleDamageReduction || 0) : 0;
           let unitDamage = Math.max(0, Math.round(finalDmg * (1 - personalReduction)));
+          if (attackElement) unitDamage = Math.max(0, Math.round(unitDamage * (1 + getElementalInteractionBonus(attackElement, [p.element, p.secondaryElement]))));
+          if ((playerPoisonTurns[idx] || 0) > 0) unitDamage = Math.round(unitDamage / 0.9);
           const decoyAbsorbed = Math.min(p.battleDecoyHp || 0, unitDamage);
           const nextDecoyHp = Math.max(0, (p.battleDecoyHp || 0) - decoyAbsorbed);
           unitDamage -= decoyAbsorbed;
@@ -6614,10 +6771,12 @@ export const BattleView: React.FC<Props> = ({
 
         if (targetPIdx !== -1 && finalDmg > 0) {
           const targetMon = updated[targetPIdx];
+          if (attackElement) finalDmg = Math.max(0, Math.round(finalDmg * (1 + getElementalInteractionBonus(attackElement, [targetMon.element, targetMon.secondaryElement]))));
           if ((targetMon.id === 'dandylmane' || targetMon.avatarSeed === 'dandylmane') && !isAoE) finalDmg = Math.round(finalDmg * 0.8);
           if (targetMon.battleDamageReductionTurns && targetMon.battleDamageReductionTurns > 0) {
             finalDmg = Math.max(0, Math.round(finalDmg * (1 - (targetMon.battleDamageReduction || 0))));
           }
+          if ((playerPoisonTurns[targetPIdx] || 0) > 0) finalDmg = Math.round(finalDmg / 0.9);
           if (isOrbMatch && targetMon.researchPhysicalDamageReduction) {
             finalDmg = Math.max(1, Math.round(finalDmg * (1 - targetMon.researchPhysicalDamageReduction)));
           }
@@ -6657,6 +6816,7 @@ export const BattleView: React.FC<Props> = ({
           }
 
           if (!dodged) {
+            if (dmg > 0) hitPlayerIndices = [targetPIdx];
             const decoyAbsorbed = Math.min(targetMon.battleDecoyHp || 0, finalDmg);
             const nextDecoyHp = Math.max(0, (targetMon.battleDecoyHp || 0) - decoyAbsorbed);
             const remainingDamage = finalDmg - decoyAbsorbed;
@@ -6690,9 +6850,10 @@ export const BattleView: React.FC<Props> = ({
         const loss = oldHp - p.currentHp;
         if ((p.id === 'cyborgnid' || p.avatarSeed === 'cyborgnid') && loss > 0) {
           setPlayerCyborgnidDmgAbsorbed(prev => prev + loss);
+          const manaGain = ((playerFrostbiteTurns[idx] || 0) > 0 || (p.battleFrostbiteTurns || 0) > 0) ? 5 : 10;
           return {
             ...p,
-            currentMana: Math.min(200, p.currentMana + 10),
+            currentMana: Math.min(200, p.currentMana + manaGain),
           };
         }
         return p;
@@ -6702,6 +6863,17 @@ export const BattleView: React.FC<Props> = ({
       prevPlayers.forEach((oldP, idx) => {
         const newHp = updated[idx]?.currentHp || 0;
         const loss = oldP.currentHp - newHp;
+        if (isOrbMatch && (oldP.id === 'moltenback' || oldP.avatarSeed === 'moltenback') && loss > 0) {
+          const reflected = Math.round(loss * 0.2);
+          setEnemyTeam(prevEnemies => prevEnemies.map((enemy, enemyIdx) => {
+            if (enemyIdx !== attackerIdx || enemy.currentHp <= 0) return enemy;
+            const absorbed = Math.min(enemy.battleDecoyHp || 0, reflected);
+            const decoyHp = Math.max(0, (enemy.battleDecoyHp || 0) - absorbed);
+            return { ...enemy, currentHp: Math.max(0, enemy.currentHp - (reflected - absorbed)), battleDecoyHp: decoyHp || undefined };
+          }));
+          setEnemyBurnTurns(prev => ({ ...prev, [attackerIdx]: Math.max(prev[attackerIdx] || 0, 1) }));
+          addBattleLog({ phase: 'combat', source: 'player', unitName: oldP.name, actionType: 'status', message: `🔥 Magma Shell reflected ${reflected} Fire damage and Burned ${attacker.name} (-10% ATK) for 1 turn.` });
+        }
         if ((oldP.id === 'mineacle' || oldP.avatarSeed === 'mineacle') && loss > 0) {
           const reflectDmg = Math.round(loss * 0.20);
           if (reflectDmg > 0) {
@@ -6719,7 +6891,7 @@ export const BattleView: React.FC<Props> = ({
         }
       });
 
-      const allyHitCount = updated.reduce((count, mon, idx) => count + (prevPlayers[idx]?.currentHp > mon.currentHp ? 1 : 0), 0);
+      const allyHitCount = hitPlayerIndices.length;
       if (allyHitCount > 0) updated = updated.map(mon => (mon.id === 'whiskerteer' || mon.avatarSeed === 'whiskerteer') && mon.currentHp > 0
         ? { ...mon, baseAtk: mon.baseAtk + Math.max(1, Math.round(mon.baseAtk * 0.03 * allyHitCount)) } : mon);
 
@@ -6727,7 +6899,8 @@ export const BattleView: React.FC<Props> = ({
       updated = updated.map((mon, idx) => {
         if ((mon.id === 'seaponi' || mon.avatarSeed === 'seaponi') && !playerSeaponiGraceUsed[idx] && prevPlayers[idx].currentHp >= mon.maxHp * 0.5 && mon.currentHp < mon.maxHp * 0.5) {
           setPlayerSeaponiGraceUsed(current => ({ ...current, [idx]: true }));
-          return { ...mon, currentMana: Math.min(mon.maxMana, mon.currentMana + 40) };
+          const manaGain = ((playerFrostbiteTurns[idx] || 0) > 0 || (mon.battleFrostbiteTurns || 0) > 0) ? 20 : 40;
+          return { ...mon, currentMana: Math.min(mon.maxMana, mon.currentMana + manaGain) };
         }
         return mon;
       });
@@ -6790,7 +6963,7 @@ export const BattleView: React.FC<Props> = ({
     const isEnemyGolem = attacker.id === 'enemy_golem' || attacker.avatarSeed === 'stone_golem';
     const canCastSkill2 = !!(attacker.skill2 && attacker.currentMana >= (attacker.skill2.manaCost || 40));
     const canCastSkill1 = !!(attacker.skill1 && attacker.currentMana >= (attacker.skill1.manaCost || 20));
-    const isEnemySilenced = (enemySilenceTurns[attackerIdx] || 0) > 0 || (enemySilenceAppliedTurns[attackerIdx] || 0) > 0;
+    const isEnemySilenced = (enemySilenceTurns[attackerIdx] || 0) > 0 || (attacker.battleSilenceTurns || 0) > 0;
 
     const shouldCastAbility = !isEnemySilenced && (canCastSkill2 || canCastSkill1) && Math.random() < 0.65;
 
@@ -6809,6 +6982,15 @@ export const BattleView: React.FC<Props> = ({
           fromSelector: sourceSelector,
           toSelector: skillToCast.targetType === 'self' ? sourceSelector : destinationSelector,
         });
+      }
+
+      if ((attacker.id === 'enemy_glidron' || attacker.avatarSeed === 'glidron') && skillToCast?.id === 'plasma_ray') {
+        const silencedTarget = playerTeam.findIndex(mon => mon.currentHp > 0 && (mon.battleTauntTurns || 0) > 0);
+        const targetIndex = silencedTarget >= 0 ? silencedTarget : playerTeam.findIndex(mon => mon.currentHp > 0);
+        if (targetIndex >= 0) {
+          setPlayerSilenceTurns(prev => ({ ...prev, [targetIndex]: Math.max(prev[targetIndex] || 0, 1) }));
+          addBattleLog({ phase: 'combat', source: 'enemy', unitName: attacker.name, actionType: 'status', message: `🔇 Plasma Ray Silenced your ${playerTeam[targetIndex].name} for 1 turn.` });
+        }
       }
 
       // Special handling for Enemy Stone Golem Fortress Bulwark
@@ -6862,9 +7044,8 @@ export const BattleView: React.FC<Props> = ({
               const target = currentPlayers[targetIdx];
 
               let strikeDmg = Math.round(attacker.baseAtk * 0.9);
-              if ((enemyFrostbiteTurns[attackerIdx] || 0) > 0) {
-                strikeDmg = Math.round(strikeDmg * 0.9); // Frostbite -10% ATK
-              }
+              if (target.id === 'dandylmane' || target.avatarSeed === 'dandylmane') strikeDmg = Math.round(strikeDmg * 0.8);
+              if ((enemyBurnTurns[attackerIdx] || attacker.battleBurnTurns || 0) > 0) strikeDmg = Math.round(strikeDmg * 0.9);
 
               // Elemental counter/resistance
               if (target.element === 'Water') strikeDmg = Math.round(strikeDmg * 1.1);
@@ -6873,9 +7054,12 @@ export const BattleView: React.FC<Props> = ({
               const def = target.def ?? 20;
               strikeDmg = Math.max(1, Math.round(strikeDmg * (100 / (100 + def))));
 
+              const decoyAbsorbed = Math.min(target.battleDecoyHp || 0, strikeDmg);
+              const nextDecoyHp = Math.max(0, (target.battleDecoyHp || 0) - decoyAbsorbed);
               currentPlayers[targetIdx] = {
                 ...target,
-                currentHp: Math.max(0, target.currentHp - strikeDmg),
+                currentHp: Math.max(0, target.currentHp - (strikeDmg - decoyAbsorbed)),
+                battleDecoyHp: nextDecoyHp || undefined,
               };
               totalDmg += strikeDmg;
               recordPlayerMonDamageTaken(targetIdx, strikeDmg);
@@ -6974,9 +7158,7 @@ export const BattleView: React.FC<Props> = ({
       );
 
       let dmg = Math.round(attacker.baseAtk * skillToCast.damageMultiplier);
-      if ((enemyFrostbiteTurns[attackerIdx] || 0) > 0) {
-        dmg = Math.round(dmg * 0.9); // Frostbite -10% ATK
-      }
+      if ((enemyBurnTurns[attackerIdx] || attacker.battleBurnTurns || 0) > 0) dmg = Math.round(dmg * 0.9);
 
       // Shield mitigation
       if (teamShieldPoints > 0) {
@@ -7008,7 +7190,7 @@ export const BattleView: React.FC<Props> = ({
 
         // Inflict damage on player units with Taunt redirection
         setPlayerTeam(prevPlayers => {
-          const updated = applyDamageToPlayer(prevPlayers, dmg, skillToCast.targetType === 'aoe');
+          const updated = applyDamageToPlayer(prevPlayers, dmg, skillToCast.targetType === 'aoe', false, skillToCast.damageElement || attacker.element);
           finishEnemyTurn(updated);
           return updated;
         });
@@ -7070,31 +7252,33 @@ export const BattleView: React.FC<Props> = ({
           // Enemy gains mana from matched orbs
           const manaGain = matchCount * 5;
           setEnemyTeam(prev =>
-            prev.map(e => {
+            prev.map((e, idx) => {
               let m = e.currentMana;
               let hp = e.currentHp;
+              let incomingMana = 0;
               if (e.id === attacker.id) {
-                m += manaGain + enemyTidecrushExtraMana;
+                incomingMana += manaGain + enemyTidecrushExtraMana;
                 if (enemyTidecrushHeal > 0) {
                   hp = Math.min(e.maxHp, hp + enemyTidecrushHeal);
                 }
               }
               if (glidronBonusMana > 0 && (e.id === 'enemy_glidron' || e.avatarSeed === 'glidron') && e.currentHp > 0) {
-                m += glidronBonusMana;
+                incomingMana += glidronBonusMana;
               }
+              if (matchElem === 'Electric' && (e.id === 'enemy_teslarion' || e.avatarSeed === 'teslarion') && e.currentHp > 0) incomingMana += 5;
+              if (incomingMana > 0 && ((enemyFrostbiteTurns[idx] || 0) > 0 || (e.battleFrostbiteTurns || 0) > 0)) incomingMana = Math.floor(incomingMana / 2);
+              m += incomingMana;
               return { ...e, currentMana: Math.min(200, m), currentHp: hp };
             })
           );
 
-          if (glidronBonusMana > 0) {
-            setPlayerTeam(prev =>
-              prev.map(s =>
-                (s.id === 'glidron' || s.avatarSeed === 'glidron') && s.currentHp > 0
-                  ? { ...s, currentMana: Math.min(200, s.currentMana + glidronBonusMana) }
-                  : s
-              )
-            );
-          }
+          setPlayerTeam(prev => prev.map((s, idx) => {
+            let incomingMana = 0;
+            if (glidronBonusMana > 0 && (s.id === 'glidron' || s.avatarSeed === 'glidron') && s.currentHp > 0) incomingMana += glidronBonusMana;
+            if (matchElem === 'Electric' && (s.id === 'teslarion' || s.avatarSeed === 'teslarion') && s.currentHp > 0) incomingMana += 5;
+            if (incomingMana > 0 && ((playerFrostbiteTurns[idx] || 0) > 0 || (s.battleFrostbiteTurns || 0) > 0)) incomingMana = Math.floor(incomingMana / 2);
+            return incomingMana ? { ...s, currentMana: Math.min(200, s.currentMana + incomingMana) } : s;
+          }));
 
           // Calculate match-3 damage
           const baseMult = getBaseMultiplierForOrbs(matchCount);
@@ -7105,23 +7289,14 @@ export const BattleView: React.FC<Props> = ({
           let enemyCounterBonus = 0.0;
           let enemyResistPenalty = 0.0;
           if (frontlinePlayer) {
-            if (
-              ELEMENT_COUNTERS[attacker.element] === frontlinePlayer.element ||
-              (attacker.secondaryElement && ELEMENT_COUNTERS[attacker.secondaryElement] === frontlinePlayer.element) ||
-              ELEMENT_COUNTERS[matchElem] === frontlinePlayer.element
-            ) {
-              enemyCounterBonus = 0.10;
-            }
-            if (
-              ELEMENT_COUNTERS[frontlinePlayer.element] === attacker.element ||
-              (frontlinePlayer.secondaryElement && ELEMENT_COUNTERS[frontlinePlayer.secondaryElement] === attacker.element)
-            ) {
-              enemyResistPenalty = -0.10;
-            }
+            const interactionBonus = getElementalInteractionBonus(matchElem, [frontlinePlayer.element, frontlinePlayer.secondaryElement]);
+            if (interactionBonus > 0) enemyCounterBonus = interactionBonus;
+            if (interactionBonus < 0) enemyResistPenalty = interactionBonus;
           }
 
           const totalMult = Math.max(0.2, baseMult + enemySameElemBonus + enemyCounterBonus + enemyResistPenalty);
           let rawDmg = Math.round(attacker.baseAtk * totalMult);
+          if ((enemyBurnTurns[attackerIdx] || attacker.battleBurnTurns || 0) > 0) rawDmg = Math.round(rawDmg * 0.9);
 
           // Shield mitigation
           if (teamShieldPoints > 0) {
@@ -7152,7 +7327,7 @@ export const BattleView: React.FC<Props> = ({
 
           // Damage player frontline with Taunt redirection
           setPlayerTeam(prevPlayers => {
-            const updated = applyDamageToPlayer(prevPlayers, rawDmg, false, true);
+            const updated = applyDamageToPlayer(prevPlayers, rawDmg, false, true, matchElem);
 
             // Refill board with anti-cascade lockout
             setBoard(prev => {
@@ -7327,13 +7502,6 @@ export const BattleView: React.FC<Props> = ({
     });
 
     // Decrement Silence turns
-    setPlayerSilenceTurns(prev => {
-      const next: Record<number, number> = {};
-      Object.entries(prev).forEach(([idx, t]) => {
-        if (t > 1) next[Number(idx)] = t - 1;
-      });
-      return next;
-    });
     setEnemySilenceTurns(prev => {
       const next: Record<number, number> = {};
       Object.entries(prev).forEach(([idx, t]) => {
@@ -7379,7 +7547,7 @@ export const BattleView: React.FC<Props> = ({
     setEnemyTeam(prevEnemies => {
       let changed = false;
       const nextEnemies = prevEnemies.map((e, idx) => {
-        if ((enemyPoisonTurns[idx] || 0) > 0 && e.currentHp > 0) {
+        if (((enemyPoisonTurns[idx] || 0) > 0 || (e.battlePoisonTurns || 0) > 0) && e.currentHp > 0) {
           changed = true;
           const pDmg = Math.max(5, Math.round(e.maxHp * 0.05));
           const nextHp = Math.max(0, e.currentHp - pDmg);
@@ -7396,38 +7564,20 @@ export const BattleView: React.FC<Props> = ({
       return changed ? nextEnemies : prevEnemies;
     });
 
-    setEnemyPoisonTurns(prev => {
-      const next: Record<number, number> = {};
-      Object.entries(prev).forEach(([idx, t]) => {
-        if (t > 1) next[Number(idx)] = t - 1;
-      });
-      return next;
-    });
-    setEnemySilenceAppliedTurns(prev => Object.fromEntries(Object.entries(prev).flatMap(([idx, turns]) => turns > 1 ? [[Number(idx), turns - 1]] : [])));
-    setPlayerSilenceAppliedTurns(prev => Object.fromEntries(Object.entries(prev).flatMap(([idx, turns]) => turns > 1 ? [[Number(idx), turns - 1]] : [])));
-
-    // Process Poison DoT on Players: Takes 5% max HP damage after turn
-    setPlayerTeam(prevPlayers => {
+    setEnemyTeam(prevEnemies => {
       let changed = false;
-      const nextPlayers = prevPlayers.map((p, idx) => {
-        if ((playerPoisonTurns[idx] || 0) > 0 && p.currentHp > 0) {
-          changed = true;
-          const pDmg = Math.max(5, Math.round(p.maxHp * 0.05));
-          const nextHp = Math.max(0, p.currentHp - pDmg);
-          addBattleLog({
-            phase: 'combat',
-            source: 'system',
-            actionType: 'status',
-            message: `🍄 Poison: Your ${p.name} took ${pDmg} Poison DMG!`,
-          });
-          return { ...p, currentHp: nextHp };
-        }
-        return p;
+      const nextEnemies = prevEnemies.map((enemy, idx) => {
+        if ((enemyBurnTurns[idx] || 0) <= 0 || enemy.currentHp <= 0) return enemy;
+        changed = true;
+        const burnDamage = Math.max(5, Math.round(enemy.maxHp * 0.05));
+        recordEnemyMonDamageTaken(idx, burnDamage);
+        addBattleLog({ phase: 'combat', source: 'system', actionType: 'status', message: `🔥 Burned: Enemy ${enemy.name} took ${burnDamage} Fire DMG!` });
+        return { ...enemy, currentHp: Math.max(0, enemy.currentHp - burnDamage) };
       });
-      return changed ? nextPlayers : prevPlayers;
+      return changed ? nextEnemies : prevEnemies;
     });
-
-    setPlayerPoisonTurns(prev => {
+    setEnemyBurnTurns(prev => Object.fromEntries(Object.entries(prev).filter(([, turns]) => turns > 1).map(([idx, turns]) => [Number(idx), turns - 1])));
+    setEnemyPoisonTurns(prev => {
       const next: Record<number, number> = {};
       Object.entries(prev).forEach(([idx, t]) => {
         if (t > 1) next[Number(idx)] = t - 1;
@@ -7536,7 +7686,7 @@ export const BattleView: React.FC<Props> = ({
                 {tutorialStage === 'abilities' && 'Đổi mục tiêu ➔ Xem Starmon 1 ➔ Ghép orb bất kỳ (+5 Mana/orb) ➔ Dùng Active Skill'}
                 {tutorialStage === 1 && 'Step-by-step: Answering questions unlocks attack slots ➔ Match 3+ orbs to attack ➔ Defeat enemy!'}
                 {tutorialStage === 2 && 'Passive abilities trigger automatically for free! Active abilities consume Mana & take your turn.'}
-                {tutorialStage === 3 && 'Cycle: Water ➔ Fire ➔ Metal ➔ Earth ➔ Wind ➔ Electric ➔ Water! Same-Element: +10% DMG | Counter: +10% DMG | Resistance: -10% DMG.'}
+                {tutorialStage === 3 && 'Water ➔ Fire ➔ Metal ➔ Wind ➔ Earth ➔ Electric ➔ Water. Counter +10% / Resistance −10%, based on the orb or skill element.'}
               </p>
             </div>
           </div>
@@ -8584,11 +8734,7 @@ export const BattleView: React.FC<Props> = ({
                       <strong>Hướng Dẫn 2 - Từng bước:</strong> Passive tự động kích hoạt 0 tốn Mana/lượt. Nhấp vào chiêu Active (Skill 1/2) phía dưới Starmon để thi triển kỹ năng (tốn Mana và mất lượt đi)!
                     </>
                   )}
-                  {tutorialStage === 3 && (
-                    <>
-                      <strong>Hướng Dẫn 3 - Từng bước:</strong> Ăn ngọc cùng nguyên tố Starmon: +10% DMG | Khắc hệ: +10% DMG | Bị khắc: -10% DMG. Vòng tròn: Water ➔ Fire ➔ Metal ➔ Earth ➔ Wind ➔ Electric ➔ Water!
-                    </>
-                  )}
+                  {tutorialStage === 3 && <><strong>Hướng Dẫn 3:</strong> Ghép Water orb bằng Starmon Water vào Fire để thấy Counter +10%; sau đó dùng Water orb đánh Glidron để thấy Resistance −10% từ hệ Electric.</>}
                 </span>
               </div>
             </div>
@@ -8691,25 +8837,26 @@ export const BattleView: React.FC<Props> = ({
 
                         {/* REAL ACTIVE STATUS, BUFF & DEBUFF ICONS */}
                         {(mon.battleDecoyHp || 0) > 0 && <div className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-violet-950 border border-violet-400 text-violet-300 shadow" title="Decoy absorbs incoming damage before HP"><span className="text-[10px]">🎭</span><span className="text-[8px] font-black">Decoy: {mon.battleDecoyHp}HP</span></div>}
+                        {((playerBurnTurns[idx] || 0) > 0 || (mon.battleBurnTurns || 0) > 0) && <div title="Burned: 5% Max HP damage and -10% ATK" className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-orange-950 border border-orange-400 text-orange-300 shadow"><span className="text-[8px] font-black">Burned [{playerBurnTurns[idx] || mon.battleBurnTurns}t]</span></div>}
+                        {((playerPoisonTurns[idx] || 0) > 0 || (mon.battlePoisonTurns || 0) > 0) && <div className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-green-950 border border-green-400 text-green-300 shadow"><span className="text-[8px] font-black">Poison [{playerPoisonTurns[idx] || mon.battlePoisonTurns}t]</span></div>}
                         {(playerAttackDebuffs[idx]?.turns || 0) > 0 && <div className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-rose-950 border border-rose-400 text-rose-300 shadow"><span className="text-[8px] font-black">ATK -{Math.round(playerAttackDebuffs[idx].percent * 100)}% [{playerAttackDebuffs[idx].turns}t]</span></div>}
-                        {(playerSilenceAppliedTurns[idx] || 0) > 0 && <div className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-purple-950 border border-purple-400 text-purple-300 shadow"><span className="text-[8px] font-black">Silence [{playerSilenceAppliedTurns[idx]}t]</span></div>}
-                        {(playerFrostbiteTurns[idx] || 0) > 0 && (
+                        {((playerFrostbiteTurns[idx] || 0) > 0 || (mon.battleFrostbiteTurns || 0) > 0) && (
                           <div
                             className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-cyan-950 border border-cyan-400 text-cyan-300 shadow"
-                            title={`Frostbite: Reduces Attack by 10% (${playerFrostbiteTurns[idx]} turns left)`}
+                            title={`Frostbite: halves Mana gained (${playerFrostbiteTurns[idx] || mon.battleFrostbiteTurns} turns left)`}
                           >
                             <span className="text-[10px]">❄️</span>
-                            <span className="text-[8px] font-black">Frostbite [{playerFrostbiteTurns[idx]}t]</span>
+                            <span className="text-[8px] font-black">Frostbite [{playerFrostbiteTurns[idx] || mon.battleFrostbiteTurns}t]</span>
                           </div>
                         )}
 
-                        {(playerSilenceTurns[idx] || 0) > 0 && (
+                        {((playerSilenceTurns[idx] || 0) > 0 || (mon.battleSilenceTurns || 0) > 0) && (
                           <div
                             className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-purple-950 border border-purple-400 text-purple-300 shadow"
-                            title={`Silenced: Cannot cast Active Abilities (${playerSilenceTurns[idx]} turns left)`}
+                            title={`Silenced: Cannot cast Active Abilities (${playerSilenceTurns[idx] || mon.battleSilenceTurns} turns left)`}
                           >
                             <span className="text-[10px]">🔇</span>
-                            <span className="text-[8px] font-black">Silence [{playerSilenceTurns[idx]}t]</span>
+                            <span className="text-[8px] font-black">Silence [{(playerSilenceTurns[idx] || mon.battleSilenceTurns)}t]</span>
                           </div>
                         )}
 
@@ -9013,8 +9160,8 @@ export const BattleView: React.FC<Props> = ({
                           <span>HP: {mon.currentHp}/{mon.maxHp}</span>
                           <div className="flex flex-col items-end leading-tight">
                             <span className="font-bold text-amber-300">
-                              ATK: {(playerFrostbiteTurns[idx] || 0) > 0 ? Math.round(mon.baseAtk * 0.9) : mon.baseAtk}
-                              {(playerFrostbiteTurns[idx] || 0) > 0 && <span className="text-[7px] text-cyan-300 ml-0.5">(-10%)</span>}
+                              ATK: {(playerBurnTurns[idx] || mon.battleBurnTurns || 0) > 0 ? Math.round(mon.baseAtk * 0.9) : mon.baseAtk}
+                              {(playerBurnTurns[idx] || mon.battleBurnTurns || 0) > 0 && <span className="text-[7px] text-orange-300 ml-0.5">(-10%)</span>}
                             </span>
                             <span className="font-bold text-sky-300">
                               DEF: {mon.def ?? 20}
@@ -9194,8 +9341,10 @@ export const BattleView: React.FC<Props> = ({
                       <span>Đang kết nối bàn cờ chung từ server...</span>
                     </div>
                   ) : (() => {
-                    const tutorialMove = (tutorialStage === 1 && board.length > 0)
+                    const tutorialMove = board.length > 0 && tutorialStage === 1
                       ? (findValidTutorialMatchMove(board, 'Electric') || findValidTutorialMatchMove(board, 'Water') || findValidTutorialMatchMove(board, 'Fire') || findValidTutorialMatchMove(board, 'Wind') || findValidTutorialMatchMove(board, 'Earth') || findValidTutorialMatchMove(board, 'Metal'))
+                      : board.length > 0 && tutorialStage === 3 && tutorialElementalActionStep < 2
+                      ? findValidTutorialMatchMove(board, 'Water')
                       : null;
 
                     return board.map((row, r) =>
@@ -9203,8 +9352,8 @@ export const BattleView: React.FC<Props> = ({
                         if (!tile) return <div key={`${r}-${c}`} className="rounded-xl md:rounded-2xl" />;
                         const isSelected = selectedTile?.row === r && selectedTile?.col === c;
                         const isAiSelected = aiHighlightedTiles?.some(t => t.row === r && t.col === c);
-                        const isTutorialOrb1 = tutorialStage === 1 && tutorialMove && tutorialMove.r1 === r && tutorialMove.c1 === c;
-                        const isTutorialOrb2 = tutorialStage === 1 && tutorialMove && tutorialMove.r2 === r && tutorialMove.c2 === c;
+                        const isTutorialOrb1 = (tutorialStage === 1 || tutorialStage === 3) && tutorialMove && tutorialMove.r1 === r && tutorialMove.c1 === c;
+                        const isTutorialOrb2 = (tutorialStage === 1 || tutorialStage === 3) && tutorialMove && tutorialMove.r2 === r && tutorialMove.c2 === c;
                         const isTutorialOrb = isTutorialOrb1 || isTutorialOrb2;
 
                         return (
@@ -9229,7 +9378,7 @@ export const BattleView: React.FC<Props> = ({
                                 ? 'ring-4 ring-rose-500 scale-110 shadow-2xl z-20 animate-pulse border-rose-300'
                                 : isSelected
                                 ? 'ring-4 ring-white scale-110 shadow-2xl z-10 animate-pulse'
-                                : isTutorialOrb && !tutorialHasSwappedOrbs
+                              : isTutorialOrb && ((tutorialStage === 1 && !tutorialHasSwappedOrbs) || (tutorialStage === 3 && tutorialElementalActionStep < 2))
                                 ? 'ring-4 ring-amber-400 ring-offset-2 ring-offset-slate-950 scale-110 z-20 shadow-2xl animate-pulse border-amber-300'
                                 : 'shadow-md shadow-black/70'
                             }`}
@@ -9237,7 +9386,7 @@ export const BattleView: React.FC<Props> = ({
                             {orbIcons[tile.element]}
 
                             {/* Tutorial Swap Indicator Badge */}
-                            {isTutorialOrb && !tutorialHasSwappedOrbs && (
+                            {isTutorialOrb && ((tutorialStage === 1 && !tutorialHasSwappedOrbs) || (tutorialStage === 3 && tutorialElementalActionStep < 2)) && (
                               <span className="absolute -top-1.5 -right-1.5 bg-amber-400 text-slate-950 text-[8px] font-black px-1.5 py-0.2 rounded-full border border-slate-900 animate-bounce shadow">
                                 SWAP
                               </span>
@@ -9406,7 +9555,7 @@ export const BattleView: React.FC<Props> = ({
                   <div
                     key={enemy.id}
                     data-skill-vfx-enemy={idx}
-                    id={tutorialStage === 'abilities' ? `tutorial-target-${idx}` : undefined}
+                    id={tutorialStage === 'abilities' ? `tutorial-target-${idx}` : tutorialStage === 3 ? `tutorial-element-target-${idx}` : undefined}
                     onClick={() => {
                       if (!isDead) {
                         if (isPvP && pvpActionMenu && !pvpActionMenu.validTargets.includes(idx)) return;
@@ -9441,24 +9590,25 @@ export const BattleView: React.FC<Props> = ({
 
                         {/* REAL ACTIVE STATUS, BUFF & DEBUFF ICONS ON OPPONENTS */}
                         {(enemy.battleDecoyHp || 0) > 0 && <div className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-violet-950 border border-violet-400 text-violet-300 shadow" title="Decoy absorbs incoming damage before HP"><span className="text-[10px]">🎭</span><span className="text-[8px] font-black">Decoy: {enemy.battleDecoyHp}HP</span></div>}
-                        {(enemySilenceAppliedTurns[idx] || 0) > 0 && <div className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-purple-950 border border-purple-400 text-purple-300 shadow"><span className="text-[8px] font-black">Silence [{enemySilenceAppliedTurns[idx]}t]</span></div>}
-                        {(enemyFrostbiteTurns[idx] || 0) > 0 && (
+                        {((enemyBurnTurns[idx] || 0) > 0 || (enemy.battleBurnTurns || 0) > 0) && <div title="Burned: 5% Max HP damage and -10% ATK" className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-orange-950 border border-orange-400 text-orange-300 shadow"><span className="text-[8px] font-black">Burned [{enemyBurnTurns[idx] || enemy.battleBurnTurns}t]</span></div>}
+                        {((enemyPoisonTurns[idx] || 0) > 0 || (enemy.battlePoisonTurns || 0) > 0) && <div className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-green-950 border border-green-400 text-green-300 shadow"><span className="text-[8px] font-black">Poison [{enemyPoisonTurns[idx] || enemy.battlePoisonTurns}t]</span></div>}
+                        {((enemyFrostbiteTurns[idx] || 0) > 0 || (enemy.battleFrostbiteTurns || 0) > 0) && (
                           <div
                             className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-cyan-950 border border-cyan-400 text-cyan-300 shadow"
-                            title={`Frostbite: Reduces Attack by 10% (${enemyFrostbiteTurns[idx]} turns left)`}
+                            title={`Frostbite: halves Mana gained (${enemyFrostbiteTurns[idx] || enemy.battleFrostbiteTurns} turns left)`}
                           >
                             <span className="text-[10px]">❄️</span>
-                            <span className="text-[8px] font-black">Frostbite [{enemyFrostbiteTurns[idx]}t]</span>
+                            <span className="text-[8px] font-black">Frostbite [{enemyFrostbiteTurns[idx] || enemy.battleFrostbiteTurns}t]</span>
                           </div>
                         )}
 
-                        {(enemySilenceTurns[idx] || 0) > 0 && (
+                        {((enemySilenceTurns[idx] || 0) > 0 || (enemy.battleSilenceTurns || 0) > 0) && (
                           <div
                             className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-purple-950 border border-purple-400 text-purple-300 shadow"
-                            title={`Silenced: Cannot cast Active Abilities (${enemySilenceTurns[idx]} turns left)`}
+                            title={`Silenced: Cannot cast Active Abilities (${enemySilenceTurns[idx] || enemy.battleSilenceTurns} turns left)`}
                           >
                             <span className="text-[10px]">🔇</span>
-                            <span className="text-[8px] font-black">Silence [{enemySilenceTurns[idx]}t]</span>
+                            <span className="text-[8px] font-black">Silence [{(enemySilenceTurns[idx] || enemy.battleSilenceTurns)}t]</span>
                           </div>
                         )}
 
@@ -9607,8 +9757,8 @@ export const BattleView: React.FC<Props> = ({
                           <span>HP: {enemy.currentHp}/{enemy.maxHp}</span>
                           <div className="flex flex-col items-end leading-tight">
                             <span className="font-bold text-amber-300">
-                              ATK: {(enemyFrostbiteTurns[idx] || 0) > 0 ? Math.round(enemy.baseAtk * 0.9) : enemy.baseAtk}
-                              {(enemyFrostbiteTurns[idx] || 0) > 0 && <span className="text-[7px] text-cyan-300 ml-0.5">(-10%)</span>}
+                              ATK: {(enemyBurnTurns[idx] || enemy.battleBurnTurns || 0) > 0 ? Math.round(enemy.baseAtk * 0.9) : enemy.baseAtk}
+                              {(enemyBurnTurns[idx] || enemy.battleBurnTurns || 0) > 0 && <span className="text-[7px] text-orange-300 ml-0.5">(-10%)</span>}
                             </span>
                             <span className="font-bold text-sky-300">
                               DEF: {enemy.def ?? 20}
@@ -9653,9 +9803,9 @@ export const BattleView: React.FC<Props> = ({
               <span className="text-slate-500">➔</span>
               <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-200 border border-slate-600/40 shrink-0">Metal 🛡️</span>
               <span className="text-slate-500">➔</span>
-              <span className="px-1.5 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-600/40 shrink-0">Earth 🪨</span>
-              <span className="text-slate-500">➔</span>
               <span className="px-1.5 py-0.5 rounded bg-teal-950 text-teal-300 border border-teal-600/40 shrink-0">Wind 🌪️</span>
+              <span className="text-slate-500">➔</span>
+              <span className="px-1.5 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-600/40 shrink-0">Earth 🪨</span>
               <span className="text-slate-500">➔</span>
               <span className="px-1.5 py-0.5 rounded bg-yellow-950 text-yellow-300 border border-yellow-600/40 shrink-0">Electric ⚡</span>
               <span className="text-slate-500">➔</span>
@@ -9663,37 +9813,26 @@ export const BattleView: React.FC<Props> = ({
             </div>
 
             {/* Live Counter & Resistance Status Badges for Current Active Unit */}
-            {activeAttackingStarmon && enemyTeam[selectedEnemyIndex] && (
+            {activeAttackingStarmon && enemyTeam[selectedEnemyIndex] && (() => {
+              const matchupBonus = getElementalInteractionBonus(activeAttackingStarmon.element, [enemyTeam[selectedEnemyIndex].element, enemyTeam[selectedEnemyIndex].secondaryElement]);
+              return (
               <div className="flex items-center gap-2 shrink-0">
                 {/* Counter Arrow Indicator */}
                 <div
                   id="tutorial-counter-arrow"
                   className={`flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[10px] font-black ${
-                    ELEMENT_COUNTERS[activeAttackingStarmon.element] === enemyTeam[selectedEnemyIndex].element
+                    matchupBonus > 0
                       ? 'bg-emerald-950 border-emerald-400 text-emerald-300 animate-pulse'
                       : 'bg-slate-950 border-slate-800 text-slate-400'
                   }`}
-                  title="Counter: Deals +10% damage"
+                  title="Starmon's native-element matchup; orb matches and skills use their own damage element."
                 >
                   <ArrowRight className="w-3 h-3" />
-                  <span>COUNTER (+10% DMG)</span>
-                </div>
-
-                {/* Resistance Badge Indicator */}
-                <div
-                  id="tutorial-resist-badge"
-                  className={`flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[10px] font-black ${
-                    ELEMENT_COUNTERS[enemyTeam[selectedEnemyIndex].element] === activeAttackingStarmon.element
-                      ? 'bg-rose-950 border-rose-400 text-rose-300 animate-pulse'
-                      : 'bg-slate-950 border-slate-800 text-slate-400'
-                  }`}
-                  title="Resisted: Deals -10% damage"
-                >
-                  <Shield className="w-3 h-3" />
-                  <span>RESIST (-10% DMG)</span>
+                  <span>{matchupBonus > 0 ? 'COUNTER (+10%)' : matchupBonus < 0 ? 'RESIST (−10%)' : 'NEUTRAL'}</span>
                 </div>
               </div>
-            )}
+              );
+            })()}
           </div>
         </div>
       )}
@@ -10544,6 +10683,7 @@ export const BattleView: React.FC<Props> = ({
           phase={phase}
           currentQuestion={currentQ}
           selectedEnemyIndex={selectedEnemyIndex}
+          onSelectEnemy={setSelectedEnemyIndex}
           selectedPlayerIndex={selectedPlayerInspectIndex}
           onSelectPlayer={setSelectedPlayerInspectIndex}
           playerTeam={playerTeam}
@@ -10553,6 +10693,7 @@ export const BattleView: React.FC<Props> = ({
           hasSelectedAbility={Boolean(selectedAbilityDetail)}
           ieltsAiResult={ieltsAiResult}
           tutorialRound={tutorialRound}
+          tutorialElementalActionStep={tutorialElementalActionStep}
           mcqCorrectSelected={tutorialMcqCorrect}
           playerMana={playerTeam[0]?.currentMana || 0}
           tutorialRequiredMana={playerTeam[0]?.skill1?.manaCost || 20}

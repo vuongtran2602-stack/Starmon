@@ -4,8 +4,8 @@ type SkillTranslations = Partial<Record<SkillSlot, string>>;
 // Vietnamese explanations for skills whose English description contains multiple effects.
 const VIETNAMESE_SKILL_DESCRIPTIONS: Record<string, SkillTranslations> = {
   coralus: { passive: 'Khi Coralus còn trên 50% HP, giảm 15% sát thương nhận vào cho bản thân và toàn đội.', skill1: '• Tấn công mục tiêu bằng hai móng vuốt phủ nước, gây 180% sát thương.\n• Giảm 25% DEF của mục tiêu trong 2 lượt.', skill2: 'Tạo khiên nước hấp thụ sát thương cho toàn đội trong 3 lượt.' },
-  pyrokit: { passive: 'Đòn tấn công có 35% tỉ lệ gây Burn lên kẻ địch, khiến chúng chịu sát thương mỗi vòng.', skill1: '• Ném cầu lửa gây 200% sát thương Fire.\n• Gây 350% sát thương nếu mục tiêu đang bị Burn.', skill2: 'Triệu hồi lốc lửa cáo, gây 180% sát thương Fire diện rộng lên toàn bộ kẻ địch.' },
-  ignisaur: { passive: 'Nhận thêm 30% Base ATK khi HP hiện tại giảm xuống dưới 50%.', skill1: 'Thực hiện hai nhát chém liên tiếp, mỗi nhát gây sát thương bằng 85% ATK.', skill2: 'Giáng magma lên đối thủ, gây 240% sát thương Fire và đảm bảo gây Burn (30%).' },
+  pyrokit: { passive: 'Đòn đánh và Active Skill có 35% tỉ lệ gây Burned trong 1 lượt. Burned giảm 10% ATK và gây sát thương cuối lượt của mục tiêu.', skill1: '• Ném cầu lửa gây 200% sát thương Fire.\n• Gây 350% sát thương nếu mục tiêu đang bị Burned.', skill2: 'Triệu hồi lốc lửa cáo, gây 180% sát thương Fire diện rộng lên toàn bộ kẻ địch và gây Burned.' },
+  ignisaur: { passive: 'Nhận thêm 30% Base ATK khi HP hiện tại giảm xuống dưới 50%.', skill1: 'Thực hiện hai nhát chém liên tiếp, mỗi nhát gây sát thương bằng 85% ATK.', skill2: 'Giáng magma lên đối thủ, gây 240% sát thương Fire và có 30% tỉ lệ gây Burned trong 1 lượt (-10% ATK).' },
   tidecrush: {
     passive: '• Đòn tấn công khi ghép Match-3 hồi HP bằng 10% Max HP của Tidecrush.\n• Nếu Tidecrush đầy HP, thay vào đó nhận thêm 10 Mana.',
     skill1: 'Chém đối thủ bằng hai dao găm băng, gây 175% sát thương Water.',
@@ -25,12 +25,12 @@ const VIETNAMESE_SKILL_DESCRIPTIONS: Record<string, SkillTranslations> = {
   },
   aquanymph: {
     passive: 'Hồi 8% Max HP mỗi lượt cho đồng minh có HP thấp nhất.',
-    skill1: '• Gây 180% sát thương Water, có 20% tỉ lệ gây Frostbite trong 3 lượt.\n• Nếu mục tiêu đã bị Frostbite, gây Silence trong 1 lượt.',
+    skill1: '• Gây 180% sát thương Water, có 20% tỉ lệ gây Frostbite trong 3 lượt, giảm một nửa Mana nhận được.\n• Nếu mục tiêu đã bị Frostbite, gây Silence trong 1 lượt.',
     skill2: '• Hồi 160 HP cho toàn đội.\n• Xóa các hiệu ứng bất lợi khỏi đồng minh.',
   },
   teslarion: { passive: 'Nhận thêm 5 Mana mỗi khi ghép orb Electric.', skill1: 'Tăng 25% ATK cho toàn đội trong 2 vòng.', skill2: 'Phóng luồng năng lượng gây 210% sát thương Electric và Metal diện rộng.' },
-  moltenback: { passive: '• Phản lại 20% sát thương vật lý nhận vào.\n• Sát thương phản lại mang hiệu ứng Burn thuộc hệ Fire.', skill1: 'Phun dung nham đang cháy, gây 150% sát thương Fire.', skill2: 'Trút xỉ nóng chảy và mảnh kim loại xuống, gây 230% sát thương Fire và Steel diện rộng.' },
-  frostmoth: { passive: 'Kỹ năng Water và Wind của đồng minh có 10% tỉ lệ gây Frostbite lên kẻ địch trong 1 lượt, làm giảm 10% ATK.', skill1: 'Rải băng sắc, gây 170% sát thương Wind.', skill2: 'Triệu hồi bão tuyết, gây 180% sát thương Wind diện rộng.' },
+  moltenback: { passive: '• Phản lại 20% sát thương vật lý nhận vào.\n• Đòn phản lại gây Burned trong 1 lượt (5% Max HP và -10% ATK).', skill1: 'Phun dung nham đang cháy, gây 150% sát thương Fire.', skill2: 'Trút xỉ nóng chảy và mảnh kim loại xuống, gây 230% sát thương Fire và Steel diện rộng.' },
+  frostmoth: { passive: 'Kỹ năng Water và Wind của đồng minh có 10% tỉ lệ gây Frostbite lên kẻ địch trong 1 lượt, làm giảm một nửa Mana nhận được.', skill1: 'Rải băng sắc, gây 170% sát thương Wind.', skill2: 'Triệu hồi bão tuyết, gây 180% sát thương Wind diện rộng.' },
   zapwing: { passive: 'Tăng 10% ATK mỗi khi Zapwing nhận sát thương từ đòn đánh hoặc kỹ năng.', skill2: 'Đập cánh tạo nên bão xoáy sấm sét và gió, gây 220% sát thương Electric lên toàn bộ kẻ địch.' },
   zapwing: { skill1: '• Lao vào một mục tiêu bằng chiếc mỏ tích điện, gây 135% sát thương Electric.\n• Có 35% tỉ lệ khiến mục tiêu bị Stun.' },
   vinedra: {

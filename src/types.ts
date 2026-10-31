@@ -7,6 +7,7 @@ export interface StarmonSkill {
   manaCost: number;
   damageMultiplier: number; // e.g. 2.0 = 200%
   targetType: 'single' | 'aoe' | 'self';
+  damageElement?: ElementType;
   statusEffect?: string;
   cooldownTurns?: number;
   effectDetail?: string;
@@ -101,6 +102,12 @@ export interface Starmon {
   battleAttackBuffTurns?: number;
   battleCritChanceBonus?: number;
   battleCritChanceTurns?: number;
+  battleBurnTurns?: number;
+  battlePoisonTurns?: number;
+  battleSilenceTurns?: number;
+  battleFrostbiteTurns?: number;
+  battleAttackDebuffPercent?: number;
+  battleAttackDebuffTurns?: number;
   battleBaseDef?: number;
   berryReserveUsed?: boolean;
 }

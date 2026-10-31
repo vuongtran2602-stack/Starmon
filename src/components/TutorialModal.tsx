@@ -28,7 +28,7 @@ interface Props {
 }
 
 export const TutorialModal: React.FC<Props> = ({ onClose, onStartTutorialMatch, hasClaimedTutorial1Reward = false }) => {
-  const [selectedTutorial, setSelectedTutorial] = React.useState<1 | 'abilities'>(1);
+  const [selectedTutorial, setSelectedTutorial] = React.useState<1 | 2 | 3 | 'abilities'>(1);
   const handleStartMatch = () => {
     sound.playClick();
     if (onStartTutorialMatch) {
@@ -50,7 +50,7 @@ export const TutorialModal: React.FC<Props> = ({ onClose, onStartTutorialMatch, 
             <div className="min-w-0">
               <div className="flex items-center gap-2.5 flex-wrap">
                 <h3 className="text-base md:text-lg font-black font-game text-white tracking-wide">
-                  {selectedTutorial === 1 ? 'TUTORIAL 1: BATTLE BASIC' : 'TUTORIAL 2: ABILITIES & TARGETS'}
+                  {selectedTutorial === 1 ? 'TUTORIAL 1: BATTLE BASIC' : selectedTutorial === 3 ? 'TUTORIAL 3: ELEMENTAL INTERACTIONS' : 'TUTORIAL 2: ABILITIES & TARGETS'}
                 </h3>
                 <button
                   onClick={handleStartMatch}
@@ -61,7 +61,7 @@ export const TutorialModal: React.FC<Props> = ({ onClose, onStartTutorialMatch, 
                 </button>
               </div>
               <p className="text-[11px] text-slate-400 truncate mt-0.5">
-                {selectedTutorial === 1 ? 'Trả lời câu hỏi và ghép ngọc để tấn công kẻ thù.' : 'Đổi mục tiêu, xem Starmon, nhận mana và kích hoạt kỹ năng chủ động.'}
+                {selectedTutorial === 1 ? 'Trả lời câu hỏi và ghép ngọc để tấn công kẻ thù.' : selectedTutorial === 3 ? 'Học Counter, Resistance và tương tác hệ kép.' : 'Đổi mục tiêu, xem Starmon, nhận mana và kích hoạt kỹ năng chủ động.'}
               </p>
             </div>
           </div>
@@ -88,9 +88,21 @@ export const TutorialModal: React.FC<Props> = ({ onClose, onStartTutorialMatch, 
             <button onClick={() => { sound.playClick(); setSelectedTutorial('abilities'); }} className={`p-4 rounded-2xl border-2 text-left transition-all ${selectedTutorial === 'abilities' ? 'border-cyan-400 bg-cyan-950/40 ring-2 ring-cyan-400/20' : 'border-slate-700 bg-slate-950/70 hover:border-slate-500'}`}>
               <div className="font-black font-game text-white">Tutorial 2</div><div className="text-cyan-300 font-bold text-sm">Abilities &amp; Targets</div><p className="text-xs text-slate-400 mt-1">Chọn mục tiêu, xem Starmon, ghép orb lấy mana và dùng kỹ năng.</p>
             </button>
+            <button onClick={() => { sound.playClick(); setSelectedTutorial(3); }} className={`p-4 rounded-2xl border-2 text-left transition-all ${selectedTutorial === 3 ? 'border-emerald-400 bg-emerald-950/40 ring-2 ring-emerald-400/20' : 'border-slate-700 bg-slate-950/70 hover:border-slate-500'}`}>
+              <div className="font-black font-game text-white">Tutorial 3</div><div className="text-emerald-300 font-bold text-sm">Elemental Interactions</div><p className="text-xs text-slate-400 mt-1">Counter +10%, Resistance −10% và mục tiêu hai hệ.</p>
+            </button>
           </div>
           {selectedTutorial === 2 ? null : null}
-          {selectedTutorial === 'abilities' ? (
+          {selectedTutorial === 3 ? (
+            <div className="p-4 rounded-2xl bg-emerald-950/30 border border-emerald-500/40 space-y-2 text-xs text-emerald-100">
+              <strong className="text-emerald-300">Nội dung hướng dẫn:</strong>
+              <p>Water → Fire → Metal → Wind → Earth → Electric → Water.</p>
+              <p>Counter tăng 10% sát thương; Resistance giảm 10%. Ghép Water orb tạo đòn Water cho mọi Starmon, bất kể hệ người dùng.</p>
+              <p>Bạn sẽ dùng một Starmon Water: ghép Water orb đánh Fire Target, rồi ghép Water orb đánh Glidron để thấy Resistance từ hệ Electric. Same-element bonus của Water Starmon sẽ hiển thị riêng.</p>
+              <p>Nếu mục tiêu hai hệ vừa kháng vừa yếu trước nguyên tố đòn đánh, hai hiệu ứng triệt tiêu: sát thương trung tính.</p>
+              <p>Ví dụ: Earth gây sát thương trung tính lên Wind/Electric vì Wind kháng Earth nhưng Electric lại yếu trước Earth.</p>
+            </div>
+          ) : selectedTutorial === 'abilities' ? (
             <div className="p-4 rounded-2xl bg-cyan-950/30 border border-cyan-500/40 space-y-3">
               <div className="text-xs md:text-sm text-cyan-100"><strong className="text-cyan-300">Mục tiêu:</strong> Học bằng thao tác trực tiếp với pointer hướng dẫn từng bước.</div>
               <div className="grid gap-2 text-xs text-slate-300">
@@ -209,7 +221,7 @@ export const TutorialModal: React.FC<Props> = ({ onClose, onStartTutorialMatch, 
         {/* Footer Action */}
         <div className="flex items-center justify-between border-t border-slate-800 px-5 py-4 bg-slate-950/90 shrink-0 gap-3">
           <div className="text-xs text-slate-400 font-mono">
-            {selectedTutorial === 1 ? 'Battle Basic · Trận hướng dẫn riêng' : 'Abilities & Targets · Trận hướng dẫn tương tác'}
+            {selectedTutorial === 1 ? 'Battle Basic · Trận hướng dẫn riêng' : selectedTutorial === 3 ? 'Elemental Interactions · Trận hướng dẫn riêng' : 'Abilities & Targets · Trận hướng dẫn tương tác'}
           </div>
 
           <button

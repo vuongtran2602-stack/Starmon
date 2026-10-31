@@ -48,9 +48,9 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     id: 'pumpyre', name: 'Pumpyre', title: 'The Ember Scarecrow', element: 'Fire', role: 'DPS',
     level: 1, cards: 0, baseAtk: 72, maxHp: 420, def: 24, currentHp: 420, currentMana: 20, maxMana: 200,
     avatarSeed: 'pumpyre', unlocked: false,
-    passive: { name: 'Trick or Treat', description: 'Whenever Pumpyre uses an active skill, has a 20% chance to inflict a random Burned, Poison, Silent, or Frostbite condition on targets, or randomly increase its HP, ATK, or DEF by 10%.', tag: 'Trick or Treat' },
-    skill1: { id: 'flaming_decoy', name: 'Flaming Decoy', description: 'Summons a scarecrow Decoy with HP equal to 40% of Max HP. It absorbs incoming attacks for 1 turn and has a 10% chance to Burn attackers.', manaCost: 40, damageMultiplier: 0, targetType: 'self', statusEffect: 'Decoy (40% Max HP, 1 turn)' },
-    skill2: { id: 'pumpkin_bomb', name: 'Pumpkin Bomb', description: 'Deals 165% Fire DMG to all enemies with a 10% chance to inflict Burned.', manaCost: 60, damageMultiplier: 1.65, targetType: 'aoe', statusEffect: '10% Burned' },
+    passive: { name: 'Trick or Treat', description: 'Whenever Pumpyre uses an active skill, has a 20% chance to inflict a random Burned, Poison, Silence, or Frostbite condition for 1 turn, or randomly increase its HP, ATK, or DEF by 10%. Burned lowers ATK by 10%; Frostbite halves Mana gained.', tag: 'Trick or Treat' },
+    skill1: { id: 'flaming_decoy', name: 'Flaming Decoy', description: 'Summons a scarecrow Decoy with HP equal to 40% of Max HP. It absorbs incoming attacks for 1 turn and has a 10% chance to Burn attackers for 1 turn (-10% ATK).', manaCost: 40, damageMultiplier: 0, targetType: 'self', statusEffect: 'Decoy (40% Max HP, 1 turn)' },
+    skill2: { id: 'pumpkin_bomb', name: 'Pumpkin Bomb', description: 'Deals 165% Fire DMG to all enemies with a 10% chance to inflict Burned for 1 turn (-10% ATK).', manaCost: 60, damageMultiplier: 1.65, targetType: 'aoe', statusEffect: '10% Burned' },
   },
   {
     id: 'whiskerteer', name: 'Whiskerteer', title: 'The Rose-Bladed Musketeer', element: 'Earth', role: 'DPS',
@@ -127,7 +127,7 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     unlocked: false,
     passive: {
       name: 'Wildfire',
-      description: 'Attacks have a 35% chance to ignite enemies with Burn, dealing damage each round.',
+      description: 'Attacks and Active Skills have a 35% chance to inflict Burned for 1 turn. Burned lowers ATK by 10% and deals damage at the end of the target’s turn.',
       tag: 'Burn DoT',
     },
     skill1: {
@@ -146,7 +146,7 @@ const RAW_STARMON_ROSTER: Starmon[] = [
       manaCost: 60,
       damageMultiplier: 1.8,
       targetType: 'aoe',
-      statusEffect: 'AoE Burn',
+      statusEffect: 'Burned (1 turn)',
     },
   },
   {
@@ -181,11 +181,11 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     skill2: {
       id: 'magma_impact',
       name: 'Magma Impact',
-      description: '• Slams molten magma onto the foe, dealing 240% Fire DMG.\n• Guarantees Burn (30%).',
+      description: '• Slams molten magma onto the foe, dealing 240% Fire DMG.\n• Has a 30% chance to inflict Burned for 1 turn (-10% ATK).',
       manaCost: 55,
       damageMultiplier: 2.4,
       targetType: 'single',
-      statusEffect: 'Magma Burn',
+      statusEffect: 'Burned (30%, 1 turn)',
     },
   },
   {
@@ -252,11 +252,11 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     skill1: {
       id: 'plasma_ray',
       name: 'Plasma Ray',
-      description: '• Fires a concentrated beam of static electricity, dealing 180% DMG.\n• Applies Silence to the target.',
+      description: '• Fires a concentrated beam of static electricity, dealing 180% DMG.\n• Applies Silence to the target for 1 turn.',
       manaCost: 55,
       damageMultiplier: 1.8,
       targetType: 'single',
-      statusEffect: 'Silence',
+      statusEffect: 'Silence (1 turn)',
     },
     skill2: {
       id: 'gigawatt_explosion',
@@ -413,7 +413,7 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     skill1: {
       id: 'hydro_cyclone',
       name: 'Hydro Cyclone',
-      description: '• Deals 180% Water DMG and has a 20% chance to inflict Frostbite for 3 turns.\n• If the target already has Frostbite, Silences it for 1 turn.',
+      description: '• Deals 180% Water DMG and has a 20% chance to inflict Frostbite for 3 turns, halving Mana gained.\n• If the target already has Frostbite, Silences it for 1 turn.',
       manaCost: 40,
       damageMultiplier: 1.8,
       targetType: 'single',
@@ -488,7 +488,7 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     unlocked: false,
     passive: {
       name: 'Magma Shell',
-      description: '• Reflects 20% of incoming physical damage.\n• The reflected damage is dealt as Fire Burn.',
+      description: '• Reflects 20% of incoming physical damage.\n• The reflected damage inflicts Burned for 1 turn (5% Max HP damage and -10% ATK).',
       tag: 'Thorns',
     },
     skill1: {
@@ -527,7 +527,7 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     unlocked: false,
     passive: {
       name: 'Absolute Zero',
-      description: "Allies' Water and Wind skills have a 10% chance to give Frostbite (Reduce their Attack by 10%) to the enemies for 1 turn.",
+      description: "Allies' Water and Wind skills have a 10% chance to inflict Frostbite on enemies for 1 turn, halving the Mana they gain.",
       tag: 'Frostbite',
     },
     skill1: {
@@ -621,11 +621,11 @@ const RAW_STARMON_ROSTER: Starmon[] = [
     skill2: {
       id: 'poisonous_burst',
       name: 'Poisonous Burst',
-      description: '• Deals 85% Earth DMG to all enemies.\n• Has a 35% chance to Poison each enemy.',
+      description: '• Deals 85% Earth DMG to all enemies.\n• Has a 35% chance to Poison each enemy for 2 turns.',
       manaCost: 45,
       damageMultiplier: 0.85,
       targetType: 'aoe',
-      statusEffect: 'AoE Toxic Spore',
+      statusEffect: 'AoE Poison (35%, 2 turns)',
     },
   },
   {
@@ -1075,15 +1075,29 @@ export function getGoldNeededForLevel(level: number): number {
 }
 
 // Elemental Wheel:
-// Water -> Fire -> Metal -> Earth -> Wind -> Electric -> Water
+// Water -> Fire -> Metal -> Wind -> Earth -> Electric -> Water
 export const ELEMENT_COUNTERS: Record<ElementType, ElementType> = {
   Water: 'Fire',
   Fire: 'Metal',
-  Metal: 'Earth',
-  Earth: 'Wind',
-  Wind: 'Electric',
+  Metal: 'Wind',
+  Wind: 'Earth',
+  Earth: 'Electric',
   Electric: 'Water',
 };
+
+/** Net damage modifier for an attack element against one or more target elements.
+ * A counter adds 10%; resistance subtracts 10%. Dual-element effects stack,
+ * so one counter plus one resistance is neutral.
+ */
+export const getElementalInteractionBonus = (
+  attackElement: ElementType,
+  targetElements: Array<ElementType | undefined>
+): number => targetElements.reduce((bonus, targetElement) => {
+  if (!targetElement) return bonus;
+  if (ELEMENT_COUNTERS[attackElement] === targetElement) return bonus + 0.1;
+  if (ELEMENT_COUNTERS[targetElement] === attackElement) return bonus - 0.1;
+  return bonus;
+}, 0);
 
 export const ELEMENT_COLORS: Record<ElementType, { bg: string; border: string; text: string; lightBg: string; glow: string; orbIcon: string }> = {
   Fire: {

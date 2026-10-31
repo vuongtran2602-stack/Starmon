@@ -29,6 +29,7 @@ import manta1Img from '../assets/images/manta1.png';
 import pumpyreImg from '../assets/images/pumpyre.jpeg';
 import whiskerteerImg from '../assets/images/whiskerteer.jpeg';
 import seaponiImg from '../assets/images/seaponi.jpeg';
+import teslarionImg from '../assets/images/teslarion.png';
 import {
   AQUANYMPH_DA_PHUC_IMAGE,
   CYBORGNID_IMAGE,
@@ -62,6 +63,7 @@ export const StarmonAsset: React.FC<StarmonAssetProps> = ({
   if (normId === 'aquanymph' && isDaPhucVersion) {
     normId = 'aquanymphdaphuc';
   }
+  const forceUpdatedLocalArt = ['teslarion', 'aquanymph', 'aquanymphdaphuc', 'aquanymphdp', 'daphuc', 'pyrokit', 'obsidus'].includes(normId);
 
   // Keep Ignisaur, Coralus, and Voltlynx at 100% scale, reduce all other Starmons by 20% (scale 0.8)
   const isPreserved = ['ignisaur', 'coralus', 'voltlynx'].includes(normId);
@@ -83,7 +85,7 @@ export const StarmonAsset: React.FC<StarmonAssetProps> = ({
         className="w-full h-full flex items-center justify-center transition-transform"
         style={isPreserved ? undefined : { transform: 'scale(0.8)', transformOrigin: 'center' }}
       >
-        {customSrc ? (
+        {customSrc && !forceUpdatedLocalArt ? (
           <img
             src={customSrc}
             alt={id}
@@ -340,21 +342,8 @@ function renderGraphic(id: string) {
       return <img src={seaponiImg} alt="Seaponi" className="w-full h-full object-contain drop-shadow-md select-none pointer-events-none" />;
 
     case 'teslarion':
-      // Pulse Robot
       return (
-        <svg viewBox="0 0 240 220" className="w-full h-full drop-shadow-md select-none pointer-events-none">
-          <ellipse cx="120" cy="190" rx="36" ry="10" fill="none" stroke="#22d3ee" strokeWidth="3" opacity="0.8" />
-          <ellipse cx="120" cy="180" rx="26" ry="7" fill="none" stroke="#22d3ee" strokeWidth="2.5" opacity="0.9" />
-          <circle cx="120" cy="140" r="32" fill="#f8fafc" stroke="#64748b" strokeWidth="3" />
-          <ellipse cx="120" cy="148" rx="20" ry="12" fill="#99f6e4" />
-          <rect x="75" y="55" width="90" height="70" rx="28" fill="#f8fafc" stroke="#64748b" strokeWidth="3.5" />
-          <rect x="85" y="65" width="70" height="50" rx="20" fill="#0284c7" />
-          <path d="M 98 84 L 104 78 L 110 84" stroke="#67e8f9" strokeWidth="3.5" strokeLinecap="round" fill="none" />
-          <path d="M 130 84 L 136 78 L 142 84" stroke="#67e8f9" strokeWidth="3.5" strokeLinecap="round" fill="none" />
-          <path d="M 114 98 Q 120 104 126 98" stroke="#67e8f9" strokeWidth="3.5" strokeLinecap="round" fill="none" />
-          <circle cx="85" cy="45" r="7" fill="#22d3ee" stroke="#0891b2" strokeWidth="2" />
-          <circle cx="155" cy="45" r="7" fill="#22d3ee" stroke="#0891b2" strokeWidth="2" />
-        </svg>
+        <img src={teslarionImg} alt="Teslarion" className="w-full h-full object-contain drop-shadow-md select-none pointer-events-none" />
       );
 
     default:
