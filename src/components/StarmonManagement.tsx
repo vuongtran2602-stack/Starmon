@@ -225,7 +225,7 @@ export const StarmonManagement: React.FC<Props> = ({
       return e === elementFilter;
     };
     return matchTarget(s.element) || matchTarget(s.secondaryElement);
-  });
+  }).sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }) || a.id.localeCompare(b.id));
 
   return (
     <div className="fixed inset-0 z-40 bg-slate-950 flex flex-col text-slate-100 overflow-hidden select-none">
