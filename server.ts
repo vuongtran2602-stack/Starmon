@@ -37,6 +37,9 @@ app.use((req, res, next) => {
 const ROOMS_STORE_FILE = path.resolve(__dirname, 'pvp_rooms_store.json');
 // Persistent User Accounts store file
 const ACCOUNTS_STORE_FILE = path.resolve(__dirname, 'server_accounts_store.json');
+// PvP credentials are kept separately from player save data. This keeps local
+// development accounts and login sessions available after a server restart.
+const PVP_AUTH_STORE_FILE = path.resolve(__dirname, 'pvp_auth_store.json');
 const supabaseUrl = process.env.SUPABASE_URL || 'https://jymjumdypgunipgjkjak.supabase.co';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
 const serverSupabase = supabaseServiceKey ? createClient(supabaseUrl, supabaseServiceKey, {
@@ -57,6 +60,28 @@ const localPvpAuthAccounts = new Map<string, PvpAuthAccount>([
   ['a', { username: 'A', password_salt: 'ba26831d9bce2b8746187f316563077c', password_hash: 'b1119cd9ebfb47b2110dd523f3a46eab3a63ffbe936007d584267964b6d3f9028b7cacb461f613ee7bef77b96d0759935177819270380b5e5b8bb53d063f1367', active_device_id: null, active_session_hash: null }],
   ['b', { username: 'B', password_salt: 'c484aa35ed0278e0f4510925b4341ab0', password_hash: '3c97daf2ca296cff23838f73c170cb9bb6fe175b99eb671aa5cfb2c30c7347af3aee594ac65522fbd050fdeb0eded96c3a11682f3f04dca3fc873e4bacf99d82', active_device_id: null, active_session_hash: null }],
 ]);
+
+try {
+  if (fs.existsSync(PVP_AUTH_STORE_FILE)) {
+    const stored = JSON.parse(fs.readFileSync(PVP_AUTH_STORE_FILE, 'utf8')) as PvpAuthAccount[];
+    for (const account of stored) {
+      if (account?.username && account.password_salt && account.password_hash) {
+        localPvpAuthAccounts.set(account.username.toLowerCase(), account);
+      }
+    }
+  }
+} catch (error) {
+  console.warn('Could not load local PvP auth store:', error);
+}
+
+function persistLocalPvpAuthAccounts(): void {
+  if (serverSupabase) return;
+  try {
+    fs.writeFileSync(PVP_AUTH_STORE_FILE, JSON.stringify([...localPvpAuthAccounts.values()], null, 2), 'utf8');
+  } catch (error) {
+    console.error('Could not persist local PvP auth store:', error);
+  }
+}
 
 function hashPvpSession(token: string): string {
   return createHash('sha256').update(token).digest('hex');
@@ -3937,28 +3962,31 @@ wss.on('connection', (ws) => {
 app.post('/api/pvp-auth/register', async (req, res) => {
   const username = String(req.body?.username || '').trim();
   const password = String(req.body?.password || '');
-  if (!/^[a-zA-Z0-9_]{3,24}$/.test(username) || password.length < 8 || password.length > 256) {
+  const deviceId = String(req.body?.device_id || '');
+  if (!/^[a-zA-Z0-9_]{3,24}$/.test(username) || password.length < 8 || password.length > 256 || !deviceId || deviceId.length > 128) {
     return res.status(400).json({ error: 'Tên đăng nhập phải dài 3–24 ký tự; mật khẩu tối thiểu 8 ký tự.' });
   }
   const key = username.toLowerCase();
   const salt = randomBytes(16).toString('hex');
+  const token = randomBytes(32).toString('hex');
   const account: PvpAuthAccount = {
     username: key,
     password_salt: salt,
     password_hash: scryptSync(password, salt, 64).toString('hex'),
-    active_device_id: null,
-    active_session_hash: null,
+    active_device_id: deviceId,
+    active_session_hash: hashPvpSession(token),
   };
   try {
     if (!serverSupabase) {
       if (localPvpAuthAccounts.has(key)) return res.status(409).json({ error: 'Tên đăng nhập đã tồn tại.' });
       localPvpAuthAccounts.set(key, account);
+      persistLocalPvpAuthAccounts();
     } else {
       const { error } = await serverSupabase.from('pvp_auth_accounts').insert(account);
       if (error?.code === '23505') return res.status(409).json({ error: 'Tên đăng nhập đã tồn tại.' });
       if (error) throw error;
     }
-    return res.status(201).json({ username: account.username });
+    return res.status(201).json({ username: account.username, sessionToken: token, deviceId });
   } catch (error) {
     console.error('PvP account registration failed:', error);
     return res.status(503).json({ error: 'Không thể tạo tài khoản PvP lúc này.' });
@@ -3985,6 +4013,7 @@ app.post('/api/pvp-auth/login', async (req, res) => {
     if (!serverSupabase) {
       account.active_device_id = deviceId;
       account.active_session_hash = sessionHash;
+      persistLocalPvpAuthAccounts();
     } else {
       // Atomic claim: one device can own this username at a time.
       const { data: claimed, error: claimError } = await serverSupabase
@@ -4032,6 +4061,7 @@ app.post('/api/pvp-auth/logout', async (req, res) => {
       if (account?.active_device_id === deviceId && account.active_session_hash === hashPvpSession(token)) {
         account.active_device_id = null;
         account.active_session_hash = null;
+        persistLocalPvpAuthAccounts();
       }
     } else {
       const { error } = await serverSupabase.from('pvp_auth_accounts')

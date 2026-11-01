@@ -94,10 +94,19 @@ export const PvpLobbyModal: React.FC<Props> = ({
     }
   });
 
+  const savePvpAuthSession = (session: PvpAuthSession) => {
+    localStorage.setItem('starmon_pvp_auth_session', JSON.stringify(session));
+    // Migrate and clean up the former tab-only session key.
+    sessionStorage.removeItem('starmon_pvp_auth_session');
+  };
+
   useEffect(() => {
     let saved: PvpAuthSession | null = null;
     try {
-      saved = JSON.parse(sessionStorage.getItem('starmon_pvp_auth_session') || 'null');
+      const persistent = localStorage.getItem('starmon_pvp_auth_session');
+      const legacy = sessionStorage.getItem('starmon_pvp_auth_session');
+      saved = JSON.parse(persistent || legacy || 'null');
+      if (saved && !persistent) savePvpAuthSession(saved);
     } catch {}
     if (!saved) {
       setAuthChecked(true);
@@ -114,6 +123,7 @@ export const PvpLobbyModal: React.FC<Props> = ({
       setActiveGoogleId(session.username);
       setActiveGoogleName(session.username);
     }).catch((error: any) => {
+      localStorage.removeItem('starmon_pvp_auth_session');
       sessionStorage.removeItem('starmon_pvp_auth_session');
       setAuthError(error?.message || 'Không thể xác minh phiên đăng nhập.');
     }).finally(() => setAuthChecked(true));
@@ -131,17 +141,15 @@ export const PvpLobbyModal: React.FC<Props> = ({
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Không thể đăng nhập PvP.');
-      if (authMode === 'register') {
-        setAuthMode('login');
-        setAuthPasswordInput('');
-        setAuthSuccess('Tạo tài khoản thành công, Hãy ấn đăng nhập để tiếp tục.');
-        return;
-      }
       const session: PvpAuthSession = { username: data.username, deviceId: data.deviceId, sessionToken: data.sessionToken };
-      sessionStorage.setItem('starmon_pvp_auth_session', JSON.stringify(session));
+      if (!session.username || !session.deviceId || !session.sessionToken) {
+        throw new Error('Máy chủ chưa cấp phiên đăng nhập hợp lệ. Hãy cập nhật máy chủ rồi thử lại.');
+      }
+      savePvpAuthSession(session);
       setPvpAuth(session);
       setActiveGoogleId(session.username);
       setActiveGoogleName(session.username);
+      setAuthSuccess(authMode === 'register' ? 'Tạo tài khoản và đăng nhập thành công.' : 'Đăng nhập thành công.');
       setAuthPasswordInput('');
       onUpdateGoogleAccount?.(session.username);
     } catch (error: any) {
@@ -171,6 +179,7 @@ export const PvpLobbyModal: React.FC<Props> = ({
         body: JSON.stringify({ username: pvpAuth.username, device_id: pvpAuth.deviceId, session_token: pvpAuth.sessionToken }),
       });
     } finally {
+      localStorage.removeItem('starmon_pvp_auth_session');
       sessionStorage.removeItem('starmon_pvp_auth_session');
       setPvpAuth(null);
       setCurrentRoom(null);
@@ -628,7 +637,13 @@ export const PvpLobbyModal: React.FC<Props> = ({
         ? await res.json()
         : null;
       if (!res.ok) {
-        throw new Error(responseBody?.error || `Server trả về lỗi ${res.status}.`);
+        const detail = responseBody?.error || `Server trả về lỗi ${res.status}.`;
+        if (res.status === 401) {
+          localStorage.removeItem('starmon_pvp_auth_session');
+          setPvpAuth(null);
+          setAuthError('Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại rồi tạo phòng.');
+        }
+        throw new Error(detail);
       }
       if (!responseBody?.room_code) {
         throw new Error('Server không phản hồi dữ liệu phòng hợp lệ. Hãy mở game qua server đầy đủ, không dùng Vite frontend độc lập.');
