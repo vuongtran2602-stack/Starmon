@@ -406,6 +406,7 @@ export const BattleView: React.FC<Props> = ({
   const pvpQuizAnswersRef = useRef<boolean[]>([]);
   const pvpQuestionScoresRef = useRef<(number | null)[]>([null, null, null]);
   const pvpQuestionTypesRef = useRef<('mcq' | 'speaking' | null)[]>([null, null, null]);
+  const speakingEvaluationQueueRef = useRef<Promise<void>>(Promise.resolve());
   const boardVersionRef = useRef<number>(0);
 
   // 5. Client — map slot sang trái/phải chỉ để hiển thị
@@ -2149,6 +2150,7 @@ export const BattleView: React.FC<Props> = ({
   // 3-Question background evaluation and multi-tab scorecard states
   const [ieltsResultsMap, setIeltsResultsMap] = useState<Record<number, IeltsAiEvaluationResult | null>>({});
   const [evaluatingMap, setEvaluatingMap] = useState<Record<number, boolean>>({});
+  const [queuedEvaluationMap, setQueuedEvaluationMap] = useState<Record<number, boolean>>({});
   const [questionTranscripts, setQuestionTranscripts] = useState<Record<number, string>>({});
   const [showAllQuestionsReport, setShowAllQuestionsReport] = useState<boolean>(false);
   const [selectedReportTab, setSelectedReportTab] = useState<number>(0);
@@ -2264,7 +2266,8 @@ export const BattleView: React.FC<Props> = ({
     return typeof gradedResult === 'boolean' ? gradedResult : false;
   };
 
-  // 120s countdown timer for Phase 1 and opponent wait.
+  // 120s countdown timer for Phase 1 and opponent wait. AI grading runs in the
+  // background and must not interrupt the player's speaking time.
   useEffect(() => {
     if (phase !== 'phase1_quiz') {
       phase1TimeoutHandledKeyRef.current = null;
@@ -2751,13 +2754,15 @@ export const BattleView: React.FC<Props> = ({
     }
   };
 
-  // Submit candidate response, trigger background AI analysis, and IMMEDIATELY advance to next question
+  // Queue AI evaluations in question order while letting the player continue
+  // speaking and submitting later answers without waiting for the grader.
   const submitSpeakingResponseAndAdvance = (transcriptInput: string, responseSource: 'spoken' | 'sample' = 'spoken') => {
     const textToAnalyze = responseSource === 'spoken'
       ? normalizeRecognizedSpeech(transcriptInput)
       : transcriptInput.trim();
     const targetIndex = activeQuestionIndex;
     const targetQuestion = currentQ;
+    if (answeredState[targetIndex] !== undefined || evaluatingMap[targetIndex]) return;
 
     // Compute speech telemetry
     const durationSeconds = Math.max(1, Math.round((Date.now() - (recordingStartTimeRef.current || Date.now())) / 1000));
@@ -2783,13 +2788,21 @@ export const BattleView: React.FC<Props> = ({
     setQuestionTranscripts(prev => ({ ...prev, [targetIndex]: textToAnalyze }));
     setAnsweredState(prev => ({ ...prev, [targetIndex]: true }));
 
-    // Start background asynchronous AI evaluation for this question (non-blocking)
-    startBackgroundEvaluation(targetIndex, targetQuestion, textToAnalyze, {
-      stutters,
-      hesitations,
-      pauses,
-      durationSeconds,
-    }, responseSource);
+    setQueuedEvaluationMap(prev => ({ ...prev, [targetIndex]: true }));
+    const evaluationTask = speakingEvaluationQueueRef.current.then(async () => {
+      setQueuedEvaluationMap(prev => ({ ...prev, [targetIndex]: false }));
+      await startBackgroundEvaluation(targetIndex, targetQuestion, textToAnalyze, {
+        stutters,
+        hesitations,
+        pauses,
+        durationSeconds,
+      }, responseSource);
+    }).catch(error => {
+      console.error(`Could not finish evaluation for Question ${targetIndex + 1}:`, error);
+      setEvaluatingMap(prev => ({ ...prev, [targetIndex]: false }));
+      setQueuedEvaluationMap(prev => ({ ...prev, [targetIndex]: false }));
+    });
+    speakingEvaluationQueueRef.current = evaluationTask.then(() => undefined, () => undefined);
 
     setSpokenTranscript('');
     setRecordingErrorNotice('');
@@ -2809,12 +2822,9 @@ export const BattleView: React.FC<Props> = ({
       return;
     }
 
-    // IMMEDIATE ADVANCE TO NEXT QUESTION:
     if (targetIndex < currentQuizSet.length - 1) {
       sound.playClick();
       setActiveQuestionIndex(targetIndex + 1);
-      setBackgroundNotice(`⚡ AI đang chấm Câu ${targetIndex + 1} trong nền. Bạn có thể trả lời Câu ${targetIndex + 2} ngay bây giờ!`);
-      setTimeout(() => setBackgroundNotice(''), 4500);
     } else {
       // Completed the current question set.
       setShowAllQuestionsReport(true);
@@ -3099,6 +3109,7 @@ export const BattleView: React.FC<Props> = ({
 
   // Confirm and proceed from 3-tab report to Phase 2 combat
   const handleConfirmAllSpeakingQuestions = () => {
+    if (Object.values(evaluatingMap).some(Boolean) || Object.values(queuedEvaluationMap).some(Boolean)) return;
     sound.playClick();
     setShowAllQuestionsReport(false);
     setIeltsAiResult(null);
@@ -8167,11 +8178,11 @@ export const BattleView: React.FC<Props> = ({
               )}
 
               {/* Background Status Indicator when evaluating questions */}
-              {Object.values(evaluatingMap).some(Boolean) && !backgroundNotice && (
+              {(Object.values(evaluatingMap).some(Boolean) || Object.values(queuedEvaluationMap).some(Boolean)) && !backgroundNotice && (
                 <div className="flex items-center gap-2 mt-2 px-3 py-1.5 rounded-xl bg-amber-950/60 border border-amber-500/40 text-xs font-bold text-amber-300 animate-pulse">
                   <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                   <span>
-                    AI đang phân tích {Object.entries(evaluatingMap).filter(([_, v]) => v).map(([k]) => `Câu ${Number(k) + 1}`).join(', ')} trong nền...
+                    AI đang chấm lần lượt {currentQuizSet.map((_, idx) => idx).filter(idx => evaluatingMap[idx] || queuedEvaluationMap[idx]).map(idx => `Câu ${idx + 1}`).join(' → ')} trong nền...
                   </span>
                 </div>
               )}
@@ -8230,6 +8241,7 @@ export const BattleView: React.FC<Props> = ({
               {currentQuizSet.map((q, idx) => {
                 const isSelected = selectedReportTab === idx;
                 const isEvaluating = evaluatingMap[idx];
+                const isQueued = queuedEvaluationMap[idx];
                 const res = ieltsResultsMap[idx];
                 const score = res?.overall_score ?? res?.overallBand;
                 const isPassed = score !== undefined && score >= requiredSpeakingBand;
@@ -8250,10 +8262,12 @@ export const BattleView: React.FC<Props> = ({
                   >
                     <div className="flex items-center gap-1.5">
                       <span>CÂU {idx + 1}</span>
-                      {isEvaluating && <RefreshCw className="w-3 h-3 animate-spin text-amber-500" />}
+                      {(isEvaluating || isQueued) && <RefreshCw className="w-3 h-3 animate-spin text-amber-500" />}
                     </div>
                     <div className="text-[10px] font-mono mt-0.5">
-                      {isEvaluating ? (
+                      {isQueued ? (
+                        <span className="text-amber-500 font-bold">Chờ câu trước...</span>
+                      ) : isEvaluating ? (
                         <span className="text-amber-500 font-bold">Đang phân tích...</span>
                       ) : score !== undefined ? (
                         <span className={isPassed ? 'text-emerald-500 font-bold' : 'text-rose-500 font-bold'}>
@@ -8273,17 +8287,18 @@ export const BattleView: React.FC<Props> = ({
               const activeQ = currentQuizSet[selectedReportTab] || currentQuizSet[0];
               const activeRes = ieltsResultsMap[selectedReportTab] || ieltsAiResult;
               const isEvaluating = evaluatingMap[selectedReportTab];
+              const isQueued = queuedEvaluationMap[selectedReportTab];
               const activeTranscript = questionTranscripts[selectedReportTab] || activeRes?.transcript || '';
 
-              if (isEvaluating) {
+              if (isEvaluating || isQueued) {
                 return (
                   <div className="p-8 rounded-2xl bg-slate-950/80 border border-amber-400/50 flex flex-col items-center justify-center text-center gap-3 my-2">
                     <RefreshCw className="w-8 h-8 text-amber-400 animate-spin" />
                     <h4 className="text-base font-black font-game text-amber-300">
-                      GIÁM KHẢO AI ĐANG PHÂN TÍCH CÂU {selectedReportTab + 1}...
+                      {isQueued ? `CÂU ${selectedReportTab + 1} ĐANG CHỜ AI CHẤM CÂU TRƯỚC...` : `GIÁM KHẢO AI ĐANG PHÂN TÍCH CÂU ${selectedReportTab + 1}...`}
                     </h4>
                     <p className="text-xs text-slate-300 max-w-md leading-relaxed">
-                      Đang đánh giá độ trôi chảy (ngắt nghỉ, vấp, khoảng dừng), chấm ngữ pháp chính xác (khung 6.5 - 7.5), và rà soát phát âm cụ thể theo chuẩn IPA.
+                      {isQueued ? 'Bài nói này sẽ được chấm ngay sau khi AI hoàn tất các câu đã nộp trước đó.' : 'Đang đánh giá độ trôi chảy (ngắt nghỉ, vấp, khoảng dừng), chấm ngữ pháp chính xác (khung 6.5 - 7.5), và rà soát phát âm cụ thể theo chuẩn IPA.'}
                     </p>
                     {activeTranscript && (
                       <div className="mt-2 p-3 bg-slate-900 rounded-xl border border-slate-800 text-left text-xs italic text-slate-200 max-w-lg w-full">
@@ -8535,10 +8550,13 @@ export const BattleView: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={handleConfirmAllSpeakingQuestions}
-                className="w-full py-3 bg-gradient-to-r from-amber-400 to-yellow-400 font-black font-game text-slate-950 rounded-xl shadow-xl hover:from-amber-300 hover:to-yellow-300 cursor-pointer active:scale-95 flex items-center justify-center gap-2 text-sm md:text-base"
+                disabled={Object.values(evaluatingMap).some(Boolean) || Object.values(queuedEvaluationMap).some(Boolean)}
+                className="w-full py-3 bg-gradient-to-r from-amber-400 to-yellow-400 font-black font-game text-slate-950 rounded-xl shadow-xl hover:from-amber-300 hover:to-yellow-300 cursor-pointer active:scale-95 disabled:opacity-50 disabled:cursor-wait flex items-center justify-center gap-2 text-sm md:text-base"
               >
                 <span>
-                  {isPvP
+                  {Object.values(evaluatingMap).some(Boolean) || Object.values(queuedEvaluationMap).some(Boolean)
+                    ? 'ĐANG CHỜ AI CHẤM XONG CÁC CÂU...'
+                    : isPvP
                     ? `XÁC NHẬN BÁO CÁO & CHỜ ĐỐI THỦ VÀO TRANH ĐẤU (${questionTimer}s)`
                     : 'XÁC NHẬN BÁO CÁO & BƯỚC VÀO CHIẾN ĐẤU MATCH-3 (PHASE 2)'}
                 </span>
