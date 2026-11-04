@@ -771,6 +771,9 @@ interface StarmonCombatant {
   battleTauntTurns?: number;
   battleDamageReduction?: number;
   battleDamageReductionTurns?: number;
+  battleAoeDamageReduction?: number;
+  battleAoeDamageReductionTurns?: number;
+  battleStunTurns?: number;
   battleDefenseBuffAmount?: number;
   battleDefenseBuffTurns?: number;
   berryReserveUsed?: boolean;
@@ -1500,6 +1503,9 @@ function createDefaultStarmonsForSlot(slot: 1 | 2, inputStarmons?: any[]): Starm
       battleTauntTurns: 0,
       battleDamageReduction: 0,
       battleDamageReductionTurns: 0,
+      battleAoeDamageReduction: 0,
+      battleAoeDamageReductionTurns: 0,
+      battleStunTurns: input?.battleStunTurns || 0,
       battleDefenseBuffAmount: 0,
       battleDefenseBuffTurns: 0,
       berryReserveUsed: false,
@@ -1852,6 +1858,10 @@ function startTurn(state: PvpMatchState, roomCode: string, n: number) {
       if ((starmon.battleDamageReductionTurns || 0) > 0) {
         starmon.battleDamageReductionTurns = Math.max(0, (starmon.battleDamageReductionTurns || 0) - 1);
         if (starmon.battleDamageReductionTurns === 0) starmon.battleDamageReduction = 0;
+      }
+      if ((starmon.battleAoeDamageReductionTurns || 0) > 0) {
+        starmon.battleAoeDamageReductionTurns = Math.max(0, (starmon.battleAoeDamageReductionTurns || 0) - 1);
+        if (starmon.battleAoeDamageReductionTurns === 0) starmon.battleAoeDamageReduction = 0;
       }
       if ((starmon.battleDefenseBuffTurns || 0) > 0) {
         starmon.battleDefenseBuffTurns = Math.max(0, (starmon.battleDefenseBuffTurns || 0) - 1);
@@ -2508,7 +2518,7 @@ function calcAbilityDamage(
   payload?: any
 ): number {
   if (ability.id === 'shield_bash') {
-    return Math.max(0, Math.round((starmon.def || starmon.baseDef || 0) * 0.5));
+    return Math.max(0, Math.round((starmon.def || starmon.baseDef || 0) * 0.65));
   }
   if (payload && typeof payload.damage === 'number' && payload.damage >= 0) {
     return payload.damage;
@@ -2582,6 +2592,40 @@ function onStarmonAction(
 
   if (attacker.results[starmonIndex] !== true) {
     return reject('starmon không được phép tấn công');
+  }
+
+  if ((starmon.battleStunTurns || 0) > 0) {
+    starmon.battleStunTurns = 0;
+    state.actionCommittedStep = state.step;
+    if (state.stepTimerHandle) clearTimeout(state.stepTimerHandle);
+    const snapshot = serializeBoard(state);
+    broadcastToRoom(roomCode, {
+      type: 'starmon_action_resolved',
+      phase: state.phase,
+      turn: state.turn,
+      subPhase: state.subPhase,
+      attackerSlot: state.attackerSlot,
+      targetSlot: state.targetSlot,
+      starmonIndex,
+      actionType: 'stunned',
+      payload: { attackerName: starmon.name, skillName: 'Stunned', abilityNum: 1 },
+      damage: 0,
+      effectLines: [`${starmon.name} is Stunned and skips this action`],
+      passiveEvents: [],
+      targetHpAfter: 0,
+      attackerManaAfter: starmon.mana,
+      board: state.board,
+      boardSnapshot: snapshot,
+      boardVersion: state.boardVersion,
+      version: state.boardVersion,
+      p1_hp: state.players[1].starmons.map(s => s.hp),
+      p2_hp: state.players[2].starmons.map(s => s.hp),
+      p1_mana: state.players[1].starmons.map(s => s.mana),
+      p2_mana: state.players[2].starmons.map(s => s.mana),
+      state: serializeMatchState(state),
+    });
+    state.stepTimerHandle = setTimeout(() => endStep(state, roomCode), 700);
+    return;
   }
 
   const target = state.players[state.targetSlot];
@@ -2685,6 +2729,15 @@ function onStarmonAction(
           ? 0
           : Math.max(0, currentMana - ability.cost);
         starmon.currentMana = starmon.mana;
+        if (ability.id === 'emp_discharge') {
+          attacker.starmons.forEach(ally => {
+            if (ally.hp > 0) {
+              ally.battleAoeDamageReduction = 0.3;
+              ally.battleAoeDamageReductionTurns = 2;
+            }
+          });
+          effectLines.push('Electric Barrier: allies take 30% less damage from enemy AoE abilities for 2 turns');
+        }
       }
 
       const applyPumpyreTrickOrTreat = () => {
@@ -2759,6 +2812,10 @@ function onStarmonAction(
           }
           const hpBefore = ts.hp;
           let hitDamage = Math.round(damage * (1 - ((ts.battleDamageReductionTurns || 0) > 0 ? (ts.battleDamageReduction || 0) : 0)));
+          const isAoeHit = actionType === 'use_ability' && (ability?.targetType === 'aoe' || payload.isAoE);
+          if (isAoeHit && (ts.battleAoeDamageReductionTurns || 0) > 0) {
+            hitDamage = Math.round(hitDamage * (1 - (ts.battleAoeDamageReduction || 0)));
+          }
           if ((starmon.battleBurnTurns || 0) > 0) hitDamage = Math.round(hitDamage * 0.9);
           if (ts.id === 'dandylmane' && (actionType === 'physical_attack' || ability?.targetType !== 'aoe')) hitDamage = Math.round(hitDamage * 0.8);
           if ((ts.battlePoisonTurns || 0) > 0) hitDamage = Math.round(hitDamage / 0.9);
@@ -2791,6 +2848,10 @@ function onStarmonAction(
           if ((starmon.id === 'pyrokit' || starmon.avatarSeed === 'pyrokit') && Math.random() < 0.35) ts.battleBurnTurns = Math.max(ts.battleBurnTurns || 0, 1);
           if (ability?.id === 'inferno_eruption') ts.battleBurnTurns = Math.max(ts.battleBurnTurns || 0, 1);
           if (ability?.id === 'magma_impact' && Math.random() < 0.3) ts.battleBurnTurns = Math.max(ts.battleBurnTurns || 0, 1);
+          if (ability?.id === 'lava_spurt' && Math.random() < 0.15) ts.battleBurnTurns = Math.max(ts.battleBurnTurns || 0, 1);
+          if (ability?.id === 'volcanic_eruption' && Math.random() < 0.1) ts.battleBurnTurns = Math.max(ts.battleBurnTurns || 0, 1);
+          if (ability?.id === 'bubble_shot') ts.battleFrostbiteTurns = Math.max(ts.battleFrostbiteTurns || 0, 1);
+          if (ability?.id === 'stone_crash_golem' && Math.random() < 0.35) ts.battleStunTurns = Math.max(ts.battleStunTurns || 0, 1);
           if (ability?.id === 'plasma_ray') ts.battleSilenceTurns = Math.max(ts.battleSilenceTurns || 0, 1);
           if (ability?.id === 'supersonic_burst' && Math.random() < 0.1) ts.battleSilenceTurns = Math.max(ts.battleSilenceTurns || 0, 1);
           if (ability?.id === 'hydro_cyclone') {

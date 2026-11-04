@@ -15,6 +15,7 @@ import {
   COMMON_ITEM_PACK_IMAGE,
   OMNI_CARD_IMAGE,
 } from '../data/itemsData';
+import { getElementDisplayName } from '../data/starmons';
 import {
   X,
   Package,
@@ -182,7 +183,7 @@ export const InventoryModal: React.FC<Props> = ({
     id: `shard_${s.id}`,
     name: `${s.name} Cards`,
     category: 'shards' as InventoryCategory,
-    description: `${s.title} (${s.element} · ${s.role}). Thu thập thẻ từ Rương Chiến Thắng để nâng cấp kỹ năng và chỉ số.`,
+    description: `${s.title} (${getElementDisplayName(s.element, s.secondaryElement, s.id)} · ${s.role}). Thu thập thẻ từ Rương Chiến Thắng để nâng cấp kỹ năng và chỉ số.`,
     quantity: s.cards,
     rarity: s.unlocked ? ('rare' as const) : ('common' as const),
     icon: s.element === 'Fire' ? '🔥' : s.element === 'Water' ? '🌊' : s.element === 'Earth' ? '🗿' : '⚡',

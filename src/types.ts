@@ -93,6 +93,9 @@ export interface Starmon {
   battleTauntTurns?: number;
   battleDamageReduction?: number;
   battleDamageReductionTurns?: number;
+  battleAoeDamageReduction?: number;
+  battleAoeDamageReductionTurns?: number;
+  battleStunTurns?: number;
   battleDefenseBuffAmount?: number;
   battleDefenseBuffTurns?: number;
   battleShieldPoints?: number;

@@ -564,8 +564,8 @@ export const BattleView: React.FC<Props> = ({
         maxHp: Number(source?.maxHp) || current?.maxHp || template.maxHp,
         currentMana: Math.max(0, Number(mana) || 0),
         maxMana: current?.maxMana || 200,
-        skill1: source?.skill1?.name ? source.skill1 : current?.skill1 || template.skill1,
-        skill2: source?.skill2?.name ? source.skill2 : current?.skill2 || template.skill2,
+        skill1: { ...(current?.skill1 || {}), ...(source?.skill1 || {}), ...template.skill1 },
+        skill2: { ...(current?.skill2 || {}), ...(source?.skill2 || {}), ...template.skill2 },
         passive: source?.passive?.name ? source.passive : current?.passive || template.passive,
       } as Starmon;
     });
@@ -900,8 +900,8 @@ export const BattleView: React.FC<Props> = ({
         maxHp: maxHp,
         currentHp: (s?.currentHp !== undefined && s.currentHp > 0) ? s.currentHp : maxHp,
         currentMana: initialMana,
-        skill1: (s?.skill1 && s.skill1.name) ? s.skill1 : template.skill1,
-        skill2: (s?.skill2 && s.skill2.name) ? s.skill2 : template.skill2,
+        skill1: { ...(s?.skill1 || {}), ...template.skill1 },
+        skill2: { ...(s?.skill2 || {}), ...template.skill2 },
         passive: (s?.passive && s.passive.name) ? s.passive : template.passive,
       };
     })
@@ -1062,7 +1062,7 @@ export const BattleView: React.FC<Props> = ({
 
   // STONE GOLEM MECHANICS
   // Unyielding Granite: 5% Max HP shield each round, 25% Max HP shield for 3 turns on death
-  // Active 1: Stone Crash (60 Mana) -> 120% DMG, 30% chance to stun
+  // Active 1: Stone Crash (60 Mana) -> 200% DMG, 35% chance to stun
   // Active 2: Fortress Bulwark (90 Mana) -> Taunt for 2 turns, 18% Max HP shield for 2 turns
   const [playerStoneGolemTauntTurns, setPlayerStoneGolemTauntTurns] = useState<number>(0);
   const [enemyStoneGolemTauntTurns, setEnemyStoneGolemTauntTurns] = useState<number>(0);
@@ -1182,11 +1182,11 @@ export const BattleView: React.FC<Props> = ({
       skill1: {
         id: 'stone_crash',
         name: 'Stone Crash',
-        description: 'Deals 120% Earth Physical Damage with 30% chance to stun',
+        description: 'Deals 200% Earth Physical Damage with 35% chance to stun',
         manaCost: 60,
-        damageMultiplier: 1.2,
+        damageMultiplier: 2.0,
         targetType: 'single',
-        statusEffect: 'Stun (30%)'
+        statusEffect: 'Stun (35%)'
       },
       skill2: {
         id: 'fortress_bulwark',
@@ -3910,7 +3910,7 @@ export const BattleView: React.FC<Props> = ({
       setEnemyBurnTurns(prev => ({ ...prev, [targetIdx]: Math.max(prev[targetIdx] || 0, 1) }));
       addBattleLog({ phase: 'combat', source: 'player', unitName: activeAttackingStarmon.name, actionType: 'status', message: `🔥 Wildfire: ${targetEnemy.name} Burned for 1 turn.` });
     }
-    if ((activeAttackingStarmon.id === 'pyrokit' || activeAttackingStarmon.avatarSeed === 'pyrokit') && abilityNum === 1 && (enemyBurnTurns[targetIdx] || 0) > 0) dmg = Math.round(dmg * 1.75);
+    if ((activeAttackingStarmon.id === 'pyrokit' || activeAttackingStarmon.avatarSeed === 'pyrokit') && abilityNum === 1 && (enemyBurnTurns[targetIdx] || 0) > 0) dmg = Math.round(dmg * (2.8 / 1.8));
     if ((playerAttackDebuffs[actingStepIndex]?.turns || 0) > 0) dmg = Math.round(dmg * (1 - playerAttackDebuffs[actingStepIndex].percent));
 
     // Tutorial 1 Round 2: Final attack guarantees enemy knockout
@@ -4252,12 +4252,12 @@ export const BattleView: React.FC<Props> = ({
       setPlayerTeam(prev =>
         prev.map((s, idx) =>
           idx === actingStepIndex
-            ? { ...s, currentMana: Math.max(0, s.currentMana - 65) }
+            ? { ...s, currentMana: Math.max(0, s.currentMana - skill.manaCost) }
             : s
         )
       );
 
-      const baseDmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * 1.8));
+      const baseDmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * skill.damageMultiplier));
 
       // Convert 3 random non-water orbs on board into Water orbs
       const nonWaterCoords: { r: number; c: number }[] = [];
@@ -4328,7 +4328,7 @@ export const BattleView: React.FC<Props> = ({
         source: 'player',
         unitName: 'Bubbleboon',
         actionType: 'skill',
-        message: '💣 Bubbleboon cast "Bubble Bomb" (-65 Mana)!',
+        message: `💣 Bubbleboon cast "Bubble Bomb" (-${skill.manaCost} Mana)!`,
         detail: `Dealt ${baseDmg} Water DMG${extraBurstDmg > 0 ? ` + ${extraBurstDmg} Burst Chain DMG` : ''} and converted 3 orbs to Water!`,
       });
 
@@ -4473,8 +4473,8 @@ export const BattleView: React.FC<Props> = ({
       return;
     }
 
-    // AQUANYMPH ABILITY 1: HYDRO CYCLONE (50 MANA)
-    // Deals 180% Water DMG and has 20% to give Frostbite to the target for 3 turns.
+    // AQUANYMPH ABILITY 1: HYDRO CYCLONE (40 MANA)
+    // Deals 200% Water DMG and has 20% to give Frostbite to the target for 3 turns.
     // If the target already has Frostbite, silent them for 1 turn!
     if ((activeAttackingStarmon.id === 'aquanymph' || activeAttackingStarmon.avatarSeed === 'aquanymph') && abilityNum === 1) {
       if (activeAttackingStarmon.currentMana < skill.manaCost) {
@@ -4498,7 +4498,7 @@ export const BattleView: React.FC<Props> = ({
 
       const targetEnemy = enemyTeam[targetIdx];
       const hasFrostbiteAlready = (enemyFrostbiteTurns[targetIdx] || 0) > 0;
-      let dmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * 1.8));
+      let dmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * skill.damageMultiplier));
 
       let effectDesc = '';
       if (hasFrostbiteAlready) {
@@ -4584,16 +4584,16 @@ export const BattleView: React.FC<Props> = ({
       return;
     }
 
-    // AQUANYMPH ABILITY 2: LOTUS RAIN (125 MANA) - HEALS ALL ALLIES FOR 160 HP
+    // AQUANYMPH ABILITY 2: LOTUS RAIN (70 MANA) - HEALS ALL ALLIES FOR 160 HP
     if ((activeAttackingStarmon.id === 'aquanymph' || activeAttackingStarmon.avatarSeed === 'aquanymph') && abilityNum === 2) {
-      if (activeAttackingStarmon.currentMana < 125) {
+      if (activeAttackingStarmon.currentMana < skill.manaCost) {
         sound.playWrong();
         return;
       }
 
       setPlayerTeam(prev =>
         prev.map((s, idx) => {
-          const nextMana = idx === actingStepIndex ? Math.max(0, s.currentMana - 125) : s.currentMana;
+          const nextMana = idx === actingStepIndex ? Math.max(0, s.currentMana - skill.manaCost) : s.currentMana;
           const isBlocked = (playerHealingBlockTurns[idx] || 0) > 0;
           const nextHp = (s.currentHp > 0 && !isBlocked) ? Math.min(s.maxHp, s.currentHp + 160) : s.currentHp;
           return { ...s, currentMana: nextMana, currentHp: nextHp };
@@ -4609,7 +4609,7 @@ export const BattleView: React.FC<Props> = ({
         source: 'player',
         unitName: 'Aquanymph',
         actionType: 'skill',
-        message: '🌸 Aquanymph cast "Lotus Rain" (-125 Mana)!',
+        message: `🌸 Aquanymph cast "Lotus Rain" (-${skill.manaCost} Mana)!`,
         detail: 'Restored 160 HP to all living allies with purifying rainfall.',
       });
 
@@ -4652,7 +4652,7 @@ export const BattleView: React.FC<Props> = ({
         const target = currentEnemies[targetIdx];
 
         // Voltlynx ability deals extra 25% DMG
-        let strikeDmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * 0.9 * 1.25));
+        let strikeDmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * skill.damageMultiplier * 1.25));
 
         // Elemental calculation: Electric counters Water (+10%)
         if (target.element === 'Water') {
@@ -4718,13 +4718,19 @@ export const BattleView: React.FC<Props> = ({
       return;
     }
 
-    // OBSIDUS ABILITY 1: STONE CRASH (PIERCING) (40 MANA)
-    // Gain Piercing for 2 turns, ignoring 50% of target DEF and STILL ABLE TO MOVE THIS TURN!
+    // OBSIDUS ABILITY 1: STONE CRASH (PIERCING) (50 MANA)
+    // Deals 130% Earth DMG, grants Piercing for 2 turns, and preserves the orb move.
     if ((activeAttackingStarmon.id === 'obsidus' || activeAttackingStarmon.avatarSeed === 'obsidus') && abilityNum === 1) {
       if (activeAttackingStarmon.currentMana < skill.manaCost) {
         sound.playWrong();
         return;
       }
+
+      let targetIdx = selectedEnemyIndex;
+      if (!enemyTeam[targetIdx] || enemyTeam[targetIdx].currentHp <= 0) targetIdx = enemyTeam.findIndex(e => e.currentHp > 0);
+      if (targetIdx < 0) return;
+      const target = enemyTeam[targetIdx];
+      const dmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * skill.damageMultiplier));
 
       setPlayerTeam(prev =>
         prev.map((s, idx) =>
@@ -4733,6 +4739,16 @@ export const BattleView: React.FC<Props> = ({
             : s
         )
       );
+
+      recordDamageDealt('Earth', dmg);
+      recordPlayerMonDamageDealt(actingStepIndex, dmg);
+      recordEnemyMonDamageTaken(targetIdx, dmg);
+      setEnemyTeam(prev => prev.map((enemy, idx) => {
+        if (idx !== targetIdx) return enemy;
+        const afterDecoy = Math.max(0, dmg - (enemy.battleDecoyHp || 0));
+        const nextDecoyHp = Math.max(0, (enemy.battleDecoyHp || 0) - dmg);
+        return { ...enemy, currentHp: Math.max(0, enemy.currentHp - afterDecoy), battleDecoyHp: nextDecoyHp || undefined };
+      }));
 
       // Grant Piercing for 2 turns to this Starmon
       setPlayerPiercingTurns(prev => ({
@@ -4746,7 +4762,7 @@ export const BattleView: React.FC<Props> = ({
 
       sound.playAttackHit();
       setFloatingDamage({
-        text: '🗡️ PIERCING ACTIVATED! (Ignores 50% DEF - Move Orbs!)',
+        text: `🗡️ STONE CRASH! -${dmg} Earth DMG · Piercing (Move Orbs!)`,
         isEnemy: false,
       });
       setTimeout(() => setFloatingDamage(null), 1800);
@@ -4758,22 +4774,22 @@ export const BattleView: React.FC<Props> = ({
         source: 'player',
         unitName: 'Obsidus',
         actionType: 'skill',
-        message: '🗡️ Obsidus cast "Stone Crash" (-40 Mana)!',
-        detail: 'Gain Piercing for 2 turns, ignoring 50% of target DEF and still able to move this turn.',
+        message: `🗡️ Obsidus cast "Stone Crash" (-${skill.manaCost} Mana)!`,
+        detail: `Dealt ${dmg} Earth DMG to ${target.name}; gain Piercing for 2 turns, ignoring 50% DEF, and can still move this turn.`,
       });
 
       if (isPvP) {
-        syncCurrentSkill(Math.round(activeAttackingStarmon.baseAtk * 1.4), false, selectedEnemyIndex);
+        syncCurrentSkill(dmg, false, targetIdx);
         return;
       }
       // DO NOT advance unit or end turn! The player can now swap/match orbs!
       return;
     }
 
-    // CORALUS ABILITY 1: AQUA PINCER (40 MANA)
-    // Deals 180% DMG and reduces enemy DEF by 25% for 2 turns!
+    // CORALUS ABILITY 1: AQUA PINCER (45 MANA)
+    // Deals 200% DMG and reduces enemy DEF by 25% for 2 turns!
     if (activeAttackingStarmon.id === 'coralus' && abilityNum === 1) {
-      if (activeAttackingStarmon.currentMana < 40) {
+      if (activeAttackingStarmon.currentMana < skill.manaCost) {
         sound.playWrong();
         return;
       }
@@ -4793,7 +4809,7 @@ export const BattleView: React.FC<Props> = ({
       }
       setSelectedEnemyIndex(targetIdx);
 
-      const dmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * 1.8));
+      const dmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * skill.damageMultiplier));
       const targetEnemy = enemyTeam[targetIdx];
 
       // Apply 25% DEF reduction for 2 turns
@@ -4805,7 +4821,7 @@ export const BattleView: React.FC<Props> = ({
       setPlayerTeam(prev =>
         prev.map((s, idx) =>
           idx === actingStepIndex
-            ? { ...s, currentMana: Math.max(0, s.currentMana - 40) }
+            ? { ...s, currentMana: Math.max(0, s.currentMana - skill.manaCost) }
             : s
         )
       );
@@ -4826,7 +4842,7 @@ export const BattleView: React.FC<Props> = ({
         source: 'player',
         unitName: 'Coralus',
         actionType: 'skill',
-        message: `🌊 Coralus cast "Aqua Pincer" (-40 Mana)!`,
+        message: `🌊 Coralus cast "Aqua Pincer" (-${skill.manaCost} Mana)!`,
         detail: `Dealt ${dmg} DMG to ${targetEnemy.name} and reduced DEF by 25% for 2 turns!`,
       });
 
@@ -4900,10 +4916,10 @@ export const BattleView: React.FC<Props> = ({
     }
 
     // STONE GOLEM ABILITY 1: STONE CRASH (60 MANA)
-    // Deals 120% Earth Physical Damage to target enemy, 30% chance to stun
+    // Deals 200% Earth Physical Damage to target enemy, 35% chance to stun
     if ((activeAttackingStarmon.id === 'stone_golem' || activeAttackingStarmon.avatarSeed === 'stone_golem') && abilityNum === 1) {
-      const dmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * 1.2));
-      const isStunned = Math.random() < 0.3;
+      const dmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * skill.damageMultiplier));
+      const isStunned = Math.random() < 0.35;
 
       let targetIdx = selectedEnemyIndex;
       if (enemyStoneGolemTauntTurns > 0) {
@@ -4933,7 +4949,7 @@ export const BattleView: React.FC<Props> = ({
       if (isStunned) {
         setStunnedEnemyIndices(prev => Array.from(new Set([...prev, targetIdx])));
         setFloatingDamage({
-          text: `💥 -${dmg} HP & 💫 STUNNED! (30% chance)`,
+          text: `💥 -${dmg} HP & 💫 STUNNED! (35% chance)`,
           isEnemy: true,
         });
       } else {
@@ -4951,7 +4967,7 @@ export const BattleView: React.FC<Props> = ({
         unitName: 'Stone Golem',
         actionType: 'skill',
         message: `🪨 Stone Golem cast "Stone Crash" (-${skill.manaCost} Mana)!`,
-        detail: `Dealt ${dmg} Earth DMG to ${targetEnemy.name}${isStunned ? ' and inflicted STUN (skips next turn)!' : '.'}`,
+        detail: `Dealt ${dmg} Earth DMG to ${targetEnemy.name}${isStunned ? ' and inflicted STUN (35% chance; skips next turn)!' : '.'}`,
       });
 
       if (isPvP) {
@@ -5029,11 +5045,11 @@ export const BattleView: React.FC<Props> = ({
     }
 
     // ==============================================================
-    // ZAPWING ABILITY 1: LIGHTNING BEAK (20 MANA - SINGLE ENEMY)
-    // 135% Electric DMG, 35% chance to inflict Stun to the target!
+    // ZAPWING ABILITY 1: LIGHTNING BEAK (30 MANA - SINGLE ENEMY)
+    // 145% Electric DMG, no Stun.
     // ==============================================================
     if ((activeAttackingStarmon.id === 'zapwing' || activeAttackingStarmon.avatarSeed === 'zapwing') && abilityNum === 1) {
-      if (activeAttackingStarmon.currentMana < 20) {
+      if (activeAttackingStarmon.currentMana < skill.manaCost) {
         sound.playWrong();
         return;
       }
@@ -5053,27 +5069,18 @@ export const BattleView: React.FC<Props> = ({
       setSelectedEnemyIndex(targetIdx);
       const targetEnemy = enemyTeam[targetIdx];
 
-      const isStunned = Math.random() < 0.35;
-      const dmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * 1.35));
+      const dmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * skill.damageMultiplier));
 
       setPlayerTeam(prev =>
         prev.map((s, idx) =>
           idx === actingStepIndex
-            ? { ...s, currentMana: Math.max(0, s.currentMana - 20) }
+            ? { ...s, currentMana: Math.max(0, s.currentMana - skill.manaCost) }
             : s
         )
       );
 
       sound.playAttackHit();
-      if (isStunned) {
-        setStunnedEnemyIndices(prev => Array.from(new Set([...prev, targetIdx])));
-        setFloatingDamage({
-          text: `⚡ -${dmg} HP & 💫 STUNNED! (35% chance)`,
-          isEnemy: true,
-        });
-      } else {
-        setFloatingDamage({ text: `⚡ -${dmg} HP`, isEnemy: true });
-      }
+      setFloatingDamage({ text: `⚡ -${dmg} HP`, isEnemy: true });
       setTimeout(() => setFloatingDamage(null), 1400);
 
       recordDamageDealt('Electric', dmg);
@@ -5087,8 +5094,8 @@ export const BattleView: React.FC<Props> = ({
         source: 'player',
         unitName: 'Zapwing',
         actionType: 'skill',
-        message: `⚡ Zapwing cast "Lightning Beak" (-20 Mana)!`,
-        detail: `Dealt ${dmg} Electric DMG to ${targetEnemy.name}${isStunned ? ' and inflicted STUN (35% chance)!' : '.'}`,
+        message: `⚡ Zapwing cast "Lightning Beak" (-${skill.manaCost} Mana)!`,
+        detail: `Dealt ${dmg} Electric DMG to ${targetEnemy.name}.`,
       });
 
       if (isPvP) {
@@ -5123,21 +5130,21 @@ export const BattleView: React.FC<Props> = ({
     }
 
     // ==============================================================
-    // ZAPWING ABILITY 2: THUNDER GALE TEMPEST (75 MANA - AOE)
+    // ZAPWING ABILITY 2: THUNDER GALE TEMPEST (85 MANA - AOE)
     // 220% Electric DMG to ALL enemies!
     // ==============================================================
     if ((activeAttackingStarmon.id === 'zapwing' || activeAttackingStarmon.avatarSeed === 'zapwing') && abilityNum === 2) {
-      if (activeAttackingStarmon.currentMana < 75) {
+      if (activeAttackingStarmon.currentMana < skill.manaCost) {
         sound.playWrong();
         return;
       }
 
-      const dmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * 2.2));
+      const dmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * skill.damageMultiplier));
 
       setPlayerTeam(prev =>
         prev.map((s, idx) =>
           idx === actingStepIndex
-            ? { ...s, currentMana: Math.max(0, s.currentMana - 75) }
+            ? { ...s, currentMana: Math.max(0, s.currentMana - skill.manaCost) }
             : s
         )
       );
@@ -5150,9 +5157,10 @@ export const BattleView: React.FC<Props> = ({
       setTimeout(() => setFloatingDamage(null), 1500);
 
       const livingEnemies = enemyTeam.filter(e => e.currentHp > 0);
-      recordDamageDealt('Electric', dmg * Math.max(1, livingEnemies.length));
-      recordPlayerMonDamageDealt(actingStepIndex, dmg * Math.max(1, livingEnemies.length));
-      onQuestProgress?.('deal_damage', { element: 'Electric', damage: dmg * Math.max(1, livingEnemies.length) });
+      const totalAoeDamage = livingEnemies.reduce((total, enemy) => total + ((enemy.battleAoeDamageReductionTurns || 0) > 0 ? Math.round(dmg * (1 - (enemy.battleAoeDamageReduction || 0))) : dmg), 0);
+      recordDamageDealt('Electric', totalAoeDamage);
+      recordPlayerMonDamageDealt(actingStepIndex, totalAoeDamage);
+      onQuestProgress?.('deal_damage', { element: 'Electric', damage: totalAoeDamage });
       onQuestProgress?.('cast_skill');
 
       addBattleLog({
@@ -5160,13 +5168,14 @@ export const BattleView: React.FC<Props> = ({
         source: 'player',
         unitName: 'Zapwing',
         actionType: 'skill',
-        message: `⚡🌪️ Zapwing unleashed "Thunder Gale Tempest" (-75 Mana)!`,
+        message: `⚡🌪️ Zapwing unleashed "Thunder Gale Tempest" (-${skill.manaCost} Mana)!`,
         detail: `Dealt ${dmg} Electric DMG to ALL enemies!`,
       });
 
       enemyTeam.forEach((e, idx) => {
         if (e.currentHp > 0) {
-          recordEnemyMonDamageTaken(idx, dmg);
+          const targetDamage = (e.battleAoeDamageReductionTurns || 0) > 0 ? Math.round(dmg * (1 - (e.battleAoeDamageReduction || 0))) : dmg;
+          recordEnemyMonDamageTaken(idx, targetDamage);
         }
       });
 
@@ -5177,9 +5186,10 @@ export const BattleView: React.FC<Props> = ({
 
       setEnemyTeam(prev =>
         prev.map(e => {
-          const absorbed = Math.min(e.battleDecoyHp || 0, dmg);
+          const targetDamage = (e.battleAoeDamageReductionTurns || 0) > 0 ? Math.round(dmg * (1 - (e.battleAoeDamageReduction || 0))) : dmg;
+          const absorbed = Math.min(e.battleDecoyHp || 0, targetDamage);
           const decoyHp = Math.max(0, (e.battleDecoyHp || 0) - absorbed);
-          const nextHp = Math.max(0, e.currentHp - (dmg - absorbed));
+          const nextHp = Math.max(0, e.currentHp - (targetDamage - absorbed));
           if (e.currentHp > 0 && nextHp <= 0) {
             addBattleLog({
               phase: 'combat',
@@ -5225,7 +5235,7 @@ export const BattleView: React.FC<Props> = ({
       const targetEnemy = enemyTeam[targetIdx];
 
       // +20% crit chance applied
-      const existingCrit = (vinedraCritBonusTurns[actingStepIndex] || 0) > 0 ? 0.20 : 0.0;
+      const existingCrit = (vinedraCritBonusTurns[actingStepIndex] || 0) > 0 ? 0.30 : 0.0;
       const isCrit = Math.random() < (0.10 + existingCrit);
       const critMult = isCrit ? 1.5 : 1.0;
       let dmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * 0.7 * critMult));
@@ -5233,7 +5243,7 @@ export const BattleView: React.FC<Props> = ({
       // Gain +20% crit chance for attacks & abilities
       setVinedraCritBonusTurns(prev => ({
         ...prev,
-        [actingStepIndex]: Math.max(prev[actingStepIndex] || 0, 2),
+        [actingStepIndex]: Math.max(prev[actingStepIndex] || 0, 1),
       }));
 
       // Toxic Spore passive (35% chance on active skill cast)
@@ -5345,12 +5355,12 @@ export const BattleView: React.FC<Props> = ({
         return;
       }
 
-      const dmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * 0.85));
+      const dmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * skill.damageMultiplier));
 
       setPlayerTeam(prev =>
         prev.map((s, idx) =>
           idx === actingStepIndex
-            ? { ...s, currentMana: Math.max(0, s.currentMana - 45) }
+            ? { ...s, currentMana: Math.max(0, s.currentMana - skill.manaCost) }
             : s
         )
       );
@@ -5363,9 +5373,10 @@ export const BattleView: React.FC<Props> = ({
       setTimeout(() => setFloatingDamage(null), 1400);
 
       const livingEnemies = enemyTeam.filter(e => e.currentHp > 0);
-      recordDamageDealt('Earth', dmg * Math.max(1, livingEnemies.length));
-      recordPlayerMonDamageDealt(actingStepIndex, dmg * Math.max(1, livingEnemies.length));
-      onQuestProgress?.('deal_damage', { element: 'Earth', damage: dmg * Math.max(1, livingEnemies.length) });
+      const totalAoeDamage = livingEnemies.reduce((total, enemy) => total + ((enemy.battleAoeDamageReductionTurns || 0) > 0 ? Math.round(dmg * (1 - (enemy.battleAoeDamageReduction || 0))) : dmg), 0);
+      recordDamageDealt('Earth', totalAoeDamage);
+      recordPlayerMonDamageDealt(actingStepIndex, totalAoeDamage);
+      onQuestProgress?.('deal_damage', { element: 'Earth', damage: totalAoeDamage });
       onQuestProgress?.('cast_skill');
 
       addBattleLog({
@@ -5373,13 +5384,14 @@ export const BattleView: React.FC<Props> = ({
         source: 'player',
         unitName: 'Vinedra',
         actionType: 'skill',
-        message: `🌺 Vinedra cast "Poisonous Burst" (-45 Mana)!`,
+        message: `🌺 Vinedra cast "Poisonous Burst" (-${skill.manaCost} Mana)!`,
         detail: `Dealt ${dmg} Earth DMG to ALL foes and released Toxic Spores!`,
       });
 
       enemyTeam.forEach((e, idx) => {
         if (e.currentHp > 0) {
-          recordEnemyMonDamageTaken(idx, dmg);
+          const targetDamage = (e.battleAoeDamageReductionTurns || 0) > 0 ? Math.round(dmg * (1 - (e.battleAoeDamageReduction || 0))) : dmg;
+          recordEnemyMonDamageTaken(idx, targetDamage);
           if (Math.random() < 0.35) {
             setEnemyPoisonTurns(prev => ({ ...prev, [idx]: 2 }));
             addBattleLog({
@@ -5400,9 +5412,10 @@ export const BattleView: React.FC<Props> = ({
 
       setEnemyTeam(prev =>
         prev.map(e => {
-          const absorbed = Math.min(e.battleDecoyHp || 0, dmg);
+          const targetDamage = (e.battleAoeDamageReductionTurns || 0) > 0 ? Math.round(dmg * (1 - (e.battleAoeDamageReduction || 0))) : dmg;
+          const absorbed = Math.min(e.battleDecoyHp || 0, targetDamage);
           const decoyHp = Math.max(0, (e.battleDecoyHp || 0) - absorbed);
-          const nextHp = Math.max(0, e.currentHp - (dmg - absorbed));
+          const nextHp = Math.max(0, e.currentHp - (targetDamage - absorbed));
           if (e.currentHp > 0 && nextHp <= 0) {
             addBattleLog({
               phase: 'combat',
@@ -5424,11 +5437,11 @@ export const BattleView: React.FC<Props> = ({
     }
 
     // ==============================================================
-    // CYBORGNID ABILITY 1: PLASMA SLASH (45 MANA)
-    // Slashes the target with steel claws, dealing 130% Steel DMG
+    // CYBORGNID ABILITY 1: PLASMA SLASH (40 MANA)
+    // Slashes the target with steel claws, dealing 170% Steel DMG
     // ==============================================================
     if ((activeAttackingStarmon.id === 'cyborgnid' || activeAttackingStarmon.avatarSeed === 'cyborgnid') && abilityNum === 1) {
-      if (activeAttackingStarmon.currentMana < 45) {
+      if (activeAttackingStarmon.currentMana < skill.manaCost) {
         sound.playWrong();
         return;
       }
@@ -5447,10 +5460,10 @@ export const BattleView: React.FC<Props> = ({
       setSelectedEnemyIndex(targetIdx);
       const targetEnemy = enemyTeam[targetIdx];
 
-      const dmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * 1.30));
+      const dmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * skill.damageMultiplier));
       setPlayerTeam(prev =>
         prev.map((s, idx) =>
-          idx === actingStepIndex ? { ...s, currentMana: Math.max(0, s.currentMana - 45) } : s
+          idx === actingStepIndex ? { ...s, currentMana: Math.max(0, s.currentMana - skill.manaCost) } : s
         )
       );
 
@@ -5467,8 +5480,8 @@ export const BattleView: React.FC<Props> = ({
         source: 'player',
         unitName: 'Cyborgnid',
         actionType: 'skill',
-        message: `⚙️ Cyborgnid cast "Plasma Slash" (-45 Mana)!`,
-        detail: `Slashed ${targetEnemy.name} with razor claws dealing ${dmg} Steel DMG (130%).`,
+        message: `⚙️ Cyborgnid cast "Plasma Slash" (-${skill.manaCost} Mana)!`,
+        detail: `Slashed ${targetEnemy.name} with razor claws dealing ${dmg} Steel DMG (${Math.round(skill.damageMultiplier * 100)}%).`,
       });
 
       if (isPvP) {
@@ -5536,7 +5549,7 @@ export const BattleView: React.FC<Props> = ({
 
       setPlayerTeam(prev =>
         prev.map((s, idx) =>
-          idx === actingStepIndex ? { ...s, currentMana: Math.max(0, s.currentMana - 65) } : s
+          idx === actingStepIndex ? { ...s, currentMana: Math.max(0, s.currentMana - skill.manaCost) } : s
         )
       );
 
@@ -5591,11 +5604,11 @@ export const BattleView: React.FC<Props> = ({
     }
 
     // ==============================================================
-    // MINEACLE ABILITY 1: CHAIN SLAM (45 MANA)
-    // Swings heavy spiked chain dealing 170% Water DMG
+    // MINEACLE ABILITY 1: CHAIN SLAM (40 MANA)
+    // Swings heavy spiked chain dealing 200% Water DMG
     // ==============================================================
     if ((activeAttackingStarmon.id === 'mineacle' || activeAttackingStarmon.avatarSeed === 'mineacle') && abilityNum === 1) {
-      if (activeAttackingStarmon.currentMana < 45) {
+      if (activeAttackingStarmon.currentMana < skill.manaCost) {
         sound.playWrong();
         return;
       }
@@ -5614,10 +5627,10 @@ export const BattleView: React.FC<Props> = ({
       setSelectedEnemyIndex(targetIdx);
       const targetEnemy = enemyTeam[targetIdx];
 
-      const dmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * 1.70));
+      const dmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * skill.damageMultiplier));
       setPlayerTeam(prev =>
         prev.map((s, idx) =>
-          idx === actingStepIndex ? { ...s, currentMana: Math.max(0, s.currentMana - 45) } : s
+          idx === actingStepIndex ? { ...s, currentMana: Math.max(0, s.currentMana - skill.manaCost) } : s
         )
       );
 
@@ -5634,8 +5647,8 @@ export const BattleView: React.FC<Props> = ({
         source: 'player',
         unitName: 'Mineacle',
         actionType: 'skill',
-        message: `⚓ Mineacle cast "Chain Slam" (-45 Mana)!`,
-        detail: `Smashed ${targetEnemy.name} with spiked ocean chain for ${dmg} Water DMG (170%).`,
+        message: `⚓ Mineacle cast "Chain Slam" (-${skill.manaCost} Mana)!`,
+        detail: `Smashed ${targetEnemy.name} with spiked ocean chain for ${dmg} Water DMG (${Math.round(skill.damageMultiplier * 100)}%).`,
       });
 
       if (isPvP) {
@@ -5712,11 +5725,11 @@ export const BattleView: React.FC<Props> = ({
     }
 
     // ==============================================================
-    // ZEPHYRION ABILITY 1: JUSTICE JUDGMENT (30 MANA)
-    // Deals 125% Wind DMG to target. If target HP > user HP: double DMG (250%)!
+    // ZEPHYRION ABILITY 1: JUSTICE JUDGMENT (35 MANA)
+    // Deals 125% Wind DMG to target. If target HP > user HP: 1.5x DMG!
     // ==============================================================
     if ((activeAttackingStarmon.id === 'zephyrion' || activeAttackingStarmon.avatarSeed === 'zephyrion') && abilityNum === 1) {
-      if (activeAttackingStarmon.currentMana < 30) {
+      if (activeAttackingStarmon.currentMana < skill.manaCost) {
         sound.playWrong();
         return;
       }
@@ -5736,19 +5749,19 @@ export const BattleView: React.FC<Props> = ({
       const targetEnemy = enemyTeam[targetIdx];
 
       const isTargetHigherHp = targetEnemy.currentHp > activeAttackingStarmon.currentHp;
-      const mult = isTargetHigherHp ? 2.50 : 1.25;
+      const mult = isTargetHigherHp ? 1.875 : 1.25;
       // Order Crown passive provides +10% DMG to all Wind attacks/abilities
       const dmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * mult * 1.10));
 
       setPlayerTeam(prev =>
         prev.map((s, idx) =>
-          idx === actingStepIndex ? { ...s, currentMana: Math.max(0, s.currentMana - 30) } : s
+          idx === actingStepIndex ? { ...s, currentMana: Math.max(0, s.currentMana - skill.manaCost) } : s
         )
       );
 
       sound.playAttackHit();
       setFloatingDamage({
-        text: isTargetHigherHp ? `⚖️ JUSTICE JUDGMENT (DOUBLE DMG)! -${dmg} Wind HP` : `⚖️ JUSTICE JUDGMENT! -${dmg} Wind HP`,
+        text: isTargetHigherHp ? `⚖️ JUSTICE JUDGMENT (1.5× DMG)! -${dmg} Wind HP` : `⚖️ JUSTICE JUDGMENT! -${dmg} Wind HP`,
         isEnemy: true,
       });
       setTimeout(() => setFloatingDamage(null), 1400);
@@ -5762,8 +5775,8 @@ export const BattleView: React.FC<Props> = ({
         source: 'player',
         unitName: 'Zephyrion',
         actionType: 'skill',
-        message: `⚖️ Zephyrion cast "Justice Judgment" (-30 Mana)!`,
-        detail: `Dealt ${dmg} Wind DMG to ${targetEnemy.name}${isTargetHigherHp ? ' (DOUBLED because target HP > user HP!)' : '.'} (+10% Order Crown boost)`,
+        message: `⚖️ Zephyrion cast "Justice Judgment" (-${skill.manaCost} Mana)!`,
+        detail: `Dealt ${dmg} Wind DMG to ${targetEnemy.name}${isTargetHigherHp ? ' (1.5× because target HP > user HP)' : '.'} (+10% Order Crown boost)`,
       });
 
       if (isPvP) {
@@ -5799,11 +5812,11 @@ export const BattleView: React.FC<Props> = ({
     // ==============================================================
     // ZEPHYRION ABILITY 2: RIGHTEOUS GALE (60 MANA)
     // If any target has at least 1 debuff currently active before cast,
-    // that target takes double DMG. Deals 120% AoE Wind DMG and removes
+    // that target takes 1.5x DMG. Deals 130% AoE Wind DMG and removes
     // all buff and debuff statuses from ALL enemies!
     // ==============================================================
     if ((activeAttackingStarmon.id === 'zephyrion' || activeAttackingStarmon.avatarSeed === 'zephyrion') && abilityNum === 2) {
-      if (activeAttackingStarmon.currentMana < 60) {
+      if (activeAttackingStarmon.currentMana < skill.manaCost) {
         sound.playWrong();
         return;
       }
@@ -5820,13 +5833,13 @@ export const BattleView: React.FC<Props> = ({
 
       setPlayerTeam(prev =>
         prev.map((s, idx) =>
-          idx === actingStepIndex ? { ...s, currentMana: Math.max(0, s.currentMana - 60) } : s
+          idx === actingStepIndex ? { ...s, currentMana: Math.max(0, s.currentMana - skill.manaCost) } : s
         )
       );
 
       sound.playAttackHit();
       setFloatingDamage({
-        text: `🌪️ RIGHTEOUS GALE! 120% AoE DMG & Cleansed All Foes!`,
+        text: `🌪️ RIGHTEOUS GALE! 130% AoE DMG & Cleansed All Foes!`,
         isEnemy: true,
       });
       setTimeout(() => setFloatingDamage(null), 1500);
@@ -5836,9 +5849,10 @@ export const BattleView: React.FC<Props> = ({
         prev.map((e, idx) => {
           if (e.currentHp <= 0) return e;
           const isDebuffed = enemyHasDebuff[idx];
-          const mult = isDebuffed ? 2.40 : 1.20; // Double DMG if target has at least 1 debuff!
+          const mult = isDebuffed ? 1.95 : 1.30; // 1.5x DMG if target has at least 1 debuff!
           // +10% Order Crown boost
-          const dmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * mult * 1.10));
+          let dmg = applyBurnAttackPenalty(Math.round(activeAttackingStarmon.baseAtk * mult * 1.10));
+          if ((e.battleAoeDamageReductionTurns || 0) > 0) dmg = Math.round(dmg * (1 - (e.battleAoeDamageReduction || 0)));
           totalGaleDmg += dmg;
           recordEnemyMonDamageTaken(idx, dmg);
           const absorbed = Math.min(e.battleDecoyHp || 0, dmg);
@@ -5870,8 +5884,8 @@ export const BattleView: React.FC<Props> = ({
         source: 'player',
         unitName: 'Zephyrion',
         actionType: 'skill',
-        message: `🌪️ Zephyrion cast "Righteous Gale" (-60 Mana)!`,
-        detail: `Dealt 120% AoE Wind DMG (Doubled on debuffed foes) and completely cleansed all buffs & debuffs from all enemies!`,
+        message: `🌪️ Zephyrion cast "Righteous Gale" (-${skill.manaCost} Mana)!`,
+        detail: `Dealt 130% AoE Wind DMG (1.5× on debuffed foes) and completely cleansed all buffs & debuffs from all enemies!`,
       });
 
       syncCurrentSkill(totalGaleDmg, true, 0);
@@ -6111,7 +6125,7 @@ export const BattleView: React.FC<Props> = ({
 
       setPlayerTeam(prev =>
         prev.map((s, idx) =>
-          idx === actingStepIndex ? { ...s, currentMana: Math.max(0, s.currentMana - 65) } : s
+          idx === actingStepIndex ? { ...s, currentMana: Math.max(0, s.currentMana - skill.manaCost) } : s
         )
       );
 
@@ -6263,7 +6277,7 @@ export const BattleView: React.FC<Props> = ({
     if (isVoltlynxAbility) {
       abilityCritChance += 0.25; // +25% extra critical chance
       if (abilityNum === 1) {
-        abilityCritChance += 0.25; // Lightning Paw +25% inherent bonus
+        abilityCritChance += 0.20; // Lightning Paw +20% skill bonus
       }
     }
     const skillAttackDebuff = playerAttackDebuffs[actingStepIndex];
@@ -6278,9 +6292,9 @@ export const BattleView: React.FC<Props> = ({
 
     const voltlynxAbilityBuff = isVoltlynxAbility ? 1.25 : 1.0;
     let dmg = skill.id === 'shield_bash'
-      ? Math.round(activeAttackingStarmon.def * 0.5)
+      ? Math.round(activeAttackingStarmon.def * 0.65)
       : Math.round(skillBaseAtk * (activeAttackingStarmon.battleAttackBuffTurns ? 1 + (activeAttackingStarmon.battleAttackBuffAmount || 0) : 1) * skill.damageMultiplier * voltlynxAbilityBuff * abilityCritMult);
-    if ((activeAttackingStarmon.id === 'pyrokit' || activeAttackingStarmon.avatarSeed === 'pyrokit') && abilityNum === 1 && ((enemyBurnTurns[selectedEnemyIndex] || 0) > 0 || (enemyTeam[selectedEnemyIndex]?.battleBurnTurns || 0) > 0)) dmg = Math.round(dmg * 1.75);
+    if ((activeAttackingStarmon.id === 'pyrokit' || activeAttackingStarmon.avatarSeed === 'pyrokit') && abilityNum === 1 && ((enemyBurnTurns[selectedEnemyIndex] || 0) > 0 || (enemyTeam[selectedEnemyIndex]?.battleBurnTurns || 0) > 0)) dmg = Math.round(dmg * (2.8 / skill.damageMultiplier));
     dmg = applyBurnAttackPenalty(dmg);
     if ((activeAttackingStarmon.id === 'volzard' || activeAttackingStarmon.avatarSeed === 'volzard') && abilityNum === 2) {
       setPlayerAttackDebuffs(prev => ({ ...prev, [actingStepIndex]: { percent: 0.5, turns: 4 } }));
@@ -6367,6 +6381,17 @@ export const BattleView: React.FC<Props> = ({
       detail: `Target: ${skill.targetType === 'aoe' ? 'all enemies' : enemyTeam[effectiveTarget].name}`,
     });
 
+    if (skill.id === 'bubble_shot') setEnemyFrostbiteTurns(prev => ({ ...prev, [effectiveTarget]: Math.max(prev[effectiveTarget] || 0, 1) }));
+    if (skill.id === 'lava_spurt' && Math.random() < 0.15) setEnemyBurnTurns(prev => ({ ...prev, [effectiveTarget]: Math.max(prev[effectiveTarget] || 0, 1) }));
+    if (skill.id === 'volcanic_eruption') {
+      setEnemyBurnTurns(prev => Object.fromEntries(enemyTeam.map((enemy, idx) => [idx, enemy.currentHp > 0 && Math.random() < 0.1 ? Math.max(prev[idx] || 0, 1) : prev[idx] || 0])));
+    }
+    if (skill.id === 'emp_discharge') {
+      setPlayerTeam(prev => prev.map(mon => mon.currentHp > 0
+        ? { ...mon, battleAoeDamageReduction: 0.3, battleAoeDamageReductionTurns: 2 }
+        : mon));
+    }
+
     // Check Frostmoth Absolute Zero passive:
     // Allies' Water and Wind skills have 10% chance to Frostbite enemies, halving Mana gained for 1 turn.
     const isWaterOrWindSkill = abilityElement === 'Water' || abilityElement === 'Wind' ||
@@ -6387,7 +6412,6 @@ export const BattleView: React.FC<Props> = ({
       setEnemyBurnTurns(prev => Object.fromEntries(enemyTeam.map((enemy, idx) => [idx, enemy.currentHp > 0 ? Math.max(prev[idx] || 0, 1) : prev[idx] || 0])));
     }
     if (skill.id === 'magma_impact' && Math.random() < 0.3) setEnemyBurnTurns(prev => ({ ...prev, [effectiveTarget]: Math.max(prev[effectiveTarget] || 0, 1) }));
-
     if (skill.targetType === 'aoe') {
       const livingCount = enemyTeam.filter(e => e.currentHp > 0).length;
       recordDamageDealt(abilityElement, dmg * Math.max(1, livingCount));
@@ -6414,7 +6438,10 @@ export const BattleView: React.FC<Props> = ({
           const elementalDamage = skill.targetType === 'aoe'
             ? Math.max(0, Math.round(dmg * (1 + getElementalInteractionBonus(abilityElement, [e.element, e.secondaryElement]))))
             : dmg;
-          const targetDamage = ((enemyPoisonTurns[idx] || 0) > 0 || (e.battlePoisonTurns || 0) > 0) ? Math.round(elementalDamage / 0.9) : elementalDamage;
+          const barrierAdjustedDamage = skill.targetType === 'aoe' && (e.battleAoeDamageReductionTurns || 0) > 0
+            ? Math.round(elementalDamage * (1 - (e.battleAoeDamageReduction || 0)))
+            : elementalDamage;
+          const targetDamage = ((enemyPoisonTurns[idx] || 0) > 0 || (e.battlePoisonTurns || 0) > 0) ? Math.round(barrierAdjustedDamage / 0.9) : barrierAdjustedDamage;
           const absorbed = Math.min(e.battleDecoyHp || 0, targetDamage);
           const decoyHp = Math.max(0, (e.battleDecoyHp || 0) - absorbed);
           const nextHp = Math.max(0, e.currentHp - (targetDamage - absorbed));
@@ -6739,6 +6766,9 @@ export const BattleView: React.FC<Props> = ({
           if (p.currentHp <= 0) return p;
           const personalReduction = (p.battleDamageReductionTurns || 0) > 0 ? (p.battleDamageReduction || 0) : 0;
           let unitDamage = Math.max(0, Math.round(finalDmg * (1 - personalReduction)));
+          if (isAoE && (p.battleAoeDamageReductionTurns || 0) > 0) {
+            unitDamage = Math.max(0, Math.round(unitDamage * (1 - (p.battleAoeDamageReduction || 0))));
+          }
           if (attackElement) unitDamage = Math.max(0, Math.round(unitDamage * (1 + getElementalInteractionBonus(attackElement, [p.element, p.secondaryElement]))));
           if ((playerPoisonTurns[idx] || 0) > 0) unitDamage = Math.round(unitDamage / 0.9);
           const decoyAbsorbed = Math.min(p.battleDecoyHp || 0, unitDamage);
@@ -7103,7 +7133,7 @@ export const BattleView: React.FC<Props> = ({
       sound.playSkillCast();
 
       // Check stun chance for Stone Crash
-      if (isEnemyGolem && !canCastSkill2 && Math.random() < 0.3) {
+      if (isEnemyGolem && !canCastSkill2 && Math.random() < 0.35) {
         const livingIndices = playerTeam.map((p, i) => p.currentHp > 0 ? i : -1).filter(i => i !== -1);
         if (livingIndices.length > 0) {
           const stTarget = livingIndices[Math.floor(Math.random() * livingIndices.length)];
@@ -7114,22 +7144,6 @@ export const BattleView: React.FC<Props> = ({
             unitName: attacker.name,
             actionType: 'status',
             message: `💫 Enemy ${attacker.name} stunned your ${playerTeam[stTarget]?.name}!`,
-          });
-        }
-      }
-
-      // Check stun chance for Zapwing Lightning Beak (35%)
-      if ((attacker.id === 'enemy_zapwing' || attacker.avatarSeed === 'zapwing') && skillToCast.id === 'lightning_beak' && Math.random() < 0.35) {
-        const livingIndices = playerTeam.map((p, i) => p.currentHp > 0 ? i : -1).filter(i => i !== -1);
-        if (livingIndices.length > 0) {
-          const stTarget = livingIndices[Math.floor(Math.random() * livingIndices.length)];
-          setStunnedPlayerIndices(prev => Array.from(new Set([...prev, stTarget])));
-          addBattleLog({
-            phase: 'combat',
-            source: 'enemy',
-            unitName: attacker.name,
-            actionType: 'status',
-            message: `💫 Enemy Zapwing stunned your ${playerTeam[stTarget]?.name}!`,
           });
         }
       }
@@ -7151,9 +7165,27 @@ export const BattleView: React.FC<Props> = ({
         });
       }
 
+      if (attacker.avatarSeed === 'moltenback' || attacker.id === 'enemy_moltenback') {
+        const burnTargets = skillToCast.id === 'volcanic_eruption'
+          ? playerTeam.map((mon, idx) => mon.currentHp > 0 ? idx : -1).filter(idx => idx >= 0)
+          : skillToCast.id === 'lava_spurt'
+            ? [playerTeam.findIndex(mon => mon.currentHp > 0)]
+            : [];
+        burnTargets.filter(idx => idx >= 0).forEach(idx => {
+          const chance = skillToCast.id === 'volcanic_eruption' ? 0.10 : 0.15;
+          if (Math.random() < chance) setPlayerBurnTurns(prev => ({ ...prev, [idx]: Math.max(prev[idx] || 0, 1) }));
+        });
+      }
+
       // Check Enemy Glidron Skill 2 HP sacrifice (30% current HP)
       const isEnemyGlidronSkill2 = (attacker.id === 'enemy_glidron' || attacker.avatarSeed === 'glidron') && skillToCast.id === 'gigawatt_explosion';
       const enemyGlidronSacrifice = isEnemyGlidronSkill2 ? Math.max(1, Math.round(attacker.currentHp * 0.3)) : 0;
+
+      if (skillToCast.id === 'emp_discharge') {
+        setEnemyTeam(prev => prev.map(mon => mon.currentHp > 0
+          ? { ...mon, battleAoeDamageReduction: 0.3, battleAoeDamageReductionTurns: 2 }
+          : mon));
+      }
 
       // Deduct mana from enemy and reduce Glidron HP if skill 2
       setEnemyTeam(prev =>
@@ -7411,6 +7443,10 @@ export const BattleView: React.FC<Props> = ({
     if ((next.battleDamageReductionTurns || 0) > 0) {
       next.battleDamageReductionTurns = Math.max(0, (next.battleDamageReductionTurns || 0) - 1);
       if (next.battleDamageReductionTurns === 0) next.battleDamageReduction = 0;
+    }
+    if ((next.battleAoeDamageReductionTurns || 0) > 0) {
+      next.battleAoeDamageReductionTurns = Math.max(0, (next.battleAoeDamageReductionTurns || 0) - 1);
+      if (next.battleAoeDamageReductionTurns === 0) next.battleAoeDamageReduction = 0;
     }
     if ((next.battleDefenseBuffTurns || 0) > 0) {
       next.battleDefenseBuffTurns = Math.max(0, (next.battleDefenseBuffTurns || 0) - 1);
@@ -8821,7 +8857,7 @@ export const BattleView: React.FC<Props> = ({
                 const isTideOnCooldown = isTidecrush && tidecrushCooldownTurns > 0;
                 const isCoralus = mon.id === 'coralus';
                 const isStoneGolem = mon.id === 'stone_golem' || mon.avatarSeed === 'stone_golem';
-                const isStunned = stunnedPlayerIndices.includes(idx);
+                const isStunned = stunnedPlayerIndices.includes(idx) || (mon.battleStunTurns || 0) > 0;
                 const hasTeamShield = teamShieldPoints > 0;
 
                 return (
@@ -8855,6 +8891,7 @@ export const BattleView: React.FC<Props> = ({
 
                         {/* REAL ACTIVE STATUS, BUFF & DEBUFF ICONS */}
                         {(mon.battleDecoyHp || 0) > 0 && <div className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-violet-950 border border-violet-400 text-violet-300 shadow" title="Decoy absorbs incoming damage before HP"><span className="text-[10px]">🎭</span><span className="text-[8px] font-black">Decoy: {mon.battleDecoyHp}HP</span></div>}
+                        {(mon.battleAoeDamageReductionTurns || 0) > 0 && <div className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-cyan-950 border border-cyan-400 text-cyan-200 shadow" title={`Electric Barrier: AoE damage taken −${Math.round((mon.battleAoeDamageReduction || 0) * 100)}% (${mon.battleAoeDamageReductionTurns} turns)`}><span className="text-[10px]">⚡</span><span className="text-[8px] font-black">Electric Barrier [{mon.battleAoeDamageReductionTurns}t]</span></div>}
                         {((playerBurnTurns[idx] || 0) > 0 || (mon.battleBurnTurns || 0) > 0) && <div title="Burned: 5% Max HP damage and -10% ATK" className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-orange-950 border border-orange-400 text-orange-300 shadow"><span className="text-[8px] font-black">Burned [{playerBurnTurns[idx] || mon.battleBurnTurns}t]</span></div>}
                         {((playerPoisonTurns[idx] || 0) > 0 || (mon.battlePoisonTurns || 0) > 0) && <div className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-green-950 border border-green-400 text-green-300 shadow"><span className="text-[8px] font-black">Poison [{playerPoisonTurns[idx] || mon.battlePoisonTurns}t]</span></div>}
                         {(playerAttackDebuffs[idx]?.turns || 0) > 0 && <div className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-rose-950 border border-rose-400 text-rose-300 shadow"><span className="text-[8px] font-black">ATK -{Math.round(playerAttackDebuffs[idx].percent * 100)}% [{playerAttackDebuffs[idx].turns}t]</span></div>}
@@ -9608,6 +9645,7 @@ export const BattleView: React.FC<Props> = ({
 
                         {/* REAL ACTIVE STATUS, BUFF & DEBUFF ICONS ON OPPONENTS */}
                         {(enemy.battleDecoyHp || 0) > 0 && <div className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-violet-950 border border-violet-400 text-violet-300 shadow" title="Decoy absorbs incoming damage before HP"><span className="text-[10px]">🎭</span><span className="text-[8px] font-black">Decoy: {enemy.battleDecoyHp}HP</span></div>}
+                        {(enemy.battleAoeDamageReductionTurns || 0) > 0 && <div className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-cyan-950 border border-cyan-400 text-cyan-200 shadow" title={`Electric Barrier: AoE damage taken −${Math.round((enemy.battleAoeDamageReduction || 0) * 100)}% (${enemy.battleAoeDamageReductionTurns} turns)`}><span className="text-[10px]">⚡</span><span className="text-[8px] font-black">Electric Barrier [{enemy.battleAoeDamageReductionTurns}t]</span></div>}
                         {((enemyBurnTurns[idx] || 0) > 0 || (enemy.battleBurnTurns || 0) > 0) && <div title="Burned: 5% Max HP damage and -10% ATK" className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-orange-950 border border-orange-400 text-orange-300 shadow"><span className="text-[8px] font-black">Burned [{enemyBurnTurns[idx] || enemy.battleBurnTurns}t]</span></div>}
                         {((enemyPoisonTurns[idx] || 0) > 0 || (enemy.battlePoisonTurns || 0) > 0) && <div className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-green-950 border border-green-400 text-green-300 shadow"><span className="text-[8px] font-black">Poison [{enemyPoisonTurns[idx] || enemy.battlePoisonTurns}t]</span></div>}
                         {((enemyFrostbiteTurns[idx] || 0) > 0 || (enemy.battleFrostbiteTurns || 0) > 0) && (
@@ -9630,7 +9668,7 @@ export const BattleView: React.FC<Props> = ({
                           </div>
                         )}
 
-                        {stunnedEnemyIndices.includes(idx) && (
+                        {(stunnedEnemyIndices.includes(idx) || (enemy.battleStunTurns || 0) > 0) && (
                           <div
                             className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-amber-950 border border-amber-400 text-amber-300 animate-pulse shadow"
                             title="Stunned: Skips next action"
