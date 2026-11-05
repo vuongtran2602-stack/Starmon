@@ -774,6 +774,7 @@ interface StarmonCombatant {
   battleAoeDamageReduction?: number;
   battleAoeDamageReductionTurns?: number;
   battleStunTurns?: number;
+  battleClarityTurns?: number;
   battleDefenseBuffAmount?: number;
   battleDefenseBuffTurns?: number;
   berryReserveUsed?: boolean;
@@ -1486,7 +1487,7 @@ function createDefaultStarmonsForSlot(slot: 1 | 2, inputStarmons?: any[]): Starm
       baseDef: input?.battleBaseDef || input?.def || 20,
       secondaryElement: input?.secondaryElement,
       def: input?.def || 20,
-      battleShieldPoints: 0,
+      battleShieldPoints: input?.battleShieldPoints || 0,
       battleDecoyHp: typeof input?.battleDecoyHp === 'number' ? input.battleDecoyHp : ((input?.id === 'manta1' || input?.avatarSeed === 'manta1') ? Math.max(1, Math.round(maxHp * 0.3)) : 0),
       battleDecoyTurns: input?.battleDecoyTurns || 0,
       battleAttackBuffAmount: input?.battleAttackBuffAmount || 0,
@@ -1506,6 +1507,7 @@ function createDefaultStarmonsForSlot(slot: 1 | 2, inputStarmons?: any[]): Starm
       battleAoeDamageReduction: 0,
       battleAoeDamageReductionTurns: 0,
       battleStunTurns: input?.battleStunTurns || 0,
+      battleClarityTurns: input?.battleClarityTurns || 0,
       battleDefenseBuffAmount: 0,
       battleDefenseBuffTurns: 0,
       berryReserveUsed: false,
@@ -1827,13 +1829,14 @@ phaseDeadlineWatchdog.unref?.();
 function startTurn(state: PvpMatchState, roomCode: string, n: number) {
   for (const slot of [1, 2] as const) {
     for (const starmon of state.players[slot].starmons) {
-      if (starmon.battleDecoyHp && starmon.battleDecoyHp > 0 && !(starmon.battleDecoyTurns > 0)) starmon.battleDecoyHp = 0;
+      if (starmon.battleDecoyHp && starmon.battleDecoyHp > 0 && !(starmon.battleDecoyTurns > 0) && !['trojan_flare', 'pumpyre'].includes(starmon.id || '') && !['trojan_flare', 'pumpyre'].includes(starmon.avatarSeed || '')) starmon.battleDecoyHp = 0;
       starmon.battleTauntTurns = Math.max(0, (starmon.battleTauntTurns || 0) - 1);
       if ((starmon.battleDecoyTurns || 0) > 0) {
         starmon.battleDecoyTurns = Math.max(0, starmon.battleDecoyTurns - 1);
         if (starmon.battleDecoyTurns === 0) starmon.battleDecoyHp = 0;
       }
-      if ((starmon.battleBurnTurns || 0) > 0 || (starmon.battlePoisonTurns || 0) > 0) {
+      const clarityProtects = (starmon.id === 'trojan_flare' || starmon.avatarSeed === 'trojan_flare') && (starmon.battleClarityTurns || 0) > 0;
+      if (!clarityProtects && ((starmon.battleBurnTurns || 0) > 0 || (starmon.battlePoisonTurns || 0) > 0)) {
         const damageOverTimeCount = (starmon.battleBurnTurns || 0) > 0 ? 1 : 0;
         const poisonCount = (starmon.battlePoisonTurns || 0) > 0 ? 1 : 0;
         const statusDamage = (damageOverTimeCount + poisonCount) * Math.max(5, Math.round(starmon.maxHp * 0.05));
@@ -1845,6 +1848,7 @@ function startTurn(state: PvpMatchState, roomCode: string, n: number) {
       }
       starmon.battleSilenceTurns = Math.max(0, (starmon.battleSilenceTurns || 0) - 1);
       starmon.battleFrostbiteTurns = Math.max(0, (starmon.battleFrostbiteTurns || 0) - 1);
+      starmon.battleClarityTurns = Math.max(0, (starmon.battleClarityTurns || 0) - 1);
       starmon.battleAttackDebuffTurns = Math.max(0, (starmon.battleAttackDebuffTurns || 0) - 1);
       if (starmon.battleAttackDebuffTurns === 0) starmon.battleAttackDebuffPercent = 0;
       if ((starmon.battleAttackBuffTurns || 0) > 0) {
@@ -2475,7 +2479,7 @@ function getAbility(
       id: s2?.id || 'skill2',
       name: s2?.name || payload?.skillName || 'Skill 2',
       cost: typeof s2?.manaCost === 'number' ? s2.manaCost : (typeof payload?.manaCost === 'number' ? payload.manaCost : 50),
-      damageMultiplier: typeof s2?.damageMultiplier === 'number' ? s2.damageMultiplier : 2.0,
+      damageMultiplier: (s2?.id === 'gigawatt_explosion' && (starmon.id === 'glidron' || starmon.avatarSeed === 'glidron')) ? 3.0 : typeof s2?.damageMultiplier === 'number' ? s2.damageMultiplier : 2.0,
       targetType: s2?.targetType || (payload?.isAoE ? 'aoe' : 'single'),
     };
   }
@@ -2595,37 +2599,41 @@ function onStarmonAction(
   }
 
   if ((starmon.battleStunTurns || 0) > 0) {
-    starmon.battleStunTurns = 0;
-    state.actionCommittedStep = state.step;
-    if (state.stepTimerHandle) clearTimeout(state.stepTimerHandle);
-    const snapshot = serializeBoard(state);
-    broadcastToRoom(roomCode, {
-      type: 'starmon_action_resolved',
-      phase: state.phase,
-      turn: state.turn,
-      subPhase: state.subPhase,
-      attackerSlot: state.attackerSlot,
-      targetSlot: state.targetSlot,
-      starmonIndex,
-      actionType: 'stunned',
-      payload: { attackerName: starmon.name, skillName: 'Stunned', abilityNum: 1 },
-      damage: 0,
-      effectLines: [`${starmon.name} is Stunned and skips this action`],
-      passiveEvents: [],
-      targetHpAfter: 0,
-      attackerManaAfter: starmon.mana,
-      board: state.board,
-      boardSnapshot: snapshot,
-      boardVersion: state.boardVersion,
-      version: state.boardVersion,
-      p1_hp: state.players[1].starmons.map(s => s.hp),
-      p2_hp: state.players[2].starmons.map(s => s.hp),
-      p1_mana: state.players[1].starmons.map(s => s.mana),
-      p2_mana: state.players[2].starmons.map(s => s.mana),
-      state: serializeMatchState(state),
-    });
-    state.stepTimerHandle = setTimeout(() => endStep(state, roomCode), 700);
-    return;
+    if ((starmon.battleClarityTurns || 0) > 0 && (starmon.id === 'trojan_flare' || starmon.avatarSeed === 'trojan_flare')) {
+      starmon.battleStunTurns = 0;
+    } else {
+      starmon.battleStunTurns = 0;
+      state.actionCommittedStep = state.step;
+      if (state.stepTimerHandle) clearTimeout(state.stepTimerHandle);
+      const snapshot = serializeBoard(state);
+      broadcastToRoom(roomCode, {
+        type: 'starmon_action_resolved',
+        phase: state.phase,
+        turn: state.turn,
+        subPhase: state.subPhase,
+        attackerSlot: state.attackerSlot,
+        targetSlot: state.targetSlot,
+        starmonIndex,
+        actionType: 'stunned',
+        payload: { attackerName: starmon.name, skillName: 'Stunned', abilityNum: 1 },
+        damage: 0,
+        effectLines: [`${starmon.name} is Stunned and skips this action`],
+        passiveEvents: [],
+        targetHpAfter: 0,
+        attackerManaAfter: starmon.mana,
+        board: state.board,
+        boardSnapshot: snapshot,
+        boardVersion: state.boardVersion,
+        version: state.boardVersion,
+        p1_hp: state.players[1].starmons.map(s => s.hp),
+        p2_hp: state.players[2].starmons.map(s => s.hp),
+        p1_mana: state.players[1].starmons.map(s => s.mana),
+        p2_mana: state.players[2].starmons.map(s => s.mana),
+        state: serializeMatchState(state),
+      });
+      state.stepTimerHandle = setTimeout(() => endStep(state, roomCode), 700);
+      return;
+    }
   }
 
   const target = state.players[state.targetSlot];
@@ -2637,7 +2645,7 @@ function onStarmonAction(
   let targetIdx = typeof payload.targetStarmonIndex === 'number'
     ? payload.targetStarmonIndex
     : (aliveTargets[0] ?? 0);
-  const taunterIndex = target.starmons.findIndex(s => s.hp > 0 && (s.battleTauntTurns || 0) > 0);
+  const taunterIndex = target.starmons.findIndex(s => s.hp > 0 && (s.battleTauntTurns || 0) > 0 && !((s.id === 'trojan_flare' || s.avatarSeed === 'trojan_flare') && (s.battleClarityTurns || 0) > 0));
   if (ability?.targetType !== 'aoe' && !payload.isAoE && taunterIndex >= 0) targetIdx = taunterIndex;
 
   let damage = 0;
@@ -2660,8 +2668,9 @@ function onStarmonAction(
       targetIdx = aliveTargets[0];
     }
     payload.targetStarmonIndex = targetIdx;
-    const isSupportAbility = ability.id === 'fluffy_hug' || ability.id === 'winged_fortress' || ability.id === 'antler_blessing' || ability.id === 'flaming_decoy' || ability.id === 'soothing_aura' || ability.id === 'petal_dance';
+    const isSupportAbility = ability.id === 'fluffy_hug' || ability.id === 'winged_fortress' || ability.id === 'antler_blessing' || ability.id === 'flaming_decoy' || ability.id === 'soothing_aura' || ability.id === 'petal_dance' || ability.id === 'lotus_rain' || ability.id === 'bubble_fortress' || ability.id === 'tactical_decoy' || (ability.id === 'gigawatt_explosion' && (starmon.id === 'glidron' || starmon.avatarSeed === 'glidron'));
     damage = isSupportAbility ? 0 : calcAbilityDamage(starmon, ability, targetIdx, payload);
+    if (ability.id === 'gigawatt_explosion' && !isSupportAbility) damage = Math.round(starmon.baseAtk * 3.0);
   } else {
     return reject('action không hợp lệ');
   }
@@ -2669,7 +2678,7 @@ function onStarmonAction(
   const effectLines: string[] = [];
   const passiveEvents: Array<{ starmonName: string; passiveName: string; line: string }> = [];
   const damageElement = ability?.id === 'shield_bash' ? 'Steel' : (starmon.element || 'Physical');
-  if (actionType === 'use_ability' && damage > 0 && !['fluffy_hug', 'winged_fortress', 'antler_blessing', 'flaming_decoy', 'soothing_aura', 'petal_dance'].includes(ability?.id || '')) {
+  if (actionType === 'use_ability' && damage > 0 && !['fluffy_hug', 'winged_fortress', 'antler_blessing', 'flaming_decoy', 'soothing_aura', 'petal_dance', 'lotus_rain', 'bubble_fortress', 'tactical_decoy'].includes(ability?.id || '')) {
     effectLines.push(`Deals ${damage} ${damageElement} DMG`);
   }
 
@@ -2729,14 +2738,22 @@ function onStarmonAction(
           ? 0
           : Math.max(0, currentMana - ability.cost);
         starmon.currentMana = starmon.mana;
-        if (ability.id === 'emp_discharge') {
+        if (ability.id === 'siege_charge' && (starmon.id === 'trojan_flare' || starmon.avatarSeed === 'trojan_flare')) {
+          starmon.battleClarityTurns = 1;
+          starmon.battleBurnTurns = 0;
+          starmon.battlePoisonTurns = 0;
+          starmon.battleFrostbiteTurns = 0;
+          starmon.battleStunTurns = 0;
+          effectLines.push('Clarity: immune to Stun, Frostbite, Burned, Poison, and Taunt for 1 turn');
+        }
+        if (ability.id === 'emp_discharge' || ability.id === 'gigawatt_explosion') {
           attacker.starmons.forEach(ally => {
             if (ally.hp > 0) {
               ally.battleAoeDamageReduction = 0.3;
               ally.battleAoeDamageReductionTurns = 2;
             }
           });
-          effectLines.push('Electric Barrier: allies take 30% less damage from enemy AoE abilities for 2 turns');
+          effectLines.push('Team Guard: allies take 30% less damage from enemy AoE abilities for 2 turns');
         }
       }
 
@@ -2778,9 +2795,24 @@ function onStarmonAction(
         starmon.def += defBonus;
         effectLines.push(`Gain Taunt and ${defBonus} DEF for 3 turns`);
       } else if (ability?.id === 'flaming_decoy') {
-        starmon.battleDecoyHp = Math.max(1, Math.round(starmon.maxHp * 0.4));
-        starmon.battleDecoyTurns = 1;
-        effectLines.push(`Create Decoy: ${starmon.battleDecoyHp}HP for 1 turn`);
+        starmon.battleDecoyHp = Math.max(1, Math.round(starmon.baseAtk * 1.8));
+        starmon.battleDecoyTurns = 0;
+        effectLines.push(`Create Decoy: ${starmon.battleDecoyHp}HP until broken (10% chance to Burn attackers)`);
+      } else if (ability?.id === 'tactical_decoy') {
+        const currentAtk = starmon.baseAtk
+          * ((starmon.battleAttackDebuffTurns || 0) > 0 ? 1 - (starmon.battleAttackDebuffPercent || 0) : 1)
+          * ((starmon.battleAttackBuffTurns || 0) > 0 ? 1 + (starmon.battleAttackBuffAmount || 0) : 1);
+        starmon.battleDecoyHp = Math.max(1, Math.round(currentAtk * 2.2));
+        starmon.battleDecoyTurns = 0;
+        effectLines.push(`Create Decoy: ${starmon.battleDecoyHp}HP until broken`);
+      } else if (ability?.id === 'bubble_fortress') {
+        const shield = Math.max(1, Math.round(starmon.maxHp * 0.2));
+        attacker.starmons.forEach(ally => { if (ally.hp > 0) { ally.battleShieldPoints = shield; ally.battleAoeDamageReduction = 0.3; ally.battleAoeDamageReductionTurns = 3; } });
+        effectLines.push(`Team Shield ${shield} and Team Guard (-30% AoE damage) for 3 turns`);
+      } else if (ability?.id === 'lotus_rain') {
+        const healed = Math.round(starmon.baseAtk * 2.5);
+        attacker.starmons.forEach(ally => { if (ally.hp > 0) ally.hp = Math.min(ally.maxHp, ally.hp + healed); });
+        effectLines.push(`Restore ${healed} HP to each ally`);
       } else if (ability?.id === 'soothing_aura') {
         attacker.starmons.forEach(ally => { if (ally.hp > 0) { ally.battleDamageReduction = 0.15; ally.battleDamageReductionTurns = 1; } });
         effectLines.push('All allies take 15% less damage for 1 turn');
@@ -2806,6 +2838,11 @@ function onStarmonAction(
         }
       } else {
         const applyHit = (ts: StarmonCombatant) => {
+          if ((ts.id === 'trojan_flare' || ts.avatarSeed === 'trojan_flare') && (ts.battleClarityTurns || 0) > 0) {
+            ts.battleBurnTurns = 0;
+            ts.battlePoisonTurns = 0;
+            ts.battleFrostbiteTurns = 0;
+          }
           if (ability?.id === 'ear_whip' && ts.index === targetIdx) {
             ts.battleShieldPoints = 0;
             effectLines.push('Remove target Shield');
@@ -2813,9 +2850,10 @@ function onStarmonAction(
           const hpBefore = ts.hp;
           let hitDamage = Math.round(damage * (1 - ((ts.battleDamageReductionTurns || 0) > 0 ? (ts.battleDamageReduction || 0) : 0)));
           const isAoeHit = actionType === 'use_ability' && (ability?.targetType === 'aoe' || payload.isAoE);
-          if (isAoeHit && (ts.battleAoeDamageReductionTurns || 0) > 0) {
-            hitDamage = Math.round(hitDamage * (1 - (ts.battleAoeDamageReduction || 0)));
-          }
+          const teamGuard = isAoeHit
+            ? (target.starmons.find(ally => ally.hp > 0 && (ally.battleAoeDamageReductionTurns || 0) > 0)?.battleAoeDamageReduction || 0)
+            : 0;
+          if (teamGuard > 0) hitDamage = Math.round(hitDamage * (1 - teamGuard));
           if ((starmon.battleBurnTurns || 0) > 0) hitDamage = Math.round(hitDamage * 0.9);
           if (ts.id === 'dandylmane' && (actionType === 'physical_attack' || ability?.targetType !== 'aoe')) hitDamage = Math.round(hitDamage * 0.8);
           if ((ts.battlePoisonTurns || 0) > 0) hitDamage = Math.round(hitDamage / 0.9);
@@ -2843,7 +2881,7 @@ function onStarmonAction(
               effectLines.push(`Magma Shell: reflect ${reflected} Fire DMG and Burn attacker (-10% ATK) for 1 turn`);
             }
           }
-          if (ability?.id === 'venom_spark') ts.battlePoisonTurns = Math.max(ts.battlePoisonTurns || 0, 1);
+          if (ability?.id === 'venom_spark' && !((ts.id === 'trojan_flare' || ts.avatarSeed === 'trojan_flare') && (ts.battleClarityTurns || 0) > 0)) ts.battlePoisonTurns = Math.max(ts.battlePoisonTurns || 0, 1);
           if ((starmon.id === 'vinedra' || starmon.avatarSeed === 'vinedra') && Math.random() < 0.35) ts.battlePoisonTurns = Math.max(ts.battlePoisonTurns || 0, 2);
           if ((starmon.id === 'pyrokit' || starmon.avatarSeed === 'pyrokit') && Math.random() < 0.35) ts.battleBurnTurns = Math.max(ts.battleBurnTurns || 0, 1);
           if (ability?.id === 'inferno_eruption') ts.battleBurnTurns = Math.max(ts.battleBurnTurns || 0, 1);
@@ -2851,7 +2889,7 @@ function onStarmonAction(
           if (ability?.id === 'lava_spurt' && Math.random() < 0.15) ts.battleBurnTurns = Math.max(ts.battleBurnTurns || 0, 1);
           if (ability?.id === 'volcanic_eruption' && Math.random() < 0.1) ts.battleBurnTurns = Math.max(ts.battleBurnTurns || 0, 1);
           if (ability?.id === 'bubble_shot') ts.battleFrostbiteTurns = Math.max(ts.battleFrostbiteTurns || 0, 1);
-          if (ability?.id === 'stone_crash_golem' && Math.random() < 0.35) ts.battleStunTurns = Math.max(ts.battleStunTurns || 0, 1);
+          if (ability?.id === 'stone_crash_golem' && Math.random() < 0.35 && !((ts.id === 'trojan_flare' || ts.avatarSeed === 'trojan_flare') && (ts.battleClarityTurns || 0) > 0)) ts.battleStunTurns = Math.max(ts.battleStunTurns || 0, 1);
           if (ability?.id === 'plasma_ray') ts.battleSilenceTurns = Math.max(ts.battleSilenceTurns || 0, 1);
           if (ability?.id === 'supersonic_burst' && Math.random() < 0.1) ts.battleSilenceTurns = Math.max(ts.battleSilenceTurns || 0, 1);
           if (ability?.id === 'hydro_cyclone') {
@@ -2862,6 +2900,16 @@ function onStarmonAction(
           const hasFrostmoth = attacker.starmons.some(mon => mon.hp > 0 && (mon.id === 'frostmoth' || mon.avatarSeed === 'frostmoth'));
           const waterOrWindSkill = starmon.element === 'Water' || starmon.element === 'Wind' || starmon.secondaryElement === 'Water' || starmon.secondaryElement === 'Wind';
           if (actionType === 'use_ability' && hasFrostmoth && waterOrWindSkill && Math.random() < 0.1) ts.battleFrostbiteTurns = Math.max(ts.battleFrostbiteTurns || 0, 1);
+          if (decoyAbsorbed > 0 && (ts.id === 'pumpyre' || ts.avatarSeed === 'pumpyre') && Math.random() < 0.1) {
+            starmon.battleBurnTurns = Math.max(starmon.battleBurnTurns || 0, 1);
+            effectLines.push(`Flaming Decoy burns ${starmon.name} for 1 turn`);
+          }
+          if ((ts.id === 'trojan_flare' || ts.avatarSeed === 'trojan_flare') && (ts.battleClarityTurns || 0) > 0) {
+            ts.battleBurnTurns = 0;
+            ts.battlePoisonTurns = 0;
+            ts.battleFrostbiteTurns = 0;
+            ts.battleStunTurns = 0;
+          }
           if (starmon.id === 'volzard' || starmon.avatarSeed === 'volzard') {
             const manaDrain = actionType === 'physical_attack' || ability?.targetType !== 'aoe' ? 8 : 4;
             ts.mana = Math.max(0, (ts.mana ?? ts.currentMana ?? 0) - manaDrain);

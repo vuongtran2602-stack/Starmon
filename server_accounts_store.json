@@ -212,7 +212,7 @@
   "google_axejohk": {
     "username": "Player",
     "googleId": "google_axejohk",
-    "createdAt": "2026-10-14T10:04:38.600Z",
+    "createdAt": "2026-10-14T10:04:38.6Z",
     "lastPlayedAt": "2026-10-26T17:22:23.247Z",
     "quests": [
       {
@@ -896,11 +896,11 @@
         "skill2": {
           "id": "bubble_fortress",
           "name": "Bubble Fortress",
-          "description": "Creates a durable water barrier absorbing damage for the entire party lasting for 3 turns.",
+          "description": "Creates a durable water barrier absorbing damage for the entire party. Grants a Shield equal to 20% of user's max HP and Team Guard effect for 3 turns (All allies take 30% less damage from AoE abilities).",
           "manaCost": 70,
           "damageMultiplier": 0.5,
           "targetType": "aoe",
-          "statusEffect": "Team Shield (3 turns)",
+          "statusEffect": "Shield (20% Max HP) & Team Guard (3 turns; -30% AoE damage)",
           "cooldownTurns": 3
         },
         "starmonClass": "Tank 3",
@@ -1136,11 +1136,10 @@
         "skill2": {
           "id": "gigawatt_explosion",
           "name": "Giga-Watt Explosion",
-          "description": "Unleashes an overwhelming storm shockwave dealing 320% AoE Electric DMG with 1-turn Stun, sacrificing 30% of Glidron’s current HP.",
+          "description": "Deals 300% AoE Electric DMG. Sacrifices 30% of Glidron’s current HP. Grants Team Guard effect for 2 turns (All allies take 30% less damage from AoE abilities).",
           "manaCost": 125,
-          "damageMultiplier": 3.2,
-          "targetType": "aoe",
-          "statusEffect": "Stun"
+          "damageMultiplier": 3,
+          "targetType": "aoe"
         },
         "starmonClass": "Attacker 2",
         "battleBaseDef": 24,
@@ -1391,11 +1390,11 @@
         "skill2": {
           "id": "lotus_rain",
           "name": "Lotus Rain",
-          "description": "Restores 160 HP to all allies and cleanses debuffs.",
+          "description": "Restores HP to all allies equal to 250% of user's ATK.",
           "manaCost": 70,
           "damageMultiplier": 0,
           "targetType": "aoe",
-          "statusEffect": "Party Heal"
+          "statusEffect": "Party Heal (250% ATK)"
         },
         "starmonClass": "Support 1 (Caster Support)",
         "battleBaseDef": 48,
@@ -1436,10 +1435,11 @@
         "skill2": {
           "id": "emp_discharge",
           "name": "EMP Discharge",
-          "description": "Blasts enemies with 210% AoE Electric & Metal DMG.",
+          "description": "Blasts enemies with 210% AoE Electric & Metal DMG. Grants Team Guard effect for 2 turns (All allies take 30% less damage from AoE abilities).",
           "manaCost": 60,
           "damageMultiplier": 2.1,
-          "targetType": "aoe"
+          "targetType": "aoe",
+          "statusEffect": "Team Guard (2 turns; -30% AoE damage)"
         },
         "starmonClass": "Support 1 (Caster Support)",
         "battleBaseDef": 48,
@@ -1665,11 +1665,11 @@
         "skill1": {
           "id": "thorn_whip",
           "name": "Thorn Whip",
-          "description": "Vinedra lashes out with its thorny tail, dealing 70% Earth Damage. Gains +20% critical chance for attacks and abilities. If Vinedra has 25 or more mana remaining, it can use Thorn Whip again this turn!",
+          "description": "Deals 70% Earth DMG and gains +20% Critical Chance for attacks and abilities. If Vinedra has at least 25 Mana remaining, it can use Thorn Whip again this turn.",
           "manaCost": 25,
           "damageMultiplier": 0.7,
           "targetType": "single",
-          "statusEffect": "Crit +20% (Multi-cast if Mana >= 25)"
+          "statusEffect": "Crit +20%; repeat cast if Mana >= 25"
         },
         "skill2": {
           "id": "poisonous_burst",
@@ -1780,13 +1780,13 @@
         "unlocked": false,
         "passive": {
           "name": "Infiltration Strike",
-          "description": "Trojan Flare gains an additional 10% ATK (calculated from its base ATK) and Piercing whenever a Shield is currently active on it. This attack bonus immediately disappears when the shield expires or is broken.",
+          "description": "While having a Shield or a Decoy, Trojan Flare gains 10% ATK (based on Base ATK) and Piercing. The ATK bonus disappears when the Shield expires or breaks, or the Decoy breaks.",
           "tag": "Shield ATK & Piercing"
         },
         "skill1": {
           "id": "siege_charge",
           "name": "Siege Charge",
-          "description": "Gain Clarity (Immune to stun, froze bite, burn, poison) and Resonance effect for 1 turn (Resonance is applied in the next turn, not this).",
+          "description": "Gains Clarity, becoming immune to Stun, Frostbite, Burned, Poison, and Taunt for 1 turn. Gains Resonance for 1 turn, starting next turn.",
           "manaCost": 0,
           "cooldownTurns": 3,
           "damageMultiplier": 1,
@@ -1797,11 +1797,11 @@
         "skill2": {
           "id": "tactical_decoy",
           "name": "Tactical Decoy",
-          "description": "Gain a shield equal to 220% of its current ATK (This shield does not expire and can only be broken via taking DMG).",
+          "description": "Gains a Decoy with HP value equal to 220% of user's current ATK. This Decoy does not expire and can only be broken by taking enough damage (Broken when Decoy's HP value is down to 0).",
           "manaCost": 70,
           "damageMultiplier": 0,
           "targetType": "self",
-          "statusEffect": "Permanent 220% ATK Shield"
+          "statusEffect": "Permanent Decoy (220% current ATK)"
         },
         "starmonClass": "Warrior 3",
         "battleBaseDef": 28,
@@ -2073,9 +2073,9 @@
         "role": "Guardian",
         "level": 1,
         "cards": 0,
-        "baseAtk": 50,
-        "maxHp": 500,
-        "def": 58,
+        "baseAtk": 42,
+        "maxHp": 590,
+        "def": 40,
         "currentHp": 500,
         "currentMana": 20,
         "maxMana": 200,
@@ -2121,8 +2121,8 @@
           "statusEffect": "Sun Field (3 turns): Fire +20%, Water -20%, Khepri ATK +20%, Desert Shroud activated",
           "cooldownTurns": 3
         },
-        "battleBaseDef": 58,
-        "cp": 1604,
+        "battleBaseDef": 40,
+        "cp": 1404,
         "isDaPhucVersion": false
       },
       {
@@ -2403,11 +2403,11 @@
         "skill2": {
           "id": "bubble_fortress",
           "name": "Bubble Fortress",
-          "description": "Creates a durable water barrier absorbing damage for the entire party lasting for 3 turns.",
+          "description": "Creates a durable water barrier absorbing damage for the entire party. Grants a Shield equal to 20% of user's max HP and Team Guard effect for 3 turns (All allies take 30% less damage from AoE abilities).",
           "manaCost": 70,
           "damageMultiplier": 0.5,
           "targetType": "aoe",
-          "statusEffect": "Team Shield (3 turns)",
+          "statusEffect": "Shield (20% Max HP) & Team Guard (3 turns; -30% AoE damage)",
           "cooldownTurns": 3
         },
         "starmonClass": "Tank 3",
@@ -2643,11 +2643,10 @@
         "skill2": {
           "id": "gigawatt_explosion",
           "name": "Giga-Watt Explosion",
-          "description": "Unleashes an overwhelming storm shockwave dealing 320% AoE Electric DMG with 1-turn Stun, sacrificing 30% of Glidron’s current HP.",
+          "description": "Deals 300% AoE Electric DMG. Sacrifices 30% of Glidron’s current HP. Grants Team Guard effect for 2 turns (All allies take 30% less damage from AoE abilities).",
           "manaCost": 125,
-          "damageMultiplier": 3.2,
-          "targetType": "aoe",
-          "statusEffect": "Stun"
+          "damageMultiplier": 3,
+          "targetType": "aoe"
         },
         "starmonClass": "Attacker 2",
         "battleBaseDef": 24,
@@ -2898,11 +2897,11 @@
         "skill2": {
           "id": "lotus_rain",
           "name": "Lotus Rain",
-          "description": "Restores 160 HP to all allies and cleanses debuffs.",
+          "description": "Restores HP to all allies equal to 250% of user's ATK.",
           "manaCost": 70,
           "damageMultiplier": 0,
           "targetType": "aoe",
-          "statusEffect": "Party Heal"
+          "statusEffect": "Party Heal (250% ATK)"
         },
         "starmonClass": "Support 1 (Caster Support)",
         "battleBaseDef": 48,
@@ -2943,10 +2942,11 @@
         "skill2": {
           "id": "emp_discharge",
           "name": "EMP Discharge",
-          "description": "Blasts enemies with 210% AoE Electric & Metal DMG.",
+          "description": "Blasts enemies with 210% AoE Electric & Metal DMG. Grants Team Guard effect for 2 turns (All allies take 30% less damage from AoE abilities).",
           "manaCost": 60,
           "damageMultiplier": 2.1,
-          "targetType": "aoe"
+          "targetType": "aoe",
+          "statusEffect": "Team Guard (2 turns; -30% AoE damage)"
         },
         "starmonClass": "Support 1 (Caster Support)",
         "battleBaseDef": 48,
@@ -3172,11 +3172,11 @@
         "skill1": {
           "id": "thorn_whip",
           "name": "Thorn Whip",
-          "description": "Vinedra lashes out with its thorny tail, dealing 70% Earth Damage. Gains +20% critical chance for attacks and abilities. If Vinedra has 25 or more mana remaining, it can use Thorn Whip again this turn!",
+          "description": "Deals 70% Earth DMG and gains +20% Critical Chance for attacks and abilities. If Vinedra has at least 25 Mana remaining, it can use Thorn Whip again this turn.",
           "manaCost": 25,
           "damageMultiplier": 0.7,
           "targetType": "single",
-          "statusEffect": "Crit +20% (Multi-cast if Mana >= 25)"
+          "statusEffect": "Crit +20%; repeat cast if Mana >= 25"
         },
         "skill2": {
           "id": "poisonous_burst",
@@ -3287,13 +3287,13 @@
         "unlocked": false,
         "passive": {
           "name": "Infiltration Strike",
-          "description": "Trojan Flare gains an additional 10% ATK (calculated from its base ATK) and Piercing whenever a Shield is currently active on it. This attack bonus immediately disappears when the shield expires or is broken.",
+          "description": "While having a Shield or a Decoy, Trojan Flare gains 10% ATK (based on Base ATK) and Piercing. The ATK bonus disappears when the Shield expires or breaks, or the Decoy breaks.",
           "tag": "Shield ATK & Piercing"
         },
         "skill1": {
           "id": "siege_charge",
           "name": "Siege Charge",
-          "description": "Gain Clarity (Immune to stun, froze bite, burn, poison) and Resonance effect for 1 turn (Resonance is applied in the next turn, not this).",
+          "description": "Gains Clarity, becoming immune to Stun, Frostbite, Burned, Poison, and Taunt for 1 turn. Gains Resonance for 1 turn, starting next turn.",
           "manaCost": 0,
           "cooldownTurns": 3,
           "damageMultiplier": 1,
@@ -3304,11 +3304,11 @@
         "skill2": {
           "id": "tactical_decoy",
           "name": "Tactical Decoy",
-          "description": "Gain a shield equal to 220% of its current ATK (This shield does not expire and can only be broken via taking DMG).",
+          "description": "Gains a Decoy with HP value equal to 220% of user's current ATK. This Decoy does not expire and can only be broken by taking enough damage (Broken when Decoy's HP value is down to 0).",
           "manaCost": 70,
           "damageMultiplier": 0,
           "targetType": "self",
-          "statusEffect": "Permanent 220% ATK Shield"
+          "statusEffect": "Permanent Decoy (220% current ATK)"
         },
         "starmonClass": "Warrior 3",
         "battleBaseDef": 28,
@@ -3580,9 +3580,9 @@
         "role": "Guardian",
         "level": 1,
         "cards": 0,
-        "baseAtk": 50,
-        "maxHp": 500,
-        "def": 58,
+        "baseAtk": 42,
+        "maxHp": 590,
+        "def": 40,
         "currentHp": 500,
         "currentMana": 20,
         "maxMana": 200,
@@ -3628,8 +3628,8 @@
           "statusEffect": "Sun Field (3 turns): Fire +20%, Water -20%, Khepri ATK +20%, Desert Shroud activated",
           "cooldownTurns": 3
         },
-        "battleBaseDef": 58,
-        "cp": 1604,
+        "battleBaseDef": 40,
+        "cp": 1404,
         "isDaPhucVersion": false
       },
       {
@@ -4557,11 +4557,11 @@
         "skill2": {
           "id": "bubble_fortress",
           "name": "Bubble Fortress",
-          "description": "Creates a durable water barrier absorbing damage for the entire party lasting for 3 turns.",
+          "description": "Creates a durable water barrier absorbing damage for the entire party. Grants a Shield equal to 20% of user's max HP and Team Guard effect for 3 turns (All allies take 30% less damage from AoE abilities).",
           "manaCost": 70,
           "damageMultiplier": 0.5,
           "targetType": "aoe",
-          "statusEffect": "Team Shield (3 turns)",
+          "statusEffect": "Shield (20% Max HP) & Team Guard (3 turns; -30% AoE damage)",
           "cooldownTurns": 3
         },
         "starmonClass": "Tank 3",
@@ -4797,11 +4797,10 @@
         "skill2": {
           "id": "gigawatt_explosion",
           "name": "Giga-Watt Explosion",
-          "description": "Unleashes an overwhelming storm shockwave dealing 320% AoE Electric DMG with 1-turn Stun, sacrificing 30% of Glidron’s current HP.",
+          "description": "Deals 300% AoE Electric DMG. Sacrifices 30% of Glidron’s current HP. Grants Team Guard effect for 2 turns (All allies take 30% less damage from AoE abilities).",
           "manaCost": 125,
-          "damageMultiplier": 3.2,
-          "targetType": "aoe",
-          "statusEffect": "Stun"
+          "damageMultiplier": 3,
+          "targetType": "aoe"
         },
         "starmonClass": "Attacker 2",
         "battleBaseDef": 24,
@@ -5052,11 +5051,11 @@
         "skill2": {
           "id": "lotus_rain",
           "name": "Lotus Rain",
-          "description": "Restores 160 HP to all allies and cleanses debuffs.",
+          "description": "Restores HP to all allies equal to 250% of user's ATK.",
           "manaCost": 70,
           "damageMultiplier": 0,
           "targetType": "aoe",
-          "statusEffect": "Party Heal"
+          "statusEffect": "Party Heal (250% ATK)"
         },
         "starmonClass": "Support 1 (Caster Support)",
         "battleBaseDef": 48,
@@ -5097,10 +5096,11 @@
         "skill2": {
           "id": "emp_discharge",
           "name": "EMP Discharge",
-          "description": "Blasts enemies with 210% AoE Electric & Metal DMG.",
+          "description": "Blasts enemies with 210% AoE Electric & Metal DMG. Grants Team Guard effect for 2 turns (All allies take 30% less damage from AoE abilities).",
           "manaCost": 60,
           "damageMultiplier": 2.1,
-          "targetType": "aoe"
+          "targetType": "aoe",
+          "statusEffect": "Team Guard (2 turns; -30% AoE damage)"
         },
         "starmonClass": "Support 1 (Caster Support)",
         "battleBaseDef": 48,
@@ -5326,11 +5326,11 @@
         "skill1": {
           "id": "thorn_whip",
           "name": "Thorn Whip",
-          "description": "Vinedra lashes out with its thorny tail, dealing 70% Earth Damage. Gains +20% critical chance for attacks and abilities. If Vinedra has 25 or more mana remaining, it can use Thorn Whip again this turn!",
+          "description": "Deals 70% Earth DMG and gains +20% Critical Chance for attacks and abilities. If Vinedra has at least 25 Mana remaining, it can use Thorn Whip again this turn.",
           "manaCost": 25,
           "damageMultiplier": 0.7,
           "targetType": "single",
-          "statusEffect": "Crit +20% (Multi-cast if Mana >= 25)"
+          "statusEffect": "Crit +20%; repeat cast if Mana >= 25"
         },
         "skill2": {
           "id": "poisonous_burst",
@@ -5441,13 +5441,13 @@
         "unlocked": true,
         "passive": {
           "name": "Infiltration Strike",
-          "description": "Trojan Flare gains an additional 10% ATK (calculated from its base ATK) and Piercing whenever a Shield is currently active on it. This attack bonus immediately disappears when the shield expires or is broken.",
+          "description": "While having a Shield or a Decoy, Trojan Flare gains 10% ATK (based on Base ATK) and Piercing. The ATK bonus disappears when the Shield expires or breaks, or the Decoy breaks.",
           "tag": "Shield ATK & Piercing"
         },
         "skill1": {
           "id": "siege_charge",
           "name": "Siege Charge",
-          "description": "Gain Clarity (Immune to stun, froze bite, burn, poison) and Resonance effect for 1 turn (Resonance is applied in the next turn, not this).",
+          "description": "Gains Clarity, becoming immune to Stun, Frostbite, Burned, Poison, and Taunt for 1 turn. Gains Resonance for 1 turn, starting next turn.",
           "manaCost": 0,
           "cooldownTurns": 3,
           "damageMultiplier": 1,
@@ -5458,11 +5458,11 @@
         "skill2": {
           "id": "tactical_decoy",
           "name": "Tactical Decoy",
-          "description": "Gain a shield equal to 220% of its current ATK (This shield does not expire and can only be broken via taking DMG).",
+          "description": "Gains a Decoy with HP value equal to 220% of user's current ATK. This Decoy does not expire and can only be broken by taking enough damage (Broken when Decoy's HP value is down to 0).",
           "manaCost": 70,
           "damageMultiplier": 0,
           "targetType": "self",
-          "statusEffect": "Permanent 220% ATK Shield"
+          "statusEffect": "Permanent Decoy (220% current ATK)"
         },
         "starmonClass": "Warrior 3",
         "battleBaseDef": 28,
@@ -5734,9 +5734,9 @@
         "role": "Guardian",
         "level": 1,
         "cards": 0,
-        "baseAtk": 50,
-        "maxHp": 500,
-        "def": 58,
+        "baseAtk": 42,
+        "maxHp": 590,
+        "def": 40,
         "currentHp": 500,
         "currentMana": 20,
         "maxMana": 200,
@@ -5782,8 +5782,8 @@
           "statusEffect": "Sun Field (3 turns): Fire +20%, Water -20%, Khepri ATK +20%, Desert Shroud activated",
           "cooldownTurns": 3
         },
-        "battleBaseDef": 58,
-        "cp": 1604,
+        "battleBaseDef": 40,
+        "cp": 1404,
         "isDaPhucVersion": false
       },
       {
@@ -6646,11 +6646,11 @@
         "skill2": {
           "id": "bubble_fortress",
           "name": "Bubble Fortress",
-          "description": "Creates a durable water barrier absorbing damage for the entire party lasting for 3 turns.",
+          "description": "Creates a durable water barrier absorbing damage for the entire party. Grants a Shield equal to 20% of user's max HP and Team Guard effect for 3 turns (All allies take 30% less damage from AoE abilities).",
           "manaCost": 70,
           "damageMultiplier": 0.5,
           "targetType": "aoe",
-          "statusEffect": "Team Shield (3 turns)",
+          "statusEffect": "Shield (20% Max HP) & Team Guard (3 turns; -30% AoE damage)",
           "cooldownTurns": 3
         },
         "starmonClass": "Tank 3",
@@ -6878,11 +6878,10 @@
         "skill2": {
           "id": "gigawatt_explosion",
           "name": "Giga-Watt Explosion",
-          "description": "Unleashes an overwhelming storm shockwave dealing 320% AoE Electric DMG with 1-turn Stun, sacrificing 30% of Glidron’s current HP.",
+          "description": "Deals 300% AoE Electric DMG. Sacrifices 30% of Glidron’s current HP. Grants Team Guard effect for 2 turns (All allies take 30% less damage from AoE abilities).",
           "manaCost": 125,
-          "damageMultiplier": 3.2,
-          "targetType": "aoe",
-          "statusEffect": "Stun"
+          "damageMultiplier": 3,
+          "targetType": "aoe"
         },
         "starmonClass": "Attacker 2",
         "cp": 1236,
@@ -7125,11 +7124,11 @@
         "skill2": {
           "id": "lotus_rain",
           "name": "Lotus Rain",
-          "description": "Restores 160 HP to all allies and cleanses debuffs.",
+          "description": "Restores HP to all allies equal to 250% of user's ATK.",
           "manaCost": 70,
           "damageMultiplier": 0,
           "targetType": "aoe",
-          "statusEffect": "Party Heal"
+          "statusEffect": "Party Heal (250% ATK)"
         },
         "starmonClass": "Support 1 (Caster Support)",
         "cp": 1408
@@ -7168,10 +7167,11 @@
         "skill2": {
           "id": "emp_discharge",
           "name": "EMP Discharge",
-          "description": "Blasts enemies with 210% AoE Electric & Metal DMG.",
+          "description": "Blasts enemies with 210% AoE Electric & Metal DMG. Grants Team Guard effect for 2 turns (All allies take 30% less damage from AoE abilities).",
           "manaCost": 60,
           "damageMultiplier": 2.1,
-          "targetType": "aoe"
+          "targetType": "aoe",
+          "statusEffect": "Team Guard (2 turns; -30% AoE damage)"
         },
         "starmonClass": "Support 1 (Caster Support)",
         "cp": 1408,
@@ -7389,11 +7389,11 @@
         "skill1": {
           "id": "thorn_whip",
           "name": "Thorn Whip",
-          "description": "Vinedra lashes out with its thorny tail, dealing 70% Earth Damage. Gains +20% critical chance for attacks and abilities. If Vinedra has 25 or more mana remaining, it can use Thorn Whip again this turn!",
+          "description": "Deals 70% Earth DMG and gains +20% Critical Chance for attacks and abilities. If Vinedra has at least 25 Mana remaining, it can use Thorn Whip again this turn.",
           "manaCost": 25,
           "damageMultiplier": 0.7,
           "targetType": "single",
-          "statusEffect": "Crit +20% (Multi-cast if Mana >= 25)"
+          "statusEffect": "Crit +20%; repeat cast if Mana >= 25"
         },
         "skill2": {
           "id": "poisonous_burst",
@@ -7500,13 +7500,13 @@
         "unlocked": false,
         "passive": {
           "name": "Infiltration Strike",
-          "description": "Trojan Flare gains an additional 10% ATK (calculated from its base ATK) and Piercing whenever a Shield is currently active on it. This attack bonus immediately disappears when the shield expires or is broken.",
+          "description": "While having a Shield or a Decoy, Trojan Flare gains 10% ATK (based on Base ATK) and Piercing. The ATK bonus disappears when the Shield expires or breaks, or the Decoy breaks.",
           "tag": "Shield ATK & Piercing"
         },
         "skill1": {
           "id": "siege_charge",
           "name": "Siege Charge",
-          "description": "Gain Clarity (Immune to stun, froze bite, burn, poison) and Resonance effect for 1 turn (Resonance is applied in the next turn, not this).",
+          "description": "Gains Clarity, becoming immune to Stun, Frostbite, Burned, Poison, and Taunt for 1 turn. Gains Resonance for 1 turn, starting next turn.",
           "manaCost": 0,
           "cooldownTurns": 3,
           "damageMultiplier": 1,
@@ -7517,11 +7517,11 @@
         "skill2": {
           "id": "tactical_decoy",
           "name": "Tactical Decoy",
-          "description": "Gain a shield equal to 220% of its current ATK (This shield does not expire and can only be broken via taking DMG).",
+          "description": "Gains a Decoy with HP value equal to 220% of user's current ATK. This Decoy does not expire and can only be broken by taking enough damage (Broken when Decoy's HP value is down to 0).",
           "manaCost": 70,
           "damageMultiplier": 0,
           "targetType": "self",
-          "statusEffect": "Permanent 220% ATK Shield"
+          "statusEffect": "Permanent Decoy (220% current ATK)"
         },
         "starmonClass": "Warrior 3",
         "cp": 1326,
@@ -7783,9 +7783,9 @@
         "role": "Guardian",
         "level": 1,
         "cards": 0,
-        "baseAtk": 50,
-        "maxHp": 500,
-        "def": 58,
+        "baseAtk": 42,
+        "maxHp": 590,
+        "def": 40,
         "currentHp": 500,
         "currentMana": 20,
         "maxMana": 200,
@@ -7831,7 +7831,7 @@
           "statusEffect": "Sun Field (3 turns): Fire +20%, Water -20%, Khepri ATK +20%, Desert Shroud activated",
           "cooldownTurns": 3
         },
-        "cp": 1604
+        "cp": 1404
       }
     ]
   },
@@ -7839,7 +7839,7 @@
     "username": "Player",
     "googleId": "google_mte0k4p",
     "createdAt": "2026-10-16T03:43:23.249Z",
-    "lastPlayedAt": "2026-10-16T07:31:50.360Z",
+    "lastPlayedAt": "2026-10-16T07:31:50.36Z",
     "quests": [
       {
         "id": "daily_login",
@@ -8583,11 +8583,11 @@
         "skill2": {
           "id": "bubble_fortress",
           "name": "Bubble Fortress",
-          "description": "Creates a durable water barrier absorbing damage for the entire party lasting for 3 turns.",
+          "description": "Creates a durable water barrier absorbing damage for the entire party. Grants a Shield equal to 20% of user's max HP and Team Guard effect for 3 turns (All allies take 30% less damage from AoE abilities).",
           "manaCost": 70,
           "damageMultiplier": 0.5,
           "targetType": "aoe",
-          "statusEffect": "Team Shield (3 turns)",
+          "statusEffect": "Shield (20% Max HP) & Team Guard (3 turns; -30% AoE damage)",
           "cooldownTurns": 3
         },
         "starmonClass": "Tank 3",
@@ -8819,11 +8819,10 @@
         "skill2": {
           "id": "gigawatt_explosion",
           "name": "Giga-Watt Explosion",
-          "description": "Unleashes an overwhelming storm shockwave dealing 320% AoE Electric DMG with 1-turn Stun, sacrificing 30% of Glidron’s current HP.",
+          "description": "Deals 300% AoE Electric DMG. Sacrifices 30% of Glidron’s current HP. Grants Team Guard effect for 2 turns (All allies take 30% less damage from AoE abilities).",
           "manaCost": 125,
-          "damageMultiplier": 3.2,
-          "targetType": "aoe",
-          "statusEffect": "Stun"
+          "damageMultiplier": 3,
+          "targetType": "aoe"
         },
         "starmonClass": "Attacker 2",
         "cp": 1236,
@@ -9070,11 +9069,11 @@
         "skill2": {
           "id": "lotus_rain",
           "name": "Lotus Rain",
-          "description": "Restores 160 HP to all allies and cleanses debuffs.",
+          "description": "Restores HP to all allies equal to 250% of user's ATK.",
           "manaCost": 70,
           "damageMultiplier": 0,
           "targetType": "aoe",
-          "statusEffect": "Party Heal"
+          "statusEffect": "Party Heal (250% ATK)"
         },
         "starmonClass": "Support 1 (Caster Support)",
         "cp": 1408,
@@ -9114,10 +9113,11 @@
         "skill2": {
           "id": "emp_discharge",
           "name": "EMP Discharge",
-          "description": "Blasts enemies with 210% AoE Electric & Metal DMG.",
+          "description": "Blasts enemies with 210% AoE Electric & Metal DMG. Grants Team Guard effect for 2 turns (All allies take 30% less damage from AoE abilities).",
           "manaCost": 60,
           "damageMultiplier": 2.1,
-          "targetType": "aoe"
+          "targetType": "aoe",
+          "statusEffect": "Team Guard (2 turns; -30% AoE damage)"
         },
         "starmonClass": "Support 1 (Caster Support)",
         "cp": 1408,
@@ -9339,11 +9339,11 @@
         "skill1": {
           "id": "thorn_whip",
           "name": "Thorn Whip",
-          "description": "Vinedra lashes out with its thorny tail, dealing 70% Earth Damage. Gains +20% critical chance for attacks and abilities. If Vinedra has 25 or more mana remaining, it can use Thorn Whip again this turn!",
+          "description": "Deals 70% Earth DMG and gains +20% Critical Chance for attacks and abilities. If Vinedra has at least 25 Mana remaining, it can use Thorn Whip again this turn.",
           "manaCost": 25,
           "damageMultiplier": 0.7,
           "targetType": "single",
-          "statusEffect": "Crit +20% (Multi-cast if Mana >= 25)"
+          "statusEffect": "Crit +20%; repeat cast if Mana >= 25"
         },
         "skill2": {
           "id": "poisonous_burst",
@@ -9452,13 +9452,13 @@
         "unlocked": false,
         "passive": {
           "name": "Infiltration Strike",
-          "description": "Trojan Flare gains an additional 10% ATK (calculated from its base ATK) and Piercing whenever a Shield is currently active on it. This attack bonus immediately disappears when the shield expires or is broken.",
+          "description": "While having a Shield or a Decoy, Trojan Flare gains 10% ATK (based on Base ATK) and Piercing. The ATK bonus disappears when the Shield expires or breaks, or the Decoy breaks.",
           "tag": "Shield ATK & Piercing"
         },
         "skill1": {
           "id": "siege_charge",
           "name": "Siege Charge",
-          "description": "Gain Clarity (Immune to stun, froze bite, burn, poison) and Resonance effect for 1 turn (Resonance is applied in the next turn, not this).",
+          "description": "Gains Clarity, becoming immune to Stun, Frostbite, Burned, Poison, and Taunt for 1 turn. Gains Resonance for 1 turn, starting next turn.",
           "manaCost": 0,
           "cooldownTurns": 3,
           "damageMultiplier": 1,
@@ -9469,11 +9469,11 @@
         "skill2": {
           "id": "tactical_decoy",
           "name": "Tactical Decoy",
-          "description": "Gain a shield equal to 220% of its current ATK (This shield does not expire and can only be broken via taking DMG).",
+          "description": "Gains a Decoy with HP value equal to 220% of user's current ATK. This Decoy does not expire and can only be broken by taking enough damage (Broken when Decoy's HP value is down to 0).",
           "manaCost": 70,
           "damageMultiplier": 0,
           "targetType": "self",
-          "statusEffect": "Permanent 220% ATK Shield"
+          "statusEffect": "Permanent Decoy (220% current ATK)"
         },
         "starmonClass": "Warrior 3",
         "cp": 1326,
@@ -9740,9 +9740,9 @@
         "role": "Guardian",
         "level": 1,
         "cards": 0,
-        "baseAtk": 50,
-        "maxHp": 500,
-        "def": 58,
+        "baseAtk": 42,
+        "maxHp": 590,
+        "def": 40,
         "currentHp": 500,
         "currentMana": 20,
         "maxMana": 200,
@@ -9788,7 +9788,7 @@
           "statusEffect": "Sun Field (3 turns): Fire +20%, Water -20%, Khepri ATK +20%, Desert Shroud activated",
           "cooldownTurns": 3
         },
-        "cp": 1604,
+        "cp": 1404,
         "isDaPhucVersion": false
       }
     ]
@@ -10528,11 +10528,11 @@
         "skill2": {
           "id": "bubble_fortress",
           "name": "Bubble Fortress",
-          "description": "Creates a durable water barrier absorbing damage for the entire party lasting for 3 turns.",
+          "description": "Creates a durable water barrier absorbing damage for the entire party. Grants a Shield equal to 20% of user's max HP and Team Guard effect for 3 turns (All allies take 30% less damage from AoE abilities).",
           "manaCost": 70,
           "damageMultiplier": 0.5,
           "targetType": "aoe",
-          "statusEffect": "Team Shield (3 turns)",
+          "statusEffect": "Shield (20% Max HP) & Team Guard (3 turns; -30% AoE damage)",
           "cooldownTurns": 3
         },
         "starmonClass": "Tank 3",
@@ -10760,11 +10760,10 @@
         "skill2": {
           "id": "gigawatt_explosion",
           "name": "Giga-Watt Explosion",
-          "description": "Unleashes an overwhelming storm shockwave dealing 320% AoE Electric DMG with 1-turn Stun, sacrificing 30% of Glidron’s current HP.",
+          "description": "Deals 300% AoE Electric DMG. Sacrifices 30% of Glidron’s current HP. Grants Team Guard effect for 2 turns (All allies take 30% less damage from AoE abilities).",
           "manaCost": 125,
-          "damageMultiplier": 3.2,
-          "targetType": "aoe",
-          "statusEffect": "Stun"
+          "damageMultiplier": 3,
+          "targetType": "aoe"
         },
         "starmonClass": "Attacker 2",
         "cp": 1236,
@@ -11007,11 +11006,11 @@
         "skill2": {
           "id": "lotus_rain",
           "name": "Lotus Rain",
-          "description": "Restores 160 HP to all allies and cleanses debuffs.",
+          "description": "Restores HP to all allies equal to 250% of user's ATK.",
           "manaCost": 70,
           "damageMultiplier": 0,
           "targetType": "aoe",
-          "statusEffect": "Party Heal"
+          "statusEffect": "Party Heal (250% ATK)"
         },
         "starmonClass": "Support 1 (Caster Support)",
         "cp": 1408
@@ -11050,10 +11049,11 @@
         "skill2": {
           "id": "emp_discharge",
           "name": "EMP Discharge",
-          "description": "Blasts enemies with 210% AoE Electric & Metal DMG.",
+          "description": "Blasts enemies with 210% AoE Electric & Metal DMG. Grants Team Guard effect for 2 turns (All allies take 30% less damage from AoE abilities).",
           "manaCost": 60,
           "damageMultiplier": 2.1,
-          "targetType": "aoe"
+          "targetType": "aoe",
+          "statusEffect": "Team Guard (2 turns; -30% AoE damage)"
         },
         "starmonClass": "Support 1 (Caster Support)",
         "cp": 1408,
@@ -11271,11 +11271,11 @@
         "skill1": {
           "id": "thorn_whip",
           "name": "Thorn Whip",
-          "description": "Vinedra lashes out with its thorny tail, dealing 70% Earth Damage. Gains +20% critical chance for attacks and abilities. If Vinedra has 25 or more mana remaining, it can use Thorn Whip again this turn!",
+          "description": "Deals 70% Earth DMG and gains +20% Critical Chance for attacks and abilities. If Vinedra has at least 25 Mana remaining, it can use Thorn Whip again this turn.",
           "manaCost": 25,
           "damageMultiplier": 0.7,
           "targetType": "single",
-          "statusEffect": "Crit +20% (Multi-cast if Mana >= 25)"
+          "statusEffect": "Crit +20%; repeat cast if Mana >= 25"
         },
         "skill2": {
           "id": "poisonous_burst",
@@ -11382,13 +11382,13 @@
         "unlocked": true,
         "passive": {
           "name": "Infiltration Strike",
-          "description": "Trojan Flare gains an additional 10% ATK (calculated from its base ATK) and Piercing whenever a Shield is currently active on it. This attack bonus immediately disappears when the shield expires or is broken.",
+          "description": "While having a Shield or a Decoy, Trojan Flare gains 10% ATK (based on Base ATK) and Piercing. The ATK bonus disappears when the Shield expires or breaks, or the Decoy breaks.",
           "tag": "Shield ATK & Piercing"
         },
         "skill1": {
           "id": "siege_charge",
           "name": "Siege Charge",
-          "description": "Gain Clarity (Immune to stun, froze bite, burn, poison) and Resonance effect for 1 turn (Resonance is applied in the next turn, not this).",
+          "description": "Gains Clarity, becoming immune to Stun, Frostbite, Burned, Poison, and Taunt for 1 turn. Gains Resonance for 1 turn, starting next turn.",
           "manaCost": 0,
           "cooldownTurns": 3,
           "damageMultiplier": 1,
@@ -11399,11 +11399,11 @@
         "skill2": {
           "id": "tactical_decoy",
           "name": "Tactical Decoy",
-          "description": "Gain a shield equal to 220% of its current ATK (This shield does not expire and can only be broken via taking DMG).",
+          "description": "Gains a Decoy with HP value equal to 220% of user's current ATK. This Decoy does not expire and can only be broken by taking enough damage (Broken when Decoy's HP value is down to 0).",
           "manaCost": 70,
           "damageMultiplier": 0,
           "targetType": "self",
-          "statusEffect": "Permanent 220% ATK Shield"
+          "statusEffect": "Permanent Decoy (220% current ATK)"
         },
         "starmonClass": "Warrior 3",
         "cp": 1326,
@@ -11665,9 +11665,9 @@
         "role": "Guardian",
         "level": 1,
         "cards": 0,
-        "baseAtk": 50,
-        "maxHp": 500,
-        "def": 58,
+        "baseAtk": 42,
+        "maxHp": 590,
+        "def": 40,
         "currentHp": 500,
         "currentMana": 20,
         "maxMana": 200,
@@ -11713,7 +11713,7 @@
           "statusEffect": "Sun Field (3 turns): Fire +20%, Water -20%, Khepri ATK +20%, Desert Shroud activated",
           "cooldownTurns": 3
         },
-        "cp": 1604
+        "cp": 1404
       }
     ]
   },
@@ -12400,11 +12400,11 @@
         "skill2": {
           "id": "bubble_fortress",
           "name": "Bubble Fortress",
-          "description": "Creates a durable water barrier absorbing damage for the entire party lasting for 3 turns.",
+          "description": "Creates a durable water barrier absorbing damage for the entire party. Grants a Shield equal to 20% of user's max HP and Team Guard effect for 3 turns (All allies take 30% less damage from AoE abilities).",
           "manaCost": 70,
           "damageMultiplier": 0.5,
           "targetType": "aoe",
-          "statusEffect": "Team Shield (3 turns)",
+          "statusEffect": "Shield (20% Max HP) & Team Guard (3 turns; -30% AoE damage)",
           "cooldownTurns": 3
         },
         "starmonClass": "Tank 3",
@@ -12640,11 +12640,10 @@
         "skill2": {
           "id": "gigawatt_explosion",
           "name": "Giga-Watt Explosion",
-          "description": "Unleashes an overwhelming storm shockwave dealing 320% AoE Electric DMG with 1-turn Stun, sacrificing 30% of Glidron’s current HP.",
+          "description": "Deals 300% AoE Electric DMG. Sacrifices 30% of Glidron’s current HP. Grants Team Guard effect for 2 turns (All allies take 30% less damage from AoE abilities).",
           "manaCost": 125,
-          "damageMultiplier": 3.2,
-          "targetType": "aoe",
-          "statusEffect": "Stun"
+          "damageMultiplier": 3,
+          "targetType": "aoe"
         },
         "starmonClass": "Attacker 2",
         "battleBaseDef": 24,
@@ -12895,11 +12894,11 @@
         "skill2": {
           "id": "lotus_rain",
           "name": "Lotus Rain",
-          "description": "Restores 160 HP to all allies and cleanses debuffs.",
+          "description": "Restores HP to all allies equal to 250% of user's ATK.",
           "manaCost": 70,
           "damageMultiplier": 0,
           "targetType": "aoe",
-          "statusEffect": "Party Heal"
+          "statusEffect": "Party Heal (250% ATK)"
         },
         "starmonClass": "Support 1 (Caster Support)",
         "battleBaseDef": 48,
@@ -12940,10 +12939,11 @@
         "skill2": {
           "id": "emp_discharge",
           "name": "EMP Discharge",
-          "description": "Blasts enemies with 210% AoE Electric & Metal DMG.",
+          "description": "Blasts enemies with 210% AoE Electric & Metal DMG. Grants Team Guard effect for 2 turns (All allies take 30% less damage from AoE abilities).",
           "manaCost": 60,
           "damageMultiplier": 2.1,
-          "targetType": "aoe"
+          "targetType": "aoe",
+          "statusEffect": "Team Guard (2 turns; -30% AoE damage)"
         },
         "starmonClass": "Support 1 (Caster Support)",
         "battleBaseDef": 48,
@@ -13169,11 +13169,11 @@
         "skill1": {
           "id": "thorn_whip",
           "name": "Thorn Whip",
-          "description": "Vinedra lashes out with its thorny tail, dealing 70% Earth Damage. Gains +20% critical chance for attacks and abilities. If Vinedra has 25 or more mana remaining, it can use Thorn Whip again this turn!",
+          "description": "Deals 70% Earth DMG and gains +20% Critical Chance for attacks and abilities. If Vinedra has at least 25 Mana remaining, it can use Thorn Whip again this turn.",
           "manaCost": 25,
           "damageMultiplier": 0.7,
           "targetType": "single",
-          "statusEffect": "Crit +20% (Multi-cast if Mana >= 25)"
+          "statusEffect": "Crit +20%; repeat cast if Mana >= 25"
         },
         "skill2": {
           "id": "poisonous_burst",
@@ -13284,13 +13284,13 @@
         "unlocked": false,
         "passive": {
           "name": "Infiltration Strike",
-          "description": "Trojan Flare gains an additional 10% ATK (calculated from its base ATK) and Piercing whenever a Shield is currently active on it. This attack bonus immediately disappears when the shield expires or is broken.",
+          "description": "While having a Shield or a Decoy, Trojan Flare gains 10% ATK (based on Base ATK) and Piercing. The ATK bonus disappears when the Shield expires or breaks, or the Decoy breaks.",
           "tag": "Shield ATK & Piercing"
         },
         "skill1": {
           "id": "siege_charge",
           "name": "Siege Charge",
-          "description": "Gain Clarity (Immune to stun, froze bite, burn, poison) and Resonance effect for 1 turn (Resonance is applied in the next turn, not this).",
+          "description": "Gains Clarity, becoming immune to Stun, Frostbite, Burned, Poison, and Taunt for 1 turn. Gains Resonance for 1 turn, starting next turn.",
           "manaCost": 0,
           "cooldownTurns": 3,
           "damageMultiplier": 1,
@@ -13301,11 +13301,11 @@
         "skill2": {
           "id": "tactical_decoy",
           "name": "Tactical Decoy",
-          "description": "Gain a shield equal to 220% of its current ATK (This shield does not expire and can only be broken via taking DMG).",
+          "description": "Gains a Decoy with HP value equal to 220% of user's current ATK. This Decoy does not expire and can only be broken by taking enough damage (Broken when Decoy's HP value is down to 0).",
           "manaCost": 70,
           "damageMultiplier": 0,
           "targetType": "self",
-          "statusEffect": "Permanent 220% ATK Shield"
+          "statusEffect": "Permanent Decoy (220% current ATK)"
         },
         "starmonClass": "Warrior 3",
         "battleBaseDef": 28,
@@ -13577,9 +13577,9 @@
         "role": "Guardian",
         "level": 1,
         "cards": 0,
-        "baseAtk": 50,
-        "maxHp": 500,
-        "def": 58,
+        "baseAtk": 42,
+        "maxHp": 590,
+        "def": 40,
         "currentHp": 500,
         "currentMana": 20,
         "maxMana": 200,
@@ -13625,8 +13625,8 @@
           "statusEffect": "Sun Field (3 turns): Fire +20%, Water -20%, Khepri ATK +20%, Desert Shroud activated",
           "cooldownTurns": 3
         },
-        "battleBaseDef": 58,
-        "cp": 1604,
+        "battleBaseDef": 40,
+        "cp": 1404,
         "isDaPhucVersion": false
       },
       {
@@ -14495,11 +14495,11 @@
         "skill2": {
           "id": "bubble_fortress",
           "name": "Bubble Fortress",
-          "description": "Creates a durable water barrier absorbing damage for the entire party lasting for 3 turns.",
+          "description": "Creates a durable water barrier absorbing damage for the entire party. Grants a Shield equal to 20% of user's max HP and Team Guard effect for 3 turns (All allies take 30% less damage from AoE abilities).",
           "manaCost": 70,
           "damageMultiplier": 0.5,
           "targetType": "aoe",
-          "statusEffect": "Team Shield (3 turns)",
+          "statusEffect": "Shield (20% Max HP) & Team Guard (3 turns; -30% AoE damage)",
           "cooldownTurns": 3
         },
         "starmonClass": "Tank 3",
@@ -14735,11 +14735,10 @@
         "skill2": {
           "id": "gigawatt_explosion",
           "name": "Giga-Watt Explosion",
-          "description": "Unleashes an overwhelming storm shockwave dealing 320% AoE Electric DMG with 1-turn Stun, sacrificing 30% of Glidron’s current HP.",
+          "description": "Deals 300% AoE Electric DMG. Sacrifices 30% of Glidron’s current HP. Grants Team Guard effect for 2 turns (All allies take 30% less damage from AoE abilities).",
           "manaCost": 125,
-          "damageMultiplier": 3.2,
-          "targetType": "aoe",
-          "statusEffect": "Stun"
+          "damageMultiplier": 3,
+          "targetType": "aoe"
         },
         "starmonClass": "Attacker 2",
         "battleBaseDef": 24,
@@ -14990,11 +14989,11 @@
         "skill2": {
           "id": "lotus_rain",
           "name": "Lotus Rain",
-          "description": "Restores 160 HP to all allies and cleanses debuffs.",
+          "description": "Restores HP to all allies equal to 250% of user's ATK.",
           "manaCost": 70,
           "damageMultiplier": 0,
           "targetType": "aoe",
-          "statusEffect": "Party Heal"
+          "statusEffect": "Party Heal (250% ATK)"
         },
         "starmonClass": "Support 1 (Caster Support)",
         "battleBaseDef": 48,
@@ -15035,10 +15034,11 @@
         "skill2": {
           "id": "emp_discharge",
           "name": "EMP Discharge",
-          "description": "Blasts enemies with 210% AoE Electric & Metal DMG.",
+          "description": "Blasts enemies with 210% AoE Electric & Metal DMG. Grants Team Guard effect for 2 turns (All allies take 30% less damage from AoE abilities).",
           "manaCost": 60,
           "damageMultiplier": 2.1,
-          "targetType": "aoe"
+          "targetType": "aoe",
+          "statusEffect": "Team Guard (2 turns; -30% AoE damage)"
         },
         "starmonClass": "Support 1 (Caster Support)",
         "battleBaseDef": 48,
@@ -15264,11 +15264,11 @@
         "skill1": {
           "id": "thorn_whip",
           "name": "Thorn Whip",
-          "description": "Vinedra lashes out with its thorny tail, dealing 70% Earth Damage. Gains +20% critical chance for attacks and abilities. If Vinedra has 25 or more mana remaining, it can use Thorn Whip again this turn!",
+          "description": "Deals 70% Earth DMG and gains +20% Critical Chance for attacks and abilities. If Vinedra has at least 25 Mana remaining, it can use Thorn Whip again this turn.",
           "manaCost": 25,
           "damageMultiplier": 0.7,
           "targetType": "single",
-          "statusEffect": "Crit +20% (Multi-cast if Mana >= 25)"
+          "statusEffect": "Crit +20%; repeat cast if Mana >= 25"
         },
         "skill2": {
           "id": "poisonous_burst",
@@ -15379,13 +15379,13 @@
         "unlocked": false,
         "passive": {
           "name": "Infiltration Strike",
-          "description": "Trojan Flare gains an additional 10% ATK (calculated from its base ATK) and Piercing whenever a Shield is currently active on it. This attack bonus immediately disappears when the shield expires or is broken.",
+          "description": "While having a Shield or a Decoy, Trojan Flare gains 10% ATK (based on Base ATK) and Piercing. The ATK bonus disappears when the Shield expires or breaks, or the Decoy breaks.",
           "tag": "Shield ATK & Piercing"
         },
         "skill1": {
           "id": "siege_charge",
           "name": "Siege Charge",
-          "description": "Gain Clarity (Immune to stun, froze bite, burn, poison) and Resonance effect for 1 turn (Resonance is applied in the next turn, not this).",
+          "description": "Gains Clarity, becoming immune to Stun, Frostbite, Burned, Poison, and Taunt for 1 turn. Gains Resonance for 1 turn, starting next turn.",
           "manaCost": 0,
           "cooldownTurns": 3,
           "damageMultiplier": 1,
@@ -15396,11 +15396,11 @@
         "skill2": {
           "id": "tactical_decoy",
           "name": "Tactical Decoy",
-          "description": "Gain a shield equal to 220% of its current ATK (This shield does not expire and can only be broken via taking DMG).",
+          "description": "Gains a Decoy with HP value equal to 220% of user's current ATK. This Decoy does not expire and can only be broken by taking enough damage (Broken when Decoy's HP value is down to 0).",
           "manaCost": 70,
           "damageMultiplier": 0,
           "targetType": "self",
-          "statusEffect": "Permanent 220% ATK Shield"
+          "statusEffect": "Permanent Decoy (220% current ATK)"
         },
         "starmonClass": "Warrior 3",
         "battleBaseDef": 28,
@@ -15672,9 +15672,9 @@
         "role": "Guardian",
         "level": 1,
         "cards": 0,
-        "baseAtk": 50,
-        "maxHp": 500,
-        "def": 58,
+        "baseAtk": 42,
+        "maxHp": 590,
+        "def": 40,
         "currentHp": 500,
         "currentMana": 20,
         "maxMana": 200,
@@ -15720,8 +15720,8 @@
           "statusEffect": "Sun Field (3 turns): Fire +20%, Water -20%, Khepri ATK +20%, Desert Shroud activated",
           "cooldownTurns": 3
         },
-        "battleBaseDef": 58,
-        "cp": 1604,
+        "battleBaseDef": 40,
+        "cp": 1404,
         "isDaPhucVersion": false
       },
       {

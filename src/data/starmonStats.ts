@@ -140,6 +140,7 @@ export const STARMON_CLASS_MAP: Record<string, StarmonClass> = {
   // Tank 3: Coralus, Cyborgnid
   coralus: 'Tank 3',
   cyborgnid: 'Tank 3',
+  khepri: 'Tank 3',
 
   // Attacker 2: Pyrokit, Ignisaur, Glidron, Zapwing
   pyrokit: 'Attacker 2',
